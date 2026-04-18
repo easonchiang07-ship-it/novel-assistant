@@ -1,0 +1,122 @@
+{{define "characters.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>角色管理 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>角色管理</h1>
+      <p>角色設定來自 <code>data/characters/*.md</code>，修改後點「重新索引」更新</p>
+    </div>
+
+    {{if .Characters}}
+    <div class="card">
+      <h2>角色列表（{{len .Characters}} 位）</h2>
+      <div class="char-grid">
+        {{range .Characters}}
+        <div class="char-card">
+          <div class="char-name">{{.Name}}</div>
+          {{if .Personality}}
+          <div class="char-field">
+            <span class="char-label">個性</span>
+            <span class="char-value">{{.Personality}}</span>
+          </div>
+          {{end}}
+          {{if .CoreFear}}
+          <div class="char-field">
+            <span class="char-label">核心恐懼</span>
+            <span class="char-value">{{.CoreFear}}</span>
+          </div>
+          {{end}}
+          {{if .Behavior}}
+          <div class="char-field">
+            <span class="char-label">行為模式</span>
+            <span class="char-value">{{.Behavior}}</span>
+          </div>
+          {{end}}
+          {{if .Weakness}}
+          <div class="char-field">
+            <span class="char-label">弱點</span>
+            <span class="char-value">{{.Weakness}}</span>
+          </div>
+          {{end}}
+          {{if .GrowthLimit}}
+          <div class="char-field">
+            <span class="char-label">成長限制</span>
+            <span class="char-value">{{.GrowthLimit}}</span>
+          </div>
+          {{end}}
+          {{if .SpeechStyle}}
+          <div class="char-field">
+            <span class="char-label">說話風格</span>
+            <span class="char-value">{{.SpeechStyle}}</span>
+          </div>
+          {{end}}
+          <details style="margin-top:12px">
+            <summary style="color:#64748b;font-size:0.8rem;cursor:pointer">原始設定檔</summary>
+            <pre style="color:#94a3b8;font-size:0.78rem;margin-top:8px;white-space:pre-wrap;line-height:1.5">{{.RawContent}}</pre>
+          </details>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{else}}
+    <div class="alert alert-warn">
+      尚無角色設定。請在 <code>data/characters/</code> 目錄新增 <code>.md</code> 檔案，再點「重新索引」。
+    </div>
+    {{end}}
+
+    {{if .Worlds}}
+    <div class="card">
+      <h2>世界觀設定（{{len .Worlds}} 份）</h2>
+      <div class="char-grid">
+        {{range .Worlds}}
+        <div class="world-card">
+          <div class="world-title">{{.Name}}</div>
+          <div class="world-content">{{.RawContent}}</div>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{end}}
+
+    <div class="card">
+      <h2>角色設定檔格式</h2>
+      <pre style="color:#94a3b8;font-size:0.85rem;line-height:1.8;background:#0f0d14;padding:16px;border-radius:6px;border:1px solid #2d2540"># 角色：林昊
+- 個性：沉默寡言、不輕易信任他人
+- 核心恐懼：失去摯友
+- 行為模式：面對衝突先觀察再行動，不衝動
+- 弱點：對家人毫無防備
+- 成長限制：除非歷經背叛，否則不會主動求助
+- 說話風格：話少，用詞簡短，很少主動開口</pre>
+    </div>
+
+    <div class="card">
+      <h2>整合後的建議工作流</h2>
+      <div class="workflow-list">
+        <div class="workflow-step">
+          <div class="workflow-title">novelWriter / Manuskript 取向</div>
+          <div class="workflow-copy">把角色設定檔寫成穩定、可長期維護的文字資產，並用關係圖、時間軸、伏筆頁面補足大綱層資訊。</div>
+        </div>
+        <div class="workflow-step">
+          <div class="workflow-title">AnythingLLM 取向</div>
+          <div class="workflow-copy">重新索引後，這些設定會被當成可檢索的本地知識庫，審查章節時自動回收相關角色與世界觀上下文。</div>
+        </div>
+        <div class="workflow-step">
+          <div class="workflow-title">推薦操作節奏</div>
+          <div class="workflow-copy">先維護設定檔，再審查單一章節，最後把新的劇情變化補回追蹤頁面，讓每次修稿都有跡可循。</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
+{{end}}

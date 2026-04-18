@@ -1,0 +1,119 @@
+{{define "foreshadow.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>伏筆追蹤 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>伏筆追蹤</h1>
+      <p>記錄埋下的伏筆，追蹤是否已在後續章節回收</p>
+    </div>
+
+    <div class="grid-2" style="align-items:start">
+
+      <!-- 新增伏筆 -->
+      <div class="card">
+        <h2>新增伏筆</h2>
+        <form action="/foreshadow" method="post">
+          <div class="form-group">
+            <label>埋下章節</label>
+            <input type="number" name="chapter" min="1" placeholder="例：2" required>
+          </div>
+          <div class="form-group">
+            <label>伏筆描述</label>
+            <textarea name="description" style="min-height:80px" placeholder="這個伏筆是什麼？" required></textarea>
+          </div>
+          <div class="form-group">
+            <label>埋下方式</label>
+            <input type="text" name="planted_in" placeholder="例：林昊看了一眼桌上的信，沒有打開">
+          </div>
+          <button class="btn" type="submit">新增</button>
+        </form>
+      </div>
+
+      <!-- 伏筆列表 -->
+      <div class="card">
+        <h2>伏筆列表（{{len .Foreshadows}} 筆）</h2>
+        {{if .Foreshadows}}
+        <table>
+          <thead>
+            <tr><th>章節</th><th>描述</th><th>狀態</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            {{range .Foreshadows}}
+            <tr id="fs-{{.ID}}">
+              <td>第 {{.Chapter}} 章</td>
+              <td>
+                <div>{{.Description}}</div>
+                {{if .PlantedIn}}
+                <div style="color:#64748b;font-size:0.8rem;margin-top:4px">埋下：{{.PlantedIn}}</div>
+                {{end}}
+                {{if .ResolvedIn}}
+                <div style="color:#86efac;font-size:0.8rem;margin-top:4px">回收：{{.ResolvedIn}}</div>
+                {{end}}
+              </td>
+              <td>
+                <span class="badge {{if eq .Status "未回收"}}badge-open{{else}}badge-resolved{{end}}">
+                  {{.Status}}
+                </span>
+              </td>
+              <td style="white-space:nowrap">
+                {{if eq .Status "未回收"}}
+                <button class="btn btn-sm btn-success"
+                  onclick="showResolve('{{.ID}}')">回收</button>
+                {{end}}
+                <button class="btn btn-sm btn-danger"
+                  onclick="deleteForeshadow('{{.ID}}')">刪除</button>
+              </td>
+            </tr>
+            <!-- Resolve row (hidden by default) -->
+            <tr id="resolve-{{.ID}}" style="display:none">
+              <td colspan="4" style="padding:8px 12px">
+                <form action="/foreshadow/resolve" method="post" style="display:flex;gap:8px;align-items:center">
+                  <input type="hidden" name="id" value="{{.ID}}">
+                  <input type="text" name="resolved_in" placeholder="回收場景描述" style="flex:1;padding:6px 10px">
+                  <button class="btn btn-sm btn-success" type="submit">確認回收</button>
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="hideResolve('{{.ID}}')">取消</button>
+                </form>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <p style="color:#64748b;font-size:0.88rem">尚無伏筆記錄</p>
+        {{end}}
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+function showResolve(id) {
+  document.getElementById('resolve-' + id).style.display = 'table-row';
+}
+function hideResolve(id) {
+  document.getElementById('resolve-' + id).style.display = 'none';
+}
+function deleteForeshadow(id) {
+  if (!confirm('確定刪除此伏筆？')) return;
+  const fd = new FormData();
+  fd.append('id', id);
+  fetch('/foreshadow/delete', { method: 'POST', body: fd })
+    .then(() => {
+      document.getElementById('fs-' + id)?.remove();
+      document.getElementById('resolve-' + id)?.remove();
+    });
+}
+</script>
+</body>
+</html>
+{{end}}

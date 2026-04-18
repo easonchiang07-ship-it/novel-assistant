@@ -1,0 +1,30 @@
+{{define "nav"}}
+<div class="sidebar">
+  <div class="brand">📖 小說助手</div>
+  <nav>
+    <ul>
+      <li><a href="/"             {{if eq .Title "儀表板"}}class="active"{{end}}>儀表板</a></li>
+      <li><a href="/characters"   {{if eq .Title "角色管理"}}class="active"{{end}}>角色管理</a></li>
+      <li><a href="/check"        {{if eq .Title "一致性審查"}}class="active"{{end}}>一致性審查</a></li>
+      <li><a href="/relationships"{{if eq .Title "關係圖"}}class="active"{{end}}>關係圖</a></li>
+      <li><a href="/timeline"     {{if eq .Title "時間軸"}}class="active"{{end}}>時間軸</a></li>
+      <li><a href="/foreshadow"   {{if eq .Title "伏筆追蹤"}}class="active"{{end}}>伏筆追蹤</a></li>
+    </ul>
+  </nav>
+  <div class="sidebar-footer">
+    <button class="btn-reindex" onclick="reindex()">重新索引</button>
+  </div>
+</div>
+<script>
+function reindex() {
+  fetch('/ingest', {method:'POST'})
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || '重新索引失敗');
+      return data;
+    })
+    .then(d => alert(d.message + '：' + (d.characters||0) + ' 角色，' + (d.worlds||0) + ' 世界觀'))
+    .catch(e => alert('索引失敗：' + e.message));
+}
+</script>
+{{end}}

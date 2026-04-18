@@ -1,0 +1,24 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Data (本機產生，不上傳)
+data/store.json
+data/relationships.json
+data/timeline.json
+data/foreshadow.json
+data/exports/*
+!data/exports/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

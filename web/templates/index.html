@@ -1,0 +1,131 @@
+{{define "index.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>儀表板 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>儀表板</h1>
+      <p>你的小說專案總覽</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-num">{{.CharCount}}</div>
+        <div class="stat-label">角色</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.WorldCount}}</div>
+        <div class="stat-label">世界觀文件</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.RelCount}}</div>
+        <div class="stat-label">關係紀錄</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.EventCount}}</div>
+        <div class="stat-label">時間軸事件</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.ForeshadowOpen}}</div>
+        <div class="stat-label">未回收伏筆</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.VectorCount}}</div>
+        <div class="stat-label">向量索引數</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>快速入口</h2>
+      <div class="grid-2">
+        <a href="/check" style="text-decoration:none">
+          <div style="background:#231e35;border:1px solid #3d2d70;border-radius:8px;padding:20px;cursor:pointer;transition:border-color 0.15s">
+            <div style="color:#a78bfa;font-weight:700;margin-bottom:6px">一致性審查</div>
+            <div style="color:#64748b;font-size:0.85rem">上傳章節，檢查角色行為與對白是否符合設定</div>
+          </div>
+        </a>
+        <a href="/foreshadow" style="text-decoration:none">
+          <div style="background:#231e35;border:1px solid #3d2d70;border-radius:8px;padding:20px;cursor:pointer;transition:border-color 0.15s">
+            <div style="color:#a78bfa;font-weight:700;margin-bottom:6px">伏筆追蹤</div>
+            <div style="color:#64748b;font-size:0.85rem">管理尚未回收的伏筆（{{.ForeshadowOpen}} 個待處理）</div>
+          </div>
+        </a>
+        <a href="/relationships" style="text-decoration:none">
+          <div style="background:#231e35;border:1px solid #3d2d70;border-radius:8px;padding:20px;cursor:pointer">
+            <div style="color:#a78bfa;font-weight:700;margin-bottom:6px">關係圖</div>
+            <div style="color:#64748b;font-size:0.85rem">追蹤角色間的動態關係變化</div>
+          </div>
+        </a>
+        <a href="/timeline" style="text-decoration:none">
+          <div style="background:#231e35;border:1px solid #3d2d70;border-radius:8px;padding:20px;cursor:pointer">
+            <div style="color:#a78bfa;font-weight:700;margin-bottom:6px">時間軸</div>
+            <div style="color:#64748b;font-size:0.85rem">記錄重要事件，避免前後矛盾</div>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>小說工作流</h2>
+        <p class="muted">借鏡 novelWriter / Manuskript 的場景式寫作方式，先整理角色、世界觀、關係與事件，再回頭審查章節。</p>
+        <div class="workflow-list">
+          <div class="workflow-step">
+            <div class="workflow-title">1. 先建設定</div>
+            <div class="workflow-copy">角色卡、世界觀、關係圖、時間軸與伏筆都維持 Markdown / JSON，本地可版本化。</div>
+          </div>
+          <div class="workflow-step">
+            <div class="workflow-title">2. 再寫場景</div>
+            <div class="workflow-copy">每次審查都以單一章節或場景為單位，系統會優先抓出章節中出現的角色。</div>
+          </div>
+          <div class="workflow-step">
+            <div class="workflow-title">3. 最後回補結構</div>
+            <div class="workflow-copy">審查結果可回寫到時間軸或伏筆頁面，形成可追蹤的修稿紀錄。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>本地 RAG 模式</h2>
+        <p class="muted">借鏡 AnythingLLM 的文件工作區概念，目前會把角色與世界觀索引成本地知識庫，在審查時自動拉出相關參考。</p>
+        <div class="rag-status">
+          <div class="rag-item">
+            <span>索引文件</span>
+            <strong>{{.VectorCount}}</strong>
+          </div>
+          <div class="rag-item">
+            <span>角色卡</span>
+            <strong>{{.CharCount}}</strong>
+          </div>
+          <div class="rag-item">
+            <span>世界觀文件</span>
+            <strong>{{.WorldCount}}</strong>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:14px">重新索引後，一致性審查會顯示「本地參考上下文」，讓你知道本輪分析實際用了哪些資料。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>建議使用順序</h2>
+      <ol style="color:#94a3b8;font-size:0.88rem;line-height:2;padding-left:20px">
+        <li>在 <code style="color:#a78bfa">data/characters/</code> 新增角色設定 <code style="color:#a78bfa">.md</code> 檔案</li>
+        <li>在 <code style="color:#a78bfa">data/worldbuilding/</code> 新增世界觀設定</li>
+        <li>點擊左側「重新索引」，建立本地知識庫</li>
+        <li>前往「一致性審查」貼上單一章節或單一場景，開始分析</li>
+        <li>把重要變化補記到「關係圖 / 時間軸 / 伏筆追蹤」，讓下一次審查有更穩定的上下文</li>
+      </ol>
+    </div>
+  </main>
+</div>
+</body>
+</html>
+{{end}}

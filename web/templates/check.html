@@ -1,0 +1,178 @@
+{{define "check.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>一致性審查 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>一致性審查</h1>
+      <p>貼上章節，系統會自動抓取章節角色與本地知識庫參考，再分析行為與對白是否符合設定</p>
+    </div>
+
+    <div class="grid-2" style="align-items:start">
+
+      <!-- 左欄：輸入 -->
+      <div>
+        <div class="card">
+          <h2>審查設定</h2>
+
+          <div class="form-group">
+            <label>檢查角色（不選則檢查所有角色）</label>
+            <div class="checkbox-group">
+              {{range .Characters}}
+              <label class="checkbox-label">
+                <input type="checkbox" name="characters" value="{{.Name}}">
+                {{.Name}}
+              </label>
+              {{end}}
+              {{if not .Characters}}
+              <span style="color:#64748b;font-size:0.85rem">尚無角色，請先新增設定檔並重新索引</span>
+              {{end}}
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>審查項目</label>
+            <div class="checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" name="checks" value="behavior" checked>
+                行為一致性
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="checks" value="dialogue">
+                對白風格
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>章節內容</label>
+            <textarea id="chapter" class="large" placeholder="貼上你的章節文字..."></textarea>
+          </div>
+
+          <button id="submit-btn" class="btn" onclick="runCheck()">開始審查</button>
+        </div>
+      </div>
+
+      <!-- 右欄：結果 -->
+      <div>
+        <div class="card">
+          <h2>審查結果</h2>
+          <div id="result-box" class="result-box">等待輸入...</div>
+        </div>
+
+        <div id="export-section" style="display:none" class="card">
+          <h2>匯出報告</h2>
+          <form action="/export" method="post">
+            <div class="form-group">
+              <label>報告標題</label>
+              <input type="text" name="title" value="角色一致性審查報告">
+            </div>
+            <div class="form-group">
+              <label>章節名稱</label>
+              <input type="text" name="chapter" id="export-chapter" placeholder="例：第三章">
+            </div>
+            <input type="hidden" name="content" id="export-content">
+            <button type="submit" class="btn btn-success" onclick="fillExportContent()">下載 Markdown 報告</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+async function runCheck() {
+  const chapter = document.getElementById('chapter').value.trim();
+  if (!chapter) { alert('請先輸入章節內容'); return; }
+
+  const characters = Array.from(document.querySelectorAll('[name="characters"]:checked')).map(el => el.value);
+  const checks     = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
+
+  const resultBox = document.getElementById('result-box');
+  const submitBtn = document.getElementById('submit-btn');
+
+  resultBox.textContent = '分析中...\n';
+  submitBtn.disabled = true;
+  submitBtn.textContent = '分析中...';
+  document.getElementById('export-section').style.display = 'none';
+
+  try {
+    const resp = await fetch('/check/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter, characters, checks })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      resultBox.textContent = '錯誤：' + (err.error || resp.status);
+      return;
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    resultBox.textContent = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (line.startsWith('data: ')) {
+            try {
+              const { text } = JSON.parse(line.slice(6));
+              if (text) {
+                resultBox.textContent += text;
+                resultBox.scrollTop = resultBox.scrollHeight;
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    }
+
+    // handle leftover
+    if (buffer.includes('data: ')) {
+      for (const line of buffer.split('\n')) {
+        if (line.startsWith('data: ')) {
+          try {
+            const { text } = JSON.parse(line.slice(6));
+            if (text) resultBox.textContent += text;
+          } catch (_) {}
+        }
+      }
+    }
+
+    document.getElementById('export-section').style.display = 'block';
+
+  } catch (e) {
+    resultBox.textContent = '連線錯誤：' + e.message;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = '開始審查';
+  }
+}
+
+function fillExportContent() {
+  document.getElementById('export-content').value =
+    document.getElementById('result-box').textContent;
+}
+</script>
+</body>
+</html>
+{{end}}

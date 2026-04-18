@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +29,7 @@ type chapterOverview struct {
 }
 
 type sceneBoardCard struct {
+	Position     int
 	Index        int
 	Title        string
 	Preview      string
@@ -125,8 +125,12 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 			log.Printf("scene plans load %s: %v", file.Name, err)
 			scenePlans = map[string]scenePlan{}
 		}
+		sceneOrder, err := s.loadScenePlanOrder(file.Name)
+		if err != nil {
+			log.Printf("scene plan order load %s: %v", file.Name, err)
+		}
 		sceneCards := make([]sceneBoardCard, 0, len(scenes))
-		for _, scene := range scenes {
+		for idx, scene := range orderedScenes(scenes, sceneOrder) {
 			plan := scenePlans[scene.Title]
 			sceneKey := file.Name + "::" + scene.Title
 			reviewCount := sceneReviews[sceneKey]
@@ -138,6 +142,7 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 				status = "reviewed"
 			}
 			sceneCards = append(sceneCards, sceneBoardCard{
+				Position:     idx + 1,
 				Index:        scene.Index,
 				Title:        scene.Title,
 				Preview:      scenePreview(scene.Content),
@@ -165,9 +170,6 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		})
 	}
 
-	sort.Slice(overviews, func(i, j int) bool {
-		return overviews[i].Name < overviews[j].Name
-	})
 	return overviews, nil
 }
 

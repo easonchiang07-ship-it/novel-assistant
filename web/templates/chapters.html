@@ -14,12 +14,15 @@
     <div class="page-header">
       <h1>章節總覽</h1>
       <p>快速查看每一章的字數、最後更新、出場角色、審查次數與未回收伏筆，也能直接建立候選設定草稿。</p>
+      <div class="history-actions">
+        <button class="btn btn-ghost" type="button" onclick="exportManuscript()">匯出手稿</button>
+      </div>
     </div>
 
     {{if .Chapters}}
-    <div class="chapter-overview-list">
+    <div class="chapter-overview-list" id="chapter-overview-list">
       {{range .Chapters}}
-      <div class="card chapter-overview-card">
+      <div class="card chapter-overview-card" data-chapter="{{.Name}}" draggable="true">
         <div class="history-title-row">
           <div>
             <h2 style="margin-bottom:6px">{{.Title}}</h2>
@@ -91,12 +94,12 @@
             </div>
           </div>
 
-          <div class="scene-board-grid">
+          <div class="scene-board-grid" data-chapter="{{$.Name}}">
             {{range .SceneCards}}
-            <div class="scene-card" data-scene-status="{{.Status}}">
+            <div class="scene-card" data-scene-status="{{.Status}}" data-scene="{{.Title}}" draggable="true">
               <div class="scene-card-header">
                 <div>
-                  <div class="scene-kicker">Scene {{.Index}}</div>
+                  <div class="scene-kicker">Board {{.Position}} ・ {{.Title}}</div>
                   <h3>{{.Title}}</h3>
                 </div>
                 <span class="scene-status-badge scene-status-{{.Status}}">{{.Status}}</span>
@@ -192,6 +195,27 @@ async function exportChapterBundle(name) {
   }
 }
 
+async function exportManuscript() {
+  try {
+    const resp = await fetch('/api/manuscript/export', { method: 'POST' });
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || '匯出手稿失敗');
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'novel_manuscript.md';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('匯出手稿失敗：' + e.message);
+  }
+}
+
 function sceneFieldValue(chapterName, sceneTitle, field) {
   const selector = `.scene-plan-input[data-chapter="${CSS.escape(chapterName)}"][data-scene="${CSS.escape(sceneTitle)}"][data-field="${field}"]`;
   const el = document.querySelector(selector);
@@ -223,6 +247,139 @@ async function saveScenePlan(chapterName, sceneTitle) {
     alert('儲存場景規劃失敗：' + e.message);
   }
 }
+
+let draggedChapterCard = null;
+let draggedSceneCard = null;
+
+function setupChapterReordering() {
+  const list = document.getElementById('chapter-overview-list');
+  if (!list) return;
+
+  list.querySelectorAll('.chapter-overview-card[draggable="true"]').forEach((card) => {
+    card.addEventListener('dragstart', () => {
+      draggedChapterCard = card;
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      draggedChapterCard = null;
+    });
+    card.addEventListener('dragover', (event) => {
+      event.preventDefault();
+    });
+    card.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      if (!draggedChapterCard || draggedChapterCard === card) return;
+      const previousSibling = draggedChapterCard.previousElementSibling;
+      const nextSibling = draggedChapterCard.nextElementSibling;
+      const cards = Array.from(list.querySelectorAll('.chapter-overview-card'));
+      const targetIndex = cards.indexOf(card);
+      const draggedIndex = cards.indexOf(draggedChapterCard);
+      if (draggedIndex < targetIndex) {
+        card.after(draggedChapterCard);
+      } else {
+        card.before(draggedChapterCard);
+      }
+      try {
+        await persistChapterOrder();
+      } catch (e) {
+        if (nextSibling && nextSibling.parentElement === list) {
+          nextSibling.before(draggedChapterCard);
+        } else if (previousSibling && previousSibling.parentElement === list) {
+          previousSibling.after(draggedChapterCard);
+        } else {
+          list.prepend(draggedChapterCard);
+        }
+        alert(e.message || '儲存章節排序失敗');
+      }
+    });
+  });
+}
+
+async function persistChapterOrder() {
+  const order = Array.from(document.querySelectorAll('.chapter-overview-card')).map((card) => card.dataset.chapter).filter(Boolean);
+  const resp = await fetch('/api/chapters/order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order })
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || '儲存章節排序失敗');
+}
+
+function setupSceneReordering() {
+  document.querySelectorAll('.scene-board-grid').forEach((grid) => {
+    const cards = grid.querySelectorAll('.scene-card[draggable="true"]');
+    cards.forEach((card) => {
+      card.addEventListener('dragstart', () => {
+        draggedSceneCard = card;
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        draggedSceneCard = null;
+      });
+      card.addEventListener('dragover', (event) => {
+        event.preventDefault();
+      });
+      card.addEventListener('drop', async (event) => {
+        event.preventDefault();
+        if (!draggedSceneCard || draggedSceneCard === card) return;
+        if (draggedSceneCard.closest('.scene-board-grid') !== grid) return;
+        const previousSibling = draggedSceneCard.previousElementSibling;
+        const nextSibling = draggedSceneCard.nextElementSibling;
+        const siblings = Array.from(grid.querySelectorAll('.scene-card'));
+        const targetIndex = siblings.indexOf(card);
+        const draggedIndex = siblings.indexOf(draggedSceneCard);
+        if (draggedIndex < targetIndex) {
+          card.after(draggedSceneCard);
+        } else {
+          card.before(draggedSceneCard);
+        }
+        refreshSceneBoardLabels(grid);
+        try {
+          await persistSceneOrder(grid);
+        } catch (e) {
+          if (nextSibling && nextSibling.parentElement === grid) {
+            nextSibling.before(draggedSceneCard);
+          } else if (previousSibling && previousSibling.parentElement === grid) {
+            previousSibling.after(draggedSceneCard);
+          } else {
+            grid.prepend(draggedSceneCard);
+          }
+          refreshSceneBoardLabels(grid);
+          alert(e.message || '儲存場景排序失敗');
+        }
+      });
+    });
+    refreshSceneBoardLabels(grid);
+  });
+}
+
+function refreshSceneBoardLabels(grid) {
+  Array.from(grid.querySelectorAll('.scene-card')).forEach((card, index) => {
+    const kicker = card.querySelector('.scene-kicker');
+    const sceneTitle = card.dataset.scene || '';
+    if (kicker) kicker.textContent = `Board ${index + 1} ・ ${sceneTitle}`;
+  });
+}
+
+async function persistSceneOrder(grid) {
+  const chapterName = grid.dataset.chapter || '';
+  const order = Array.from(grid.querySelectorAll('.scene-card')).map((card) => card.dataset.scene).filter(Boolean);
+  const resp = await fetch('/api/chapters/' + encodeURIComponent(chapterName) + '/scenes/order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order })
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || '儲存場景排序失敗');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  setupChapterReordering();
+  setupSceneReordering();
+});
 </script>
 </body>
 </html>

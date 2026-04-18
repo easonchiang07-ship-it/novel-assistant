@@ -107,3 +107,54 @@ func TestZipHelperWritesReadableFile(t *testing.T) {
 		t.Fatalf("unexpected zip contents: %q", data)
 	}
 }
+
+func TestBuildManuscriptMarkdownUsesSavedChapterAndSceneOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		history:    reviewhistory.New(filepath.Join(dir, "reviews.json")),
+		timeline:   tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
+		foreshadow: tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
+	}
+
+	if _, err := s.saveChapterFile("第02章", "第二章內容"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	if _, err := s.saveChapterFile("第01章", `前言
+
+## Scene 1: Opening
+Open.
+
+## Scene 2: Rain
+Rain.`); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+	if err := s.saveChapterOrder([]string{"第02章.md", "第01章.md"}); err != nil {
+		t.Fatalf("save chapter order: %v", err)
+	}
+	if err := s.saveScenePlanOrder("第01章.md", []string{"Scene 2: Rain", "Scene 1: Opening"}); err != nil {
+		t.Fatalf("save scene order: %v", err)
+	}
+
+	manuscript, err := s.buildManuscriptMarkdown()
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+
+	chapter2Pos := strings.Index(manuscript, "## 第02章")
+	chapter1Pos := strings.Index(manuscript, "## 第01章")
+	if chapter2Pos == -1 || chapter1Pos == -1 || chapter2Pos > chapter1Pos {
+		t.Fatalf("expected chapter order to follow saved order, got %q", manuscript)
+	}
+	rainPos := strings.Index(manuscript, "## Scene 2: Rain")
+	openPos := strings.Index(manuscript, "## Scene 1: Opening")
+	if rainPos == -1 || openPos == -1 || rainPos > openPos {
+		t.Fatalf("expected scene order to follow saved order, got %q", manuscript)
+	}
+	if strings.Contains(manuscript, "第二章內容\n\n\n\n## 第01章") {
+		t.Fatalf("expected manuscript chapters to be separated by two newlines, got %q", manuscript)
+	}
+}

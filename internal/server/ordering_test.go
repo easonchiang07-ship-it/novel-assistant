@@ -1,9 +1,13 @@
 package server
 
 import (
+	"path/filepath"
 	"testing"
 
 	"novel-assistant/internal/config"
+	"novel-assistant/internal/profile"
+	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/tracker"
 )
 
 func TestOrderedChapterFilesRespectsSavedOrder(t *testing.T) {
@@ -75,4 +79,42 @@ func TestListChapterFilesUsesSavedOrder(t *testing.T) {
 	if len(files) != 2 || files[0].Name != "第02章.md" || files[1].Name != "第01章.md" {
 		t.Fatalf("unexpected chapter file order: %#v", files)
 	}
+}
+
+func TestBuildChapterOverviewsPreservesSavedOrder(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		history:    reviewhistory.New(filepath.Join(dir, "reviews.json")),
+		timeline:   tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
+		foreshadow: tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
+	}
+	if _, err := s.saveChapterFile("第02章", "b"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	if _, err := s.saveChapterFile("第01章", "a"); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+	if err := s.saveChapterOrder([]string{"第02章.md", "第01章.md"}); err != nil {
+		t.Fatalf("save chapter order: %v", err)
+	}
+
+	overviews, err := s.buildChapterOverviews()
+	if err != nil {
+		t.Fatalf("buildChapterOverviews: %v", err)
+	}
+	if len(overviews) != 2 || overviews[0].Name != "第02章.md" || overviews[1].Name != "第01章.md" {
+		t.Fatalf("buildChapterOverviews did not preserve saved order: %v", overviewNames(overviews))
+	}
+}
+
+func overviewNames(overviews []chapterOverview) []string {
+	names := make([]string, len(overviews))
+	for i, o := range overviews {
+		names[i] = o.Name
+	}
+	return names
 }

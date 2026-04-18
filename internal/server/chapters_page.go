@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -171,9 +170,6 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		})
 	}
 
-	sort.Slice(overviews, func(i, j int) bool {
-		return overviews[i].Name < overviews[j].Name
-	})
 	return overviews, nil
 }
 

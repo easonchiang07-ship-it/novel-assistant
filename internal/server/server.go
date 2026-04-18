@@ -15,6 +15,7 @@ import (
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,6 +33,7 @@ type Server struct {
 	relationships *tracker.RelationshipTracker
 	timeline      *tracker.TimelineTracker
 	foreshadow    *tracker.ForeshadowTracker
+	scenePlansMu  sync.RWMutex
 }
 
 func New(cfg *config.Config) (*Server, error) {

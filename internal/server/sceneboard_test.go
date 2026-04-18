@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +51,54 @@ Lin Hao opened the door.`); err != nil {
 	}
 	if got.POV != "Lin Hao" || got.Purpose != "Open the investigation thread." {
 		t.Fatalf("unexpected round-trip scene plan: %#v", got)
+	}
+}
+
+func TestSaveScenePlanWritesStableSortedJSON(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		history:    reviewhistory.New(dir + "/reviews.json"),
+		timeline:   tracker.NewTimelineTracker(dir + "/timeline.json"),
+		foreshadow: tracker.NewForeshadowTracker(dir + "/foreshadow.json"),
+	}
+
+	if _, err := s.saveChapterFile("第09章", `## Scene 2: Rain
+Rain.
+
+## Scene 1: Opening
+Open.`); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	if err := s.saveScenePlan("第09章.md", scenePlan{Title: "Scene 2: Rain", Synopsis: "Second"}); err != nil {
+		t.Fatalf("save scene 2: %v", err)
+	}
+	if err := s.saveScenePlan("第09章.md", scenePlan{Title: "Scene 1: Opening", Synopsis: "First"}); err != nil {
+		t.Fatalf("save scene 1: %v", err)
+	}
+
+	path, err := s.scenePlanPath("第09章.md")
+	if err != nil {
+		t.Fatalf("scenePlanPath: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read saved sidecar: %v", err)
+	}
+
+	var stored scenePlanFile
+	if err := json.Unmarshal(data, &stored); err != nil {
+		t.Fatalf("unmarshal saved sidecar: %v", err)
+	}
+	if len(stored.Items) != 2 {
+		t.Fatalf("expected 2 stored scene plans, got %d", len(stored.Items))
+	}
+	if stored.Items[0].Title != "Scene 1: Opening" || stored.Items[1].Title != "Scene 2: Rain" {
+		t.Fatalf("expected stable sorted titles, got %#v", stored.Items)
 	}
 }
 

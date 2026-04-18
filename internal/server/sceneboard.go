@@ -38,11 +38,17 @@ func (s *Server) scenePlanPath(chapterName string) (string, error) {
 }
 
 func (s *Server) loadScenePlans(chapterName string) (map[string]scenePlan, error) {
+	s.scenePlansMu.RLock()
+	defer s.scenePlansMu.RUnlock()
+
 	path, err := s.scenePlanPath(chapterName)
 	if err != nil {
 		return nil, err
 	}
+	return loadScenePlansFromPath(path)
+}
 
+func loadScenePlansFromPath(path string) (map[string]scenePlan, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return map[string]scenePlan{}, nil
@@ -80,12 +86,15 @@ func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
 		return fmt.Errorf("場景標題不可為空")
 	}
 
+	s.scenePlansMu.Lock()
+	defer s.scenePlansMu.Unlock()
+
 	path, err := s.scenePlanPath(chapterName)
 	if err != nil {
 		return err
 	}
 
-	items, err := s.loadScenePlans(chapterName)
+	items, err := loadScenePlansFromPath(path)
 	if err != nil {
 		return err
 	}
@@ -106,5 +115,42 @@ func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return writeFileReplace(path, data, 0644)
+}
+
+func writeFileReplace(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+
+	tmp, err := os.CreateTemp(dir, base+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		return err
+	}
+
+	// Write to a temp file first so the existing sidecar is never replaced with
+	// a partially written file if the process dies mid-write.
+	if err := os.Rename(tmpPath, path); err == nil {
+		return nil
+	}
+
+	// Windows does not replace existing files on rename, so fall back to a
+	// best-effort replace after the temp file is fully written.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

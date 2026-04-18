@@ -33,6 +33,7 @@
 
         <div class="chapter-metrics">
           <div class="rag-item"><span>字數</span><strong>{{.WordCount}}</strong></div>
+          {{if .SceneCount}}<div class="rag-item"><span>場景數</span><strong>{{.SceneCount}}</strong></div>{{end}}
           <div class="rag-item"><span>審查紀錄</span><strong>{{.ReviewCount}}</strong></div>
           <div class="rag-item"><span>時間軸事件</span><strong>{{.TimelineCount}}</strong></div>
           <div class="rag-item"><span>未回收伏筆</span><strong>{{.OpenForeshadows}}</strong></div>

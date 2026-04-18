@@ -62,3 +62,34 @@ func TestAddAssignsChapterAndKindVersions(t *testing.T) {
 		t.Fatalf("unexpected third entry versions: %#v", store.Items[2])
 	}
 }
+
+func TestAddSceneVersionsAreIsolatedFromChapterVersions(t *testing.T) {
+	t.Parallel()
+
+	store := &Store{}
+	// Full-chapter review
+	store.Add(&Entry{Kind: "review", ChapterFile: "第01章.md"})
+	// Scene-scoped reviews — should start their own version counters
+	store.Add(&Entry{Kind: "review", ChapterFile: "第01章.md", SceneTitle: "Scene 1: Opening"})
+	store.Add(&Entry{Kind: "review", ChapterFile: "第01章.md", SceneTitle: "Scene 1: Opening"})
+	// Different scene — own counter again
+	store.Add(&Entry{Kind: "review", ChapterFile: "第01章.md", SceneTitle: "Scene 2: Rain"})
+
+	chapterReview := store.Items[0]
+	scene1First := store.Items[1]
+	scene1Second := store.Items[2]
+	scene2First := store.Items[3]
+
+	if chapterReview.ChapterVersion != 1 || chapterReview.KindVersion != 1 {
+		t.Fatalf("full-chapter review: unexpected versions %d/%d", chapterReview.ChapterVersion, chapterReview.KindVersion)
+	}
+	if scene1First.ChapterVersion != 1 || scene1First.KindVersion != 1 {
+		t.Fatalf("scene1 first: expected 1/1, got %d/%d", scene1First.ChapterVersion, scene1First.KindVersion)
+	}
+	if scene1Second.ChapterVersion != 2 || scene1Second.KindVersion != 2 {
+		t.Fatalf("scene1 second: expected 2/2, got %d/%d", scene1Second.ChapterVersion, scene1Second.KindVersion)
+	}
+	if scene2First.ChapterVersion != 1 || scene2First.KindVersion != 1 {
+		t.Fatalf("scene2 first: expected 1/1, got %d/%d", scene2First.ChapterVersion, scene2First.KindVersion)
+	}
+}

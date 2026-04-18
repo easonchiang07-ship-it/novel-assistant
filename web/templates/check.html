@@ -31,6 +31,11 @@
             </select>
             <button class="btn btn-ghost" type="button" onclick="loadSelectedChapter()">載入</button>
           </div>
+          <div id="scene-selector-row" class="chapter-toolbar" style="display:none;margin-top:8px">
+            <select id="scene-select" onchange="loadSelectedScene()" style="flex:1">
+              <option value="">Full chapter</option>
+            </select>
+          </div>
           <div class="chapter-toolbar" style="margin-top:12px">
             <input type="text" id="chapter-file-name" placeholder="儲存檔名，例如：第03章_雨夜對峙">
             <button class="btn btn-ghost" type="button" onclick="saveCurrentChapter()">儲存章節</button>
@@ -234,6 +239,9 @@
 
 <script>
 let currentChapterFile = '';
+let currentSceneTitle = '';
+let fullChapterContent = '';
+let loadedScenes = [];
 let loadedHistoryEntry = null;
 const presetChecks = {{ jsonJS .DefaultChecks }};
 const presetStyles = {{ jsonJS .DefaultStyles }};
@@ -310,12 +318,75 @@ async function loadSelectedChapter() {
     if (!resp.ok) throw new Error(data.error || '載入失敗');
 
     currentChapterFile = data.name;
-    document.getElementById('chapter').value = data.content || '';
+    fullChapterContent = data.content || '';
+    currentSceneTitle = '';
+    document.getElementById('chapter').value = fullChapterContent;
     document.getElementById('chapter-file-name').value = data.name;
+    populateSceneSelector(data.scenes || []);
     setChapterStatus('已載入章節：' + data.title);
     syncChapterDerivedFields();
   } catch (e) {
     setChapterStatus('載入失敗：' + e.message, true);
+  }
+}
+
+function populateSceneSelector(scenes) {
+  const row = document.getElementById('scene-selector-row');
+  const sel = document.getElementById('scene-select');
+  sel.innerHTML = '<option value="">Full chapter</option>';
+  loadedScenes = scenes || [];
+  if (loadedScenes.length === 0) {
+    row.style.display = 'none';
+    return;
+  }
+  for (const scene of loadedScenes) {
+    const opt = document.createElement('option');
+    opt.value = scene.title;
+    opt.textContent = scene.title;
+    sel.appendChild(opt);
+  }
+  row.style.display = 'flex';
+}
+
+// Reconstruct the full chapter content from all scenes, replacing the
+// currently selected scene's portion with the current textarea value.
+// Returns the full chapter string ready to save.
+function reconstructChapterFromScenes() {
+  if (!currentSceneTitle || loadedScenes.length === 0) {
+    return document.getElementById('chapter').value;
+  }
+
+  const editedContent = document.getElementById('chapter').value;
+
+  // Preserve any preamble before the first scene marker
+  const firstMarker = /^## Scene \d+/m.exec(fullChapterContent);
+  const preamble = firstMarker && firstMarker.index > 0
+    ? fullChapterContent.slice(0, firstMarker.index).trimEnd()
+    : '';
+
+  const parts = [];
+  if (preamble) parts.push(preamble);
+
+  for (const scene of loadedScenes) {
+    const content = scene.title === currentSceneTitle ? editedContent : scene.content;
+    parts.push('## ' + scene.title + '\n' + content);
+  }
+
+  return parts.join('\n\n');
+}
+
+function loadSelectedScene() {
+  const sel = document.getElementById('scene-select');
+  currentSceneTitle = sel.value;
+  if (!sel.value) {
+    document.getElementById('chapter').value = fullChapterContent;
+    setChapterStatus('已載入章節：' + chapterTitleFromName(currentChapterFile));
+    return;
+  }
+  const scene = loadedScenes.find(s => s.title === sel.value);
+  if (scene) {
+    document.getElementById('chapter').value = scene.content;
+    setChapterStatus('已載入場景：' + scene.title);
   }
 }
 
@@ -329,7 +400,7 @@ async function loadChapterByName(name) {
 
 async function saveCurrentChapter() {
   const nameInput = document.getElementById('chapter-file-name');
-  const chapter = document.getElementById('chapter').value;
+  const chapter = reconstructChapterFromScenes();
   const name = nameInput.value.trim() || currentChapterFile;
 
   if (!name) {
@@ -347,9 +418,18 @@ async function saveCurrentChapter() {
     if (!resp.ok) throw new Error(data.error || '儲存失敗');
 
     currentChapterFile = data.name;
+    fullChapterContent = chapter; // keep in sync after save
+    // Sync edited content back into loadedScenes so future reconstructions
+    // of other scenes still see the correct saved content for this scene.
+    if (currentSceneTitle) {
+      const idx = loadedScenes.findIndex(s => s.title === currentSceneTitle);
+      if (idx !== -1) {
+        loadedScenes[idx] = { ...loadedScenes[idx], content: document.getElementById('chapter').value };
+      }
+    }
     nameInput.value = data.name;
     await refreshChapterOptions(data.name);
-    setChapterStatus('已儲存章節：' + data.title);
+    setChapterStatus('已儲存章節：' + data.title + (currentSceneTitle ? '（場景：' + currentSceneTitle + '）' : ''));
     syncChapterDerivedFields();
   } catch (e) {
     setChapterStatus('儲存失敗：' + e.message, true);
@@ -499,7 +579,8 @@ async function runCheck() {
         checks,
         styles,
         chapter_file: currentChapterFile,
-        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim())
+        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
+        scene_title: currentSceneTitle
       })
     });
 
@@ -571,7 +652,8 @@ async function runRewrite(mode) {
         characters: selectedCharacters(),
         styles: Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value),
         chapter_file: currentChapterFile,
-        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim())
+        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
+        scene_title: currentSceneTitle
       })
     });
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -103,6 +104,96 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	}
 }
 
+func TestE2ESceneEditsPersistAcrossSequentialSaves(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, "http://127.0.0.1:0")
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	original := `序章前言
+
+## Scene 1: Opening
+Lin Hao opened the door.
+
+## Scene 2: Rain
+Zhang Lei stood in the rain.`
+
+	saveResp := performJSONRequest(t, app.URL, "POST", "/api/chapters", map[string]any{
+		"name":    "第01章",
+		"content": original,
+	})
+	if saveResp.StatusCode != http.StatusOK {
+		t.Fatalf("initial chapter save failed: %s", string(saveResp.Body))
+	}
+
+	loadResp := performRequest(t, app.URL, "GET", "/api/chapters/%E7%AC%AC01%E7%AB%A0.md", nil)
+	if loadResp.StatusCode != http.StatusOK {
+		t.Fatalf("load chapter failed: %s", string(loadResp.Body))
+	}
+
+	var loaded struct {
+		Content string  `json:"content"`
+		Scenes  []Scene `json:"scenes"`
+	}
+	if err := json.Unmarshal(loadResp.Body, &loaded); err != nil {
+		t.Fatalf("decode chapter response: %v", err)
+	}
+	if len(loaded.Scenes) != 2 {
+		t.Fatalf("expected 2 scenes, got %d", len(loaded.Scenes))
+	}
+
+	scene1Saved := reconstructChapterForSceneEdit(t, loaded.Content, loaded.Scenes, "Scene 1: Opening", "Lin Hao stepped inside.")
+	saveResp = performJSONRequest(t, app.URL, "POST", "/api/chapters", map[string]any{
+		"name":    "第01章.md",
+		"content": scene1Saved,
+	})
+	if saveResp.StatusCode != http.StatusOK {
+		t.Fatalf("save after scene 1 edit failed: %s", string(saveResp.Body))
+	}
+
+	loaded.Content = scene1Saved
+	loaded.Scenes[0].Content = "Lin Hao stepped inside."
+
+	scene2Saved := reconstructChapterForSceneEdit(t, loaded.Content, loaded.Scenes, "Scene 2: Rain", "Zhang Lei vanished into the rain.")
+	saveResp = performJSONRequest(t, app.URL, "POST", "/api/chapters", map[string]any{
+		"name":    "第01章.md",
+		"content": scene2Saved,
+	})
+	if saveResp.StatusCode != http.StatusOK {
+		t.Fatalf("save after scene 2 edit failed: %s", string(saveResp.Body))
+	}
+
+	reloadResp := performRequest(t, app.URL, "GET", "/api/chapters/%E7%AC%AC01%E7%AB%A0.md", nil)
+	if reloadResp.StatusCode != http.StatusOK {
+		t.Fatalf("reload chapter failed: %s", string(reloadResp.Body))
+	}
+
+	var reloaded struct {
+		Content string  `json:"content"`
+		Scenes  []Scene `json:"scenes"`
+	}
+	if err := json.Unmarshal(reloadResp.Body, &reloaded); err != nil {
+		t.Fatalf("decode reloaded chapter response: %v", err)
+	}
+	if len(reloaded.Scenes) != 2 {
+		t.Fatalf("expected 2 scenes after reload, got %d", len(reloaded.Scenes))
+	}
+	if reloaded.Scenes[0].Content != "Lin Hao stepped inside." {
+		t.Fatalf("scene 1 content regressed after second save: %q", reloaded.Scenes[0].Content)
+	}
+	if reloaded.Scenes[1].Content != "Zhang Lei vanished into the rain." {
+		t.Fatalf("scene 2 content not saved: %q", reloaded.Scenes[1].Content)
+	}
+	if !strings.Contains(reloaded.Content, "Lin Hao stepped inside.") || !strings.Contains(reloaded.Content, "Zhang Lei vanished into the rain.") {
+		t.Fatalf("reloaded chapter content missing edited scenes: %q", reloaded.Content)
+	}
+	if !strings.HasPrefix(reloaded.Content, "序章前言") {
+		t.Fatalf("expected chapter preamble to be preserved, got %q", reloaded.Content)
+	}
+}
+
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	t.Helper()
 
@@ -185,4 +276,34 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func reconstructChapterForSceneEdit(t *testing.T, fullContent string, scenes []Scene, sceneTitle, editedContent string) string {
+	t.Helper()
+
+	firstMarker := regexp.MustCompile(`(?m)^## Scene \d+`).FindStringIndex(fullContent)
+	preamble := ""
+	if firstMarker != nil && firstMarker[0] > 0 {
+		preamble = strings.TrimRight(fullContent[:firstMarker[0]], "\r\n\t ")
+	}
+
+	parts := make([]string, 0, len(scenes)+1)
+	if preamble != "" {
+		parts = append(parts, preamble)
+	}
+
+	found := false
+	for _, scene := range scenes {
+		content := scene.Content
+		if scene.Title == sceneTitle {
+			content = editedContent
+			found = true
+		}
+		parts = append(parts, "## "+scene.Title+"\n"+content)
+	}
+	if !found {
+		t.Fatalf("scene %q not found in %v", sceneTitle, scenes)
+	}
+
+	return strings.Join(parts, "\n\n")
 }

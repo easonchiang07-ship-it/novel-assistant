@@ -428,9 +428,10 @@ type checkRequest struct {
 	Chapter      string   `json:"chapter"`
 	Characters   []string `json:"characters"`
 	Checks       []string `json:"checks"` // ["behavior","dialogue","style","world"]
-	Styles       []string `json:"styles"` // 指定風格名稱；空白 = 所有風格
+	Styles       []string `json:"styles"` // style guide names to apply; empty = all styles
 	ChapterFile  string   `json:"chapter_file"`
 	ChapterTitle string   `json:"chapter_title"`
+	SceneTitle   string   `json:"scene_title,omitempty"` // empty = full chapter
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -590,6 +591,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			Kind:         "review",
 			ChapterTitle: chapterTitle,
 			ChapterFile:  chapterFile,
+			SceneTitle:   strings.TrimSpace(req.SceneTitle),
 			InputContent: req.Chapter,
 			Checks:       append([]string(nil), req.Checks...),
 			Styles:       append([]string(nil), req.Styles...),
@@ -631,6 +633,7 @@ type rewriteRequest struct {
 	Styles       []string `json:"styles"`
 	ChapterFile  string   `json:"chapter_file"`
 	ChapterTitle string   `json:"chapter_title"`
+	SceneTitle   string   `json:"scene_title,omitempty"` // empty = full chapter
 }
 
 func rewriteInstruction(mode string) (string, error) {
@@ -728,6 +731,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 			Kind:         "rewrite",
 			ChapterTitle: title,
 			ChapterFile:  strings.TrimSpace(req.ChapterFile),
+			SceneTitle:   strings.TrimSpace(req.SceneTitle),
 			RewriteMode:  req.Mode,
 			InputContent: req.Chapter,
 			Styles:       append([]string(nil), req.Styles...),

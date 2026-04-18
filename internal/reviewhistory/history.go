@@ -14,6 +14,7 @@ type Entry struct {
 	Kind           string    `json:"kind"` // review | rewrite
 	ChapterTitle   string    `json:"chapter_title"`
 	ChapterFile    string    `json:"chapter_file"`
+	SceneTitle     string    `json:"scene_title,omitempty"` // empty = full chapter
 	ChapterVersion int       `json:"chapter_version"`
 	KindVersion    int       `json:"kind_version"`
 	InputContent   string    `json:"input_content,omitempty"`
@@ -152,8 +153,14 @@ func historyChapterKey(entry *Entry) string {
 	if entry == nil {
 		return ""
 	}
+	var base string
 	if name := entry.ChapterFile; name != "" {
-		return "file:" + name
+		base = "file:" + name
+	} else {
+		base = "title:" + entry.ChapterTitle
 	}
-	return "title:" + entry.ChapterTitle
+	if scene := entry.SceneTitle; scene != "" {
+		return base + "/scene:" + scene
+	}
+	return base
 }

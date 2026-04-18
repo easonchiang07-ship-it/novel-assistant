@@ -18,6 +18,7 @@ type chapterOverview struct {
 	Name            string
 	Title           string
 	WordCount       int
+	SceneCount      int
 	UpdatedAt       time.Time
 	Characters      []string
 	ReviewCount     int
@@ -90,12 +91,15 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 			continue
 		}
 
-		signals := extractor.AnalyzeChapter(string(content), s.profiles.AllNames())
+		text := string(content)
+		signals := extractor.AnalyzeChapter(text, s.profiles.AllNames())
 		chapterNo := chapterNumberFromName(file.Name)
+		scenes := parseScenes(text)
 		overviews = append(overviews, chapterOverview{
 			Name:            file.Name,
 			Title:           file.Title,
-			WordCount:       len([]rune(strings.TrimSpace(string(content)))),
+			WordCount:       len([]rune(strings.TrimSpace(text))),
+			SceneCount:      len(scenes),
 			UpdatedAt:       info.ModTime(),
 			Characters:      signals.KnownCharacters,
 			ReviewCount:     historyCounts[file.Name],

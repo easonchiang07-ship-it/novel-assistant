@@ -3,6 +3,8 @@
 [![CI](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+English | [繁體中文](README.zh-TW.md)
+
 Novel Assistant is a local-first AI writing companion for long-form fiction, built with Go and Ollama.
 
 It is designed for authors who want help reviewing character behavior, dialogue, narrative style, story structure, and unresolved foreshadowing without sending manuscript data to a cloud service.
@@ -207,6 +209,12 @@ Start here:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
+
+## Release Notes
+
+Current release notes:
+
+- [v0.1.0](docs/releases/v0.1.0.md)
 
 ## License
 

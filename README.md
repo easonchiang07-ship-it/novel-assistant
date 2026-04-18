@@ -1,42 +1,130 @@
 # Novel Assistant
 
-本地隱私的 AI 小說寫作輔助工具，使用 Go + Ollama 構建，無需雲端服務。
+[![CI](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 功能
+Novel Assistant is a local-first AI writing companion for long-form fiction, built with Go and Ollama.
 
-- **角色一致性審查**：上傳章節，AI 即時分析角色行為是否符合設定，並提供蛻變方案
-- **對白風格審查**：檢查角色說話方式是否符合人設
-- **關係圖追蹤**：記錄角色間的動態關係與觸發事件
-- **時間軸管理**：記錄重要事件，防止前後劇情矛盾
-- **伏筆追蹤**：管理已埋下的伏筆，追蹤回收狀態
-- **場景式審查流程**：未手選角色時，系統會先從章節內容自動抓取出場角色，再聚焦審查
-- **本地 RAG 參考上下文**：重新索引後，角色與世界觀會成為本地知識庫，審查時自動帶入相關上下文
-- **Markdown 報告匯出**：將審查結果匯出為可存檔的 .md 報告
+It is designed for authors who want help reviewing character behavior, dialogue, narrative style, story structure, and unresolved foreshadowing without sending manuscript data to a cloud service.
 
-## 環境需求
+## Why This Project Exists
 
-- Go 1.21+
-- [Ollama](https://ollama.com/) 本地執行
+Most writing tools are either:
 
-## 快速開始
+- general-purpose chat interfaces with little story memory, or
+- planning tools without local AI review workflows.
+
+Novel Assistant combines both directions:
+
+- `novelWriter / Manuskript` inspired workflow structure for characters, worldbuilding, relationships, timelines, and foreshadowing
+- `AnythingLLM` inspired local knowledge-base behavior for retrieval-assisted review
+
+## Highlights
+
+- Character behavior review with streaming output
+- Dialogue style review per character
+- Writing style review with reusable `data/style/*.md` profiles
+- Relationship, timeline, and foreshadow trackers
+- Local vector indexing for story context retrieval
+- Markdown export for review reports
+- Local-first design using Ollama and file-based project assets
+
+## Review Flow
+
+```mermaid
+flowchart TD
+    A[Markdown assets in data/] --> B[Reindex]
+    B --> C[Local vector store]
+    D[Chapter text] --> E[Review request]
+    C --> E
+    E --> F[Auto-detect characters]
+    E --> G[Optional writing style guides]
+    F --> H[Behavior review]
+    F --> I[Dialogue review]
+    G --> J[Writing style review]
+    H --> K[SSE streaming result]
+    I --> K
+    J --> K
+    K --> L[Markdown export or tracker updates]
+```
+
+## Project Status
+
+Current status: active early-stage project, ready for local use and open-source iteration.
+
+What is already solid:
+
+- Local review workflow
+- File-based story asset loading
+- Basic tests and CI
+- Tracker pages and export flow
+
+What is still evolving:
+
+- Richer citation display for retrieved context
+- Scene and chapter file management
+- More complete release process and packaging
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work.
+
+## Quick Start
+
+### Requirements
+
+- Go `1.21+`
+- [Ollama](https://ollama.com/) running locally
+
+### Install Models
 
 ```bash
-# 1. 安裝 Ollama 模型
 ollama pull llama3.2
 ollama pull nomic-embed-text
+```
 
-# 2. 安裝 Go 依賴
+### Run Locally
+
+```bash
 go mod tidy
-
-# 3. 啟動
 go run ./cmd
 ```
 
-開啟瀏覽器前往 http://localhost:8080
+Open `http://localhost:8080`.
 
-## 角色設定格式
+### Common Development Commands
 
-在 `data/characters/` 新增 `.md` 檔案：
+PowerShell:
+
+```powershell
+./scripts/dev.ps1 fmt
+./scripts/dev.ps1 test
+./scripts/dev.ps1 build
+./scripts/dev.ps1 run
+```
+
+## Data Layout
+
+Story assets live in the repository as simple files:
+
+```text
+data/
+├── characters/      # character profiles in Markdown
+├── worldbuilding/   # world notes in Markdown
+├── style/           # writing style guides in Markdown
+├── chapters/        # optional chapter source files
+└── exports/         # generated review reports
+```
+
+Generated local state is intentionally ignored from Git:
+
+- `data/store.json`
+- `data/relationships.json`
+- `data/timeline.json`
+- `data/foreshadow.json`
+- generated files under `data/exports/`
+
+## File Formats
+
+### Character Profile
 
 ```markdown
 # 角色：角色名稱
@@ -48,40 +136,78 @@ go run ./cmd
 - 說話風格：...
 ```
 
-修改後，在網頁左側點「重新索引」即可更新。
+### Writing Style Guide
 
-## 整合方向
-
-這個專案現在採用以下組合思路：
-
-- **novelWriter / Manuskript 取向**：角色、世界觀、關係圖、時間軸、伏筆都以寫作工作流為核心，讓你先整理故事結構，再進行章節修稿。
-- **AnythingLLM 取向**：角色與世界觀檔案會被索引成可檢索的本地知識庫，審查章節時自動帶入相關參考，避免每次都只靠單輪提示詞硬猜。
-
-建議的使用節奏是：
-
-1. 在 `data/characters/` 與 `data/worldbuilding/` 維護穩定設定
-2. 按「重新索引」建立本地知識庫
-3. 以單一章節或單一場景進行一致性審查
-4. 把新產生的劇情變化補記到關係圖、時間軸與伏筆追蹤
-
-## 專案結構
-
+```markdown
+# 風格：你的風格名稱
+- 敘事視角：...
+- 句式風格：...
+- 節奏感：...
+- 語氣：...
+- 禁忌：...
 ```
-novel-assistant/
-├── cmd/main.go              # 入口點
-├── internal/
-│   ├── config/              # 設定
-│   ├── profile/             # 角色設定管理
-│   ├── embedder/            # Ollama Embedding
-│   ├── vectorstore/         # 本地向量儲存
-│   ├── checker/             # 一致性審查邏輯
-│   ├── tracker/             # 關係/時間軸/伏筆追蹤
-│   ├── exporter/            # Markdown 匯出
-│   └── server/              # HTTP 服務
-├── web/
-│   ├── templates/           # HTML 模板
-│   └── static/              # CSS
-└── data/
-    ├── characters/          # 角色設定 .md
-    └── worldbuilding/       # 世界觀設定 .md
-```
+
+Built-in examples:
+
+- `data/style/主線敘事.md`
+- `data/style/回憶場景.md`
+
+## Recommended Workflow
+
+1. Maintain character, worldbuilding, and style files under `data/`
+2. Click `重新索引` to rebuild the local knowledge base
+3. Paste a single chapter or scene into the review page
+4. Select behavior, dialogue, and optional writing-style review scopes
+5. Export the review or update relationship, timeline, and foreshadow trackers
+
+## Architecture
+
+High-level architecture notes live in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Core packages:
+
+- `internal/profile`: loads Markdown-based project assets
+- `internal/embedder`: calls Ollama embeddings
+- `internal/vectorstore`: stores vectors locally with cosine similarity
+- `internal/checker`: streams review output from Ollama
+- `internal/tracker`: manages relationship, timeline, and foreshadow state
+- `internal/server`: serves the web UI and APIs
+
+## Examples
+
+Example files for onboarding and demos live in [examples/README.md](examples/README.md).
+
+## Troubleshooting
+
+- VSCode shows red errors but `go test` and `go build` pass:
+  Open the `novel-assistant` folder directly in VSCode, not the outer `gopl.io` workspace.
+- `寫作風格` has no selectable items:
+  Add `.md` files under `data/style/` and reindex.
+- Review requests fail immediately:
+  Verify Ollama is running locally and the configured models exist.
+- Writing style review returns a validation error:
+  Make sure the selected style file exists, is not empty, and includes a `# 風格：...` heading.
+
+## Privacy Notes
+
+- This project is designed for local-first usage.
+- Review your sample manuscript and story data before pushing anything to a public repository.
+- Demo data in this repository should stay generic and non-sensitive.
+
+## Contributing
+
+Contributions are welcome.
+
+Start here:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Released under the [MIT License](LICENSE).

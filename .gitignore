@@ -15,6 +15,13 @@ data/foreshadow.json
 data/exports/*
 !data/exports/.gitkeep
 
+# Local environment
+.env
+.env.*
+bin/
+dist/
+coverage.out
+
 # IDE
 .vscode/
 .idea/

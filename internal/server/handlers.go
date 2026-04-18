@@ -69,6 +69,33 @@ type vectorProfile struct {
 	Content string
 }
 
+func (s *Server) resolveStyles(req checkRequest) ([]*profile.StyleGuide, error) {
+	if !contains(req.Checks, "style") {
+		return nil, nil
+	}
+	if len(s.profiles.Styles) == 0 {
+		return nil, fmt.Errorf("尚無可用的寫作風格設定，請先在 data/style/ 新增 .md 檔並重新索引")
+	}
+
+	names := req.Styles
+	if len(names) == 0 {
+		names = s.profiles.AllStyleNames()
+	}
+
+	styles := make([]*profile.StyleGuide, 0, len(names))
+	for _, styleName := range names {
+		sg := s.profiles.FindStyleByName(styleName)
+		if sg == nil {
+			return nil, fmt.Errorf("找不到寫作風格：%s", styleName)
+		}
+		if strings.TrimSpace(sg.RawContent) == "" {
+			return nil, fmt.Errorf("寫作風格內容不可為空：%s", styleName)
+		}
+		styles = append(styles, sg)
+	}
+	return styles, nil
+}
+
 func (s *Server) buildReferenceContext(ctx context.Context, chapter string) ([]vectorProfile, error) {
 	if s.store.Len() == 0 {
 		return nil, nil
@@ -190,8 +217,8 @@ func (s *Server) handleIngest(c *gin.Context) {
 type checkRequest struct {
 	Chapter    string   `json:"chapter"`
 	Characters []string `json:"characters"`
-	Checks     []string `json:"checks"`  // ["behavior","dialogue","style"]
-	Styles     []string `json:"styles"`  // 指定風格名稱；空白 = 所有風格
+	Checks     []string `json:"checks"` // ["behavior","dialogue","style"]
+	Styles     []string `json:"styles"` // 指定風格名稱；空白 = 所有風格
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -202,6 +229,10 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 	}
 	if strings.TrimSpace(req.Chapter) == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+	if _, err := s.resolveStyles(req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -260,23 +291,18 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		}
 
 		// 寫作風格審查（獨立於角色，逐一套用所選風格）
-		if contains(req.Checks, "style") {
-			stylesToCheck := req.Styles
-			if len(stylesToCheck) == 0 {
-				stylesToCheck = s.profiles.AllStyleNames()
-			}
-			for _, styleName := range stylesToCheck {
-				sg := s.profiles.FindStyleByName(styleName)
-				if sg == nil {
-					continue
+		stylesToCheck, err := s.resolveStyles(req)
+		if err != nil {
+			msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+			return
+		}
+		for _, sg := range stylesToCheck {
+			msgChan <- fmt.Sprintf("\n\n## 寫作風格：%s\n\n### 風格一致性審查\n\n", sg.Name)
+			if err := s.checker.CheckStyleStream(ctx, sg.RawContent, req.Chapter, cw); err != nil {
+				if ctx.Err() == nil {
+					msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 				}
-				msgChan <- fmt.Sprintf("\n\n## 寫作風格：%s\n\n### 風格一致性審查\n\n", sg.Name)
-				if err := s.checker.CheckStyleStream(ctx, sg.RawContent, req.Chapter, cw); err != nil {
-					if ctx.Err() == nil {
-						msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
-					}
-					return
-				}
+				return
 			}
 		}
 

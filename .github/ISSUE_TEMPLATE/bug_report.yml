@@ -1,0 +1,50 @@
+name: Bug Report
+description: Report a defect or regression in Novel Assistant
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report. Please include enough detail for someone else to reproduce the problem.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the problem and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include project setup, page, inputs, and actions.
+      placeholder: |
+        1. Start the server
+        2. Open /check
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      placeholder: go version go1.22.x windows/amd64
+  - type: input
+    id: ollama_version
+    attributes:
+      label: Ollama version
+      placeholder: ollama version
+  - type: input
+    id: model_info
+    attributes:
+      label: Models used
+      placeholder: llama3.2, nomic-embed-text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste relevant output or attach screenshots.
+      render: text

@@ -1,0 +1,30 @@
+name: Feature Request
+description: Suggest an improvement for Novel Assistant
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What author workflow or pain point is missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or workflow you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention workarounds, similar tools, or other approaches.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Sample chapter flow, screenshots, links, or references.

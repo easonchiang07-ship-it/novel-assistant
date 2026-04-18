@@ -23,3 +23,24 @@ func TestParseCharacterParsesSupportedFields(t *testing.T) {
 		t.Fatalf("expected speech style parsed, got %q", char.SpeechStyle)
 	}
 }
+
+func TestParseStyleGuideParsesSupportedFields(t *testing.T) {
+	t.Parallel()
+
+	style := parseStyleGuide(`# 風格：主線敘事
+- 敘事視角：第三人稱有限視角
+- 句式風格：短句，少修飾
+- 節奏感：穩定推進
+- 語氣：克制冷靜
+- 禁忌：避免全知旁白`)
+
+	if style.Name != "主線敘事" {
+		t.Fatalf("expected style name parsed, got %q", style.Name)
+	}
+	if style.Perspective != "第三人稱有限視角" {
+		t.Fatalf("expected perspective parsed, got %q", style.Perspective)
+	}
+	if style.Forbidden != "避免全知旁白" {
+		t.Fatalf("expected forbidden parsed, got %q", style.Forbidden)
+	}
+}

@@ -1,5 +1,6 @@
 ## Summary
 
+- Issue:
 - Explain the problem this PR solves.
 - Describe the main changes.
 
@@ -7,7 +8,14 @@
 
 - [ ] `go test ./...`
 - [ ] `go build ./...`
+- [ ] Manual smoke test for changed UI flow, if applicable
 - [ ] Docs updated if behavior changed
+
+## Review Focus
+
+- Data safety or persistence impact
+- Backward compatibility impact
+- Residual risks or follow-up items
 
 ## Notes
 

@@ -390,6 +390,16 @@ function loadSelectedScene() {
   }
 }
 
+function selectSceneByTitle(title) {
+  const trimmed = (title || '').trim();
+  const sel = document.getElementById('scene-select');
+  if (!trimmed || !sel) return;
+  const exists = loadedScenes.some(s => s.title === trimmed);
+  if (!exists) return;
+  sel.value = trimmed;
+  loadSelectedScene();
+}
+
 async function loadChapterByName(name) {
   const select = document.getElementById('chapter-file-select');
   if (select) {
@@ -475,9 +485,13 @@ async function hydrateFromHistory() {
   const params = new URLSearchParams(window.location.search);
   const historyId = params.get('history_id');
   const chapterName = params.get('chapter');
+  const sceneTitle = params.get('scene');
 
   if (chapterName) {
     await loadChapterByName(chapterName);
+    if (sceneTitle) {
+      selectSceneByTitle(sceneTitle);
+    }
   }
   if (!historyId) return;
 

@@ -81,6 +81,68 @@
             {{end}}
           </div>
         </div>
+
+        {{if .SceneCards}}
+        <div class="scene-board-section">
+          <div class="history-title-row" style="margin-bottom:0">
+            <div>
+              <h3 style="margin-bottom:6px">Scene Board</h3>
+              <div class="helper-text">快速掃描每個場景的 synopsis、POV、衝突與用途，也能直接跳到指定 scene 審查。</div>
+            </div>
+          </div>
+
+          <div class="scene-board-grid">
+            {{range .SceneCards}}
+            <div class="scene-card" data-scene-status="{{.Status}}">
+              <div class="scene-card-header">
+                <div>
+                  <div class="scene-kicker">Scene {{.Index}}</div>
+                  <h3>{{.Title}}</h3>
+                </div>
+                <span class="scene-status-badge scene-status-{{.Status}}">{{.Status}}</span>
+              </div>
+
+              <div class="scene-preview">{{.Preview}}</div>
+
+              <div class="scene-meta-row">
+                <div class="rag-item">
+                  <span>Reviews</span>
+                  <strong>{{.ReviewCount}}</strong>
+                </div>
+                <div class="rag-item">
+                  <span>Rewrites</span>
+                  <strong>{{.RewriteCount}}</strong>
+                </div>
+              </div>
+
+              <div class="scene-plan-grid">
+                <div class="form-group">
+                  <label>Synopsis</label>
+                  <textarea class="compact-textarea scene-plan-input" data-field="synopsis" data-chapter="{{$.Name}}" data-scene="{{.Title}}" placeholder="一句話描述這個 scene 在做什麼。">{{.Synopsis}}</textarea>
+                </div>
+                <div class="form-group">
+                  <label>POV</label>
+                  <input class="scene-plan-input" data-field="pov" data-chapter="{{$.Name}}" data-scene="{{.Title}}" type="text" value="{{.POV}}" placeholder="例：林昊 / 第三人稱有限">
+                </div>
+                <div class="form-group">
+                  <label>Conflict</label>
+                  <input class="scene-plan-input" data-field="conflict" data-chapter="{{$.Name}}" data-scene="{{.Title}}" type="text" value="{{.Conflict}}" placeholder="這個 scene 的主要衝突">
+                </div>
+                <div class="form-group">
+                  <label>Purpose</label>
+                  <input class="scene-plan-input" data-field="purpose" data-chapter="{{$.Name}}" data-scene="{{.Title}}" type="text" value="{{.Purpose}}" placeholder="推進情節 / 建立張力 / 曝露線索">
+                </div>
+              </div>
+
+              <div class="scene-card-actions">
+                <button class="btn btn-ghost btn-sm" type="button" onclick="saveScenePlan({{printf "%q" $.Name}}, {{printf "%q" .Title}})">儲存規劃</button>
+                <a class="btn btn-ghost btn-sm" href="/check?chapter={{$.Name | urlquery}}&scene={{.Title | urlquery}}">審查這個 scene</a>
+              </div>
+            </div>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
       </div>
       {{end}}
     </div>
@@ -127,6 +189,33 @@ async function exportChapterBundle(name) {
     URL.revokeObjectURL(url);
   } catch (e) {
     alert('匯出失敗：' + e.message);
+  }
+}
+
+function sceneFieldValue(chapterName, sceneTitle, field) {
+  const selector = `.scene-plan-input[data-chapter="${CSS.escape(chapterName)}"][data-scene="${CSS.escape(sceneTitle)}"][data-field="${field}"]`;
+  const el = document.querySelector(selector);
+  return el ? el.value : '';
+}
+
+async function saveScenePlan(chapterName, sceneTitle) {
+  try {
+    const resp = await fetch('/api/chapters/' + encodeURIComponent(chapterName) + '/scenes/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        scene_title: sceneTitle,
+        synopsis: sceneFieldValue(chapterName, sceneTitle, 'synopsis'),
+        pov: sceneFieldValue(chapterName, sceneTitle, 'pov'),
+        conflict: sceneFieldValue(chapterName, sceneTitle, 'conflict'),
+        purpose: sceneFieldValue(chapterName, sceneTitle, 'purpose')
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '儲存場景規劃失敗');
+    alert(data.message + '：' + sceneTitle);
+  } catch (e) {
+    alert('儲存場景規劃失敗：' + e.message);
   }
 }
 </script>

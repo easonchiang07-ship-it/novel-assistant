@@ -125,6 +125,7 @@ func (s *Server) setupRoutes() {
 
 	r.POST("/ingest", s.handleIngest)
 	r.POST("/api/chapters", s.handleSaveChapter)
+	r.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
 	r.POST("/api/backups/create", s.handleCreateBackup)
 	r.POST("/api/backups/restore", s.handleRestoreBackup)
 	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)

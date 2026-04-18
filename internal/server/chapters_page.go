@@ -25,6 +25,20 @@ type chapterOverview struct {
 	OpenForeshadows int
 	TimelineCount   int
 	Signals         extractor.Signals
+	SceneCards      []sceneBoardCard
+}
+
+type sceneBoardCard struct {
+	Index        int
+	Title        string
+	Preview      string
+	Synopsis     string
+	POV          string
+	Conflict     string
+	Purpose      string
+	Status       string
+	ReviewCount  int
+	RewriteCount int
 }
 
 type candidateCreateRequest struct {
@@ -57,6 +71,8 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 	}
 
 	historyCounts := make(map[string]int)
+	sceneReviews := make(map[string]int)
+	sceneRewrites := make(map[string]int)
 	for _, entry := range s.history.Recent(0) {
 		key := entry.ChapterFile
 		if key == "" && entry.ChapterTitle != "" {
@@ -64,6 +80,14 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		}
 		if key != "" {
 			historyCounts[key]++
+			if scene := strings.TrimSpace(entry.SceneTitle); scene != "" {
+				sceneKey := key + "::" + scene
+				if entry.Kind == "rewrite" {
+					sceneRewrites[sceneKey]++
+				} else {
+					sceneReviews[sceneKey]++
+				}
+			}
 		}
 	}
 
@@ -95,6 +119,35 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		signals := extractor.AnalyzeChapter(text, s.profiles.AllNames())
 		chapterNo := chapterNumberFromName(file.Name)
 		scenes := parseScenes(text)
+		scenePlans, err := s.loadScenePlans(file.Name)
+		if err != nil {
+			return nil, err
+		}
+		sceneCards := make([]sceneBoardCard, 0, len(scenes))
+		for _, scene := range scenes {
+			plan := scenePlans[scene.Title]
+			sceneKey := file.Name + "::" + scene.Title
+			reviewCount := sceneReviews[sceneKey]
+			rewriteCount := sceneRewrites[sceneKey]
+			status := "draft"
+			if rewriteCount > 0 {
+				status = "rewritten"
+			} else if reviewCount > 0 {
+				status = "reviewed"
+			}
+			sceneCards = append(sceneCards, sceneBoardCard{
+				Index:        scene.Index,
+				Title:        scene.Title,
+				Preview:      scenePreview(scene.Content),
+				Synopsis:     plan.Synopsis,
+				POV:          plan.POV,
+				Conflict:     plan.Conflict,
+				Purpose:      plan.Purpose,
+				Status:       status,
+				ReviewCount:  reviewCount,
+				RewriteCount: rewriteCount,
+			})
+		}
 		overviews = append(overviews, chapterOverview{
 			Name:            file.Name,
 			Title:           file.Title,
@@ -106,6 +159,7 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 			OpenForeshadows: foreshadowCounts[chapterNo],
 			TimelineCount:   timelineCounts[chapterNo],
 			Signals:         signals,
+			SceneCards:      sceneCards,
 		})
 	}
 
@@ -113,6 +167,19 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		return overviews[i].Name < overviews[j].Name
 	})
 	return overviews, nil
+}
+
+func scenePreview(content string) string {
+	text := strings.Join(strings.Fields(strings.TrimSpace(content)), " ")
+	if text == "" {
+		return "尚未填寫場景內容。"
+	}
+	const limit = 120
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit]) + "…"
 }
 
 func draftTargetPath(dataDir, kind, name string) (string, string, error) {
@@ -160,6 +227,44 @@ func (s *Server) handleAnalyzeChapter(c *gin.Context) {
 	}
 	signals := extractor.AnalyzeChapter(file.Content, s.profiles.AllNames())
 	c.JSON(http.StatusOK, gin.H{"item": signals})
+}
+
+func (s *Server) handleSaveScenePlan(c *gin.Context) {
+	chapterName := c.Param("name")
+	file, err := s.loadChapterFile(chapterName)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var req scenePlanRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	title := strings.TrimSpace(req.SceneTitle)
+	if title == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "場景標題不可為空"})
+		return
+	}
+	if sceneByTitle(file.Scenes, title) == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "找不到指定場景"})
+		return
+	}
+
+	if err := s.saveScenePlan(file.Name, scenePlan{
+		Title:    title,
+		Synopsis: req.Synopsis,
+		POV:      req.POV,
+		Conflict: req.Conflict,
+		Purpose:  req.Purpose,
+	}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已儲存場景規劃"})
 }
 
 func (s *Server) handleCreateCandidateDraft(c *gin.Context) {

@@ -10,6 +10,7 @@ import (
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/projectsettings"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
@@ -23,6 +24,7 @@ type Server struct {
 	router        *gin.Engine
 	profiles      *profile.Manager
 	store         *vectorstore.Store
+	project       *projectsettings.Store
 	embedder      *embedder.OllamaEmbedder
 	checker       *checker.Checker
 	rules         *reviewrules.Store
@@ -34,6 +36,18 @@ type Server struct {
 
 func New(cfg *config.Config) (*Server, error) {
 	s := &Server{cfg: cfg}
+
+	s.project = projectsettings.New(cfg.DataDir+"/project_settings.json", projectsettings.Settings{
+		OllamaURL:  cfg.OllamaURL,
+		LLMModel:   cfg.LLMModel,
+		EmbedModel: cfg.EmbedModel,
+		Port:       cfg.Port,
+		DataDir:    cfg.DataDir,
+	})
+	if err := s.project.Load(); err != nil {
+		log.Printf("project settings load: %v", err)
+	}
+	s.applyProjectSettings()
 
 	s.profiles = profile.NewManager(cfg.DataDir)
 	if err := s.profiles.Load(); err != nil {
@@ -103,13 +117,18 @@ func (s *Server) setupRoutes() {
 	r.GET("/timeline", s.handleTimelinePage)
 	r.GET("/foreshadow", s.handleForeshadowPage)
 	r.GET("/api/history/:id", s.handleGetHistoryEntry)
+	r.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
+	r.GET("/api/backups", s.handleListBackups)
 	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
 	r.GET("/api/chapters", s.handleListChapters)
 	r.GET("/api/chapters/:name", s.handleGetChapter)
 
 	r.POST("/ingest", s.handleIngest)
 	r.POST("/api/chapters", s.handleSaveChapter)
+	r.POST("/api/backups/create", s.handleCreateBackup)
+	r.POST("/api/backups/restore", s.handleRestoreBackup)
 	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
+	r.POST("/api/chapter-report/export", s.handleExportChapterBundle)
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
 	r.POST("/api/settings", s.handleSaveSettings)
@@ -186,4 +205,15 @@ func (s *Server) Ingest(ctx context.Context) error {
 
 func (s *Server) Run() error {
 	return s.router.Run(":" + s.cfg.Port)
+}
+
+func (s *Server) applyProjectSettings() {
+	settings := s.project.Get()
+	s.cfg.OllamaURL = settings.OllamaURL
+	s.cfg.LLMModel = settings.LLMModel
+	s.cfg.EmbedModel = settings.EmbedModel
+	s.cfg.Port = settings.Port
+	if settings.DataDir != "" {
+		s.cfg.DataDir = settings.DataDir
+	}
 }

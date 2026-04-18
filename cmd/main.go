@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+	loadDotEnv(".env")
 	cfg := config.Default()
 
 	srv, err := server.New(cfg)

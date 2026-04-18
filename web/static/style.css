@@ -542,6 +542,26 @@ tr:hover td { background: #1e1a30; }
   justify-content: flex-end;
 }
 
+.diff-box {
+  margin-top: 14px;
+  border: 1px solid #2d2540;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diff-segment pre {
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  font-family: 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+
+.diff-insert pre { background: #11261a; color: #bbf7d0; }
+.diff-delete pre { background: #31161d; color: #fecaca; }
+.diff-equal pre { background: #13111b; color: #94a3b8; }
+
 /* ── Grid ── */
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 

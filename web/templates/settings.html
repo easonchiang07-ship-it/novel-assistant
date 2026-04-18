@@ -13,7 +13,46 @@
   <main class="main-content">
     <div class="page-header">
       <h1>規則設定</h1>
-      <p>調整預設審查項目、預設風格，以及提示詞偏好，讓每次檢查更貼近你的修稿習慣。</p>
+      <p>集中管理 Ollama 連線、模型、預設審查項目、風格偏好，以及資料備份 / 還原。</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>專案設定</h2>
+        <div class="form-group">
+          <label for="ollama-url">Ollama URL</label>
+          <input type="text" id="ollama-url" value="{{.Project.OllamaURL}}">
+        </div>
+        <div class="form-group">
+          <label for="llm-model">LLM 模型</label>
+          <input type="text" id="llm-model" value="{{.Project.LLMModel}}">
+        </div>
+        <div class="form-group">
+          <label for="embed-model">Embedding 模型</label>
+          <input type="text" id="embed-model" value="{{.Project.EmbedModel}}">
+        </div>
+        <div class="form-group">
+          <label for="project-port">服務 Port</label>
+          <input type="text" id="project-port" value="{{.Project.Port}}">
+        </div>
+        <div class="helper-text">修改 Ollama URL 或模型後會立即影響後續審查；若修改 Port，需重啟服務才會生效。</div>
+      </div>
+
+      <div class="card">
+        <h2>備份 / 還原</h2>
+        <button class="btn btn-ghost" type="button" onclick="createBackup()">建立資料備份</button>
+        <div class="form-group" style="margin-top:16px">
+          <label for="backup-select">可還原備份</label>
+          <select id="backup-select">
+            <option value="">選擇備份...</option>
+            {{range .Backups}}
+            <option value="{{.Name}}">{{.Name}}（{{.CreatedAt.Format "2006-01-02 15:04:05"}}）</option>
+            {{end}}
+          </select>
+        </div>
+        <button class="btn btn-danger" type="button" onclick="restoreBackup()">還原選取備份</button>
+        <div id="backup-status" class="helper-text">每次備份都會將目前 `data/` 內的 Markdown / JSON 資料快照到 `data/backups/`。</div>
+      </div>
     </div>
 
     <div class="card">
@@ -96,15 +135,19 @@ async function saveSettings() {
   status.textContent = '保存中...';
   status.style.color = '#94a3b8';
 
-  try {
-    const resp = await fetch('/api/settings', {
+      try {
+        const resp = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         default_checks: Array.from(document.querySelectorAll('[name="default-checks"]:checked')).map(el => el.value),
         default_styles: Array.from(document.querySelectorAll('[name="default-styles"]:checked')).map(el => el.value),
         review_bias: document.getElementById('review-bias').value,
-        rewrite_bias: document.getElementById('rewrite-bias').value
+        rewrite_bias: document.getElementById('rewrite-bias').value,
+        ollama_url: document.getElementById('ollama-url').value.trim(),
+        llm_model: document.getElementById('llm-model').value.trim(),
+        embed_model: document.getElementById('embed-model').value.trim(),
+        port: document.getElementById('project-port').value.trim()
       })
     });
     const data = await resp.json();
@@ -112,6 +155,48 @@ async function saveSettings() {
     status.textContent = data.message;
   } catch (e) {
     status.textContent = '保存失敗：' + e.message;
+    status.style.color = '#fca5a5';
+  }
+}
+
+async function createBackup() {
+  const status = document.getElementById('backup-status');
+  status.textContent = '建立備份中...';
+  status.style.color = '#94a3b8';
+  try {
+    const resp = await fetch('/api/backups/create', { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '建立備份失敗');
+    status.textContent = `${data.message}：${data.item.name}`;
+    location.reload();
+  } catch (e) {
+    status.textContent = '建立備份失敗：' + e.message;
+    status.style.color = '#fca5a5';
+  }
+}
+
+async function restoreBackup() {
+  const name = document.getElementById('backup-select').value;
+  if (!name) {
+    alert('請先選擇要還原的備份');
+    return;
+  }
+  if (!confirm('要還原這份備份嗎？目前 data/ 內容會被覆蓋。')) return;
+
+  const status = document.getElementById('backup-status');
+  status.textContent = '還原備份中...';
+  status.style.color = '#94a3b8';
+  try {
+    const resp = await fetch('/api/backups/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '還原失敗');
+    status.textContent = data.message;
+  } catch (e) {
+    status.textContent = '還原失敗：' + e.message;
     status.style.color = '#fca5a5';
   }
 }

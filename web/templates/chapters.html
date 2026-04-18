@@ -25,7 +25,10 @@
             <h2 style="margin-bottom:6px">{{.Title}}</h2>
             <div class="helper-text">{{.Name}} ・ 最後更新 {{.UpdatedAt.Format "2006-01-02 15:04:05"}}</div>
           </div>
-          <a class="btn btn-ghost btn-sm" href="/check?chapter={{.Name}}">載入到審查頁</a>
+          <div class="history-actions">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="exportChapterBundle('{{.Name}}')">匯出完整報告</button>
+            <a class="btn btn-ghost btn-sm" href="/check?chapter={{.Name}}">載入到審查頁</a>
+          </div>
         </div>
 
         <div class="chapter-metrics">
@@ -98,6 +101,31 @@ async function createCandidateDraft(type, name) {
     alert(data.message + '：' + data.file);
   } catch (e) {
     alert('建立草稿失敗：' + e.message);
+  }
+}
+
+async function exportChapterBundle(name) {
+  try {
+    const resp = await fetch('/api/chapter-report/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || '匯出失敗');
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name.replace(/\.md$/i, '') + '_bundle.zip';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('匯出失敗：' + e.message);
   }
 }
 </script>

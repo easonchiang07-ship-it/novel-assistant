@@ -16,6 +16,7 @@ type Entry struct {
 	ChapterFile    string    `json:"chapter_file"`
 	ChapterVersion int       `json:"chapter_version"`
 	KindVersion    int       `json:"kind_version"`
+	InputContent   string    `json:"input_content,omitempty"`
 	Checks         []string  `json:"checks,omitempty"`
 	Styles         []string  `json:"styles,omitempty"`
 	RewriteMode    string    `json:"rewrite_mode,omitempty"`

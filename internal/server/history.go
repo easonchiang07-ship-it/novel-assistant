@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"novel-assistant/internal/diffview"
 	"novel-assistant/internal/reviewhistory"
 
 	"github.com/gin-gonic/gin"
@@ -45,6 +46,13 @@ func historyEditorContent(entry *reviewhistory.Entry) string {
 	content = strings.TrimSpace(content)
 	content = strings.TrimSuffix(content, "---")
 	return strings.TrimSpace(content)
+}
+
+func historySourceContent(entry *reviewhistory.Entry) string {
+	if entry == nil {
+		return ""
+	}
+	return strings.TrimSpace(entry.InputContent)
 }
 
 func buildHistoryGroups(entries []*reviewhistory.Entry) []historyGroup {
@@ -134,6 +142,34 @@ func (s *Server) handleGetHistoryEntry(c *gin.Context) {
 		"item":           entry,
 		"kind_label":     historyEntryLabel(entry),
 		"editor_content": historyEditorContent(entry),
+	})
+}
+
+func (s *Server) handleGetHistoryDiff(c *gin.Context) {
+	entry := s.history.Find(c.Param("id"))
+	if entry == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "找不到指定的歷史紀錄"})
+		return
+	}
+
+	before := historySourceContent(entry)
+	after := historyEditorContent(entry)
+	if before == "" && entry.ChapterFile != "" {
+		file, err := s.loadChapterFile(entry.ChapterFile)
+		if err == nil {
+			before = file.Content
+		}
+	}
+	if before == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "這筆歷史紀錄沒有可比較的原文"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"item":     entry,
+		"before":   before,
+		"after":    after,
+		"segments": diffview.LineDiff(before, after),
 	})
 }
 

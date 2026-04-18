@@ -67,11 +67,17 @@
                 <div class="history-actions">
                   <div class="helper-text">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</div>
                   {{if eq .Kind "rewrite"}}
+                  <button class="btn btn-ghost btn-sm" type="button" onclick="toggleDiff('{{.ID}}')">查看差異</button>
                   <a class="btn btn-ghost btn-sm" href="/check?history_id={{.ID}}">帶回編輯器</a>
                   {{end}}
                   <button class="btn btn-danger btn-sm" type="button" onclick="deleteHistoryEntry('{{.ID}}')">刪除</button>
                 </div>
               </div>
+              {{if eq .Kind "rewrite"}}
+              <div class="diff-box" id="diff-{{.ID}}" style="display:none">
+                <div class="helper-text">載入中...</div>
+              </div>
+              {{end}}
               {{if .Checks}}
               <div class="char-field char-field-block">
                 <span class="char-label">檢查項目</span>
@@ -204,6 +210,37 @@ async function exportVisibleHistory() {
   } catch (e) {
     alert('匯出失敗：' + e.message);
   }
+}
+
+async function toggleDiff(id) {
+  const box = document.getElementById('diff-' + id);
+  if (!box) return;
+  if (box.style.display === 'block') {
+    box.style.display = 'none';
+    return;
+  }
+
+  box.style.display = 'block';
+  box.innerHTML = '<div class="helper-text">載入差異中...</div>';
+  try {
+    const resp = await fetch('/api/history/' + encodeURIComponent(id) + '/diff');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '載入差異失敗');
+
+    box.innerHTML = (data.segments || []).map((seg) => {
+      const cls = seg.type === 'insert' ? 'diff-insert' : seg.type === 'delete' ? 'diff-delete' : 'diff-equal';
+      return `<div class="diff-segment ${cls}"><pre>${escapeHTML(seg.text || '')}</pre></div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state">載入差異失敗：${escapeHTML(e.message)}</div>`;
+  }
+}
+
+function escapeHTML(text) {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 </script>
 </body>

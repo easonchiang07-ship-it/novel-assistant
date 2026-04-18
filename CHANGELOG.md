@@ -6,17 +6,6 @@ The format is inspired by Keep a Changelog.
 
 ## [Unreleased]
 
-### Added
-
-- Writing-style review with `data/style/*.md` support
-- Local RAG context display during chapter review
-- Project scaffolding for open-source collaboration
-
-### Changed
-
-- Improved validation and persistence error handling
-- Expanded README, contribution docs, and troubleshooting guidance
-
 ## [0.1.0] - 2026-04-18
 
 ### Added
@@ -24,5 +13,13 @@ The format is inspired by Keep a Changelog.
 - Initial local-first novel review dashboard
 - Character behavior review
 - Dialogue style review
+- Writing-style review with `data/style/*.md` support
 - Relationship, timeline, and foreshadow trackers
+- Local RAG context display during chapter review
 - Markdown report export
+- Project scaffolding for open-source collaboration
+
+### Changed
+
+- Improved validation and persistence error handling
+- Expanded README, contribution docs, and troubleshooting guidance

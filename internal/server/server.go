@@ -21,19 +21,20 @@ import (
 )
 
 type Server struct {
-	cfg           *config.Config
-	router        *gin.Engine
-	profiles      *profile.Manager
-	store         *vectorstore.Store
-	project       *projectsettings.Store
-	embedder      *embedder.OllamaEmbedder
-	checker       *checker.Checker
-	rules         *reviewrules.Store
-	history       *reviewhistory.Store
-	relationships *tracker.RelationshipTracker
-	timeline      *tracker.TimelineTracker
-	foreshadow    *tracker.ForeshadowTracker
-	scenePlansMu  sync.RWMutex
+	cfg            *config.Config
+	router         *gin.Engine
+	profiles       *profile.Manager
+	store          *vectorstore.Store
+	project        *projectsettings.Store
+	embedder       *embedder.OllamaEmbedder
+	checker        *checker.Checker
+	rules          *reviewrules.Store
+	history        *reviewhistory.Store
+	relationships  *tracker.RelationshipTracker
+	timeline       *tracker.TimelineTracker
+	foreshadow     *tracker.ForeshadowTracker
+	chapterOrderMu sync.RWMutex
+	scenePlansMu   sync.RWMutex
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -127,11 +128,14 @@ func (s *Server) setupRoutes() {
 
 	r.POST("/ingest", s.handleIngest)
 	r.POST("/api/chapters", s.handleSaveChapter)
+	r.POST("/api/chapters/order", s.handleSaveChapterOrder)
 	r.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
+	r.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
 	r.POST("/api/backups/create", s.handleCreateBackup)
 	r.POST("/api/backups/restore", s.handleRestoreBackup)
 	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
 	r.POST("/api/chapter-report/export", s.handleExportChapterBundle)
+	r.POST("/api/manuscript/export", s.handleExportManuscript)
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
 	r.POST("/api/settings", s.handleSaveSettings)

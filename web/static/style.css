@@ -379,6 +379,15 @@ tr:hover td { background: #1e1a30; }
   gap: 14px;
 }
 
+.chapter-overview-card[draggable="true"] {
+  cursor: grab;
+}
+
+.chapter-overview-card.dragging {
+  opacity: 0.72;
+  border-color: #7dd3fc;
+}
+
 .scene-board-section {
   display: grid;
   gap: 14px;
@@ -391,7 +400,7 @@ tr:hover td { background: #1e1a30; }
   gap: 16px;
 }
 
-.scene-card {
+.scene-card[draggable="true"] {
   background: linear-gradient(180deg, #171124 0%, #120d1d 100%);
   border: 1px solid #3b2d57;
   border-radius: 14px;
@@ -399,6 +408,12 @@ tr:hover td { background: #1e1a30; }
   display: grid;
   gap: 14px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  cursor: grab;
+}
+
+.scene-card.dragging {
+  opacity: 0.72;
+  border-color: #86efac;
 }
 
 .scene-card-header {

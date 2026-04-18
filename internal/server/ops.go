@@ -291,3 +291,47 @@ func (s *Server) handleExportChapterBundle(c *gin.Context) {
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.TrimSuffix(req.Name, filepath.Ext(req.Name))+"_bundle.zip"))
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
+
+func (s *Server) buildManuscriptMarkdown() (string, error) {
+	files, err := s.listChapterFiles()
+	if err != nil {
+		return "", err
+	}
+	if len(files) == 0 {
+		return "", fmt.Errorf("目前沒有章節可匯出")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("# 小說手稿匯出\n\n")
+
+	for _, item := range files {
+		file, err := s.loadChapterFile(item.Name)
+		if err != nil {
+			return "", err
+		}
+		sceneOrder, err := s.loadScenePlanOrder(item.Name)
+		if err != nil {
+			return "", err
+		}
+		content := rebuildChapterWithSceneOrder(file.Content, file.Scenes, sceneOrder)
+		sb.WriteString("## ")
+		sb.WriteString(file.Title)
+		sb.WriteString("\n\n")
+		sb.WriteString(strings.TrimSpace(content))
+		sb.WriteString("\n\n")
+	}
+
+	return strings.TrimSpace(sb.String()) + "\n", nil
+}
+
+func (s *Server) handleExportManuscript(c *gin.Context) {
+	report, err := s.buildManuscriptMarkdown()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Header("Content-Type", "text/markdown; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="novel_manuscript.md"`)
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(report))
+}

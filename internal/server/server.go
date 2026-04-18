@@ -126,6 +126,20 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed world: %s", world.Name)
 	}
 
+	for _, style := range s.profiles.Styles {
+		vec, err := s.embedder.Embed(ctx, style.RawContent)
+		if err != nil {
+			return fmt.Errorf("embed style %s: %w", style.Name, err)
+		}
+		s.store.Upsert(vectorstore.Document{
+			ID:        "style_" + style.Name,
+			Type:      "style",
+			Content:   style.RawContent,
+			Embedding: vec,
+		})
+		log.Printf("indexed style: %s", style.Name)
+	}
+
 	return s.store.Save()
 }
 

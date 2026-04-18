@@ -49,6 +49,23 @@
                 <input type="checkbox" name="checks" value="dialogue">
                 對白風格
               </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="checks" value="style" id="check-style"
+                  {{if not .Styles}}disabled title="尚無風格設定檔"{{end}}>
+                寫作風格
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" id="style-selector" style="display:none">
+            <label>套用風格（不選則套用所有風格）</label>
+            <div class="checkbox-group">
+              {{range .Styles}}
+              <label class="checkbox-label">
+                <input type="checkbox" name="styles" value="{{.Name}}">
+                {{.Name}}
+              </label>
+              {{end}}
             </div>
           </div>
 
@@ -90,12 +107,24 @@
 </div>
 
 <script>
+// 切換風格選擇器的顯示
+document.addEventListener('DOMContentLoaded', () => {
+  const styleCheck = document.getElementById('check-style');
+  if (styleCheck) {
+    styleCheck.addEventListener('change', () => {
+      document.getElementById('style-selector').style.display =
+        styleCheck.checked ? 'block' : 'none';
+    });
+  }
+});
+
 async function runCheck() {
   const chapter = document.getElementById('chapter').value.trim();
   if (!chapter) { alert('請先輸入章節內容'); return; }
 
   const characters = Array.from(document.querySelectorAll('[name="characters"]:checked')).map(el => el.value);
   const checks     = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
+  const styles     = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
 
   const resultBox = document.getElementById('result-box');
   const submitBtn = document.getElementById('submit-btn');
@@ -109,7 +138,7 @@ async function runCheck() {
     const resp = await fetch('/check/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chapter, characters, checks })
+      body: JSON.stringify({ chapter, characters, checks, styles })
     });
 
     if (!resp.ok) {

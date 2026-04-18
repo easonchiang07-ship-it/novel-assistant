@@ -10,6 +10,7 @@ type Manager struct {
 	dataDir    string
 	Characters []*Character
 	Worlds     []*WorldSetting
+	Styles     []*StyleGuide
 }
 
 func NewManager(dataDir string) *Manager {
@@ -19,6 +20,7 @@ func NewManager(dataDir string) *Manager {
 func (m *Manager) Load() error {
 	m.Characters = nil
 	m.Worlds = nil
+	m.Styles = nil
 
 	charDir := filepath.Join(m.dataDir, "characters")
 	if entries, err := os.ReadDir(charDir); err == nil {
@@ -53,7 +55,64 @@ func (m *Manager) Load() error {
 			}
 		}
 	}
+
+	styleDir := filepath.Join(m.dataDir, "style")
+	if entries, err := os.ReadDir(styleDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+				path := filepath.Join(styleDir, e.Name())
+				content, err := os.ReadFile(path)
+				if err != nil {
+					continue
+				}
+				sg := parseStyleGuide(string(content))
+				sg.FilePath = path
+				m.Styles = append(m.Styles, sg)
+			}
+		}
+	}
 	return nil
+}
+
+func (m *Manager) AllStyleNames() []string {
+	names := make([]string, len(m.Styles))
+	for i, s := range m.Styles {
+		names[i] = s.Name
+	}
+	return names
+}
+
+func (m *Manager) FindStyleByName(name string) *StyleGuide {
+	for _, s := range m.Styles {
+		if s.Name == name {
+			return s
+		}
+	}
+	return nil
+}
+
+func parseStyleGuide(content string) *StyleGuide {
+	sg := &StyleGuide{RawContent: content}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "# 風格："):
+			sg.Name = strings.TrimPrefix(line, "# 風格：")
+		case strings.HasPrefix(line, "# "):
+			sg.Name = strings.TrimPrefix(line, "# ")
+		case strings.HasPrefix(line, "- 敘事視角："):
+			sg.Perspective = strings.TrimPrefix(line, "- 敘事視角：")
+		case strings.HasPrefix(line, "- 句式風格："):
+			sg.SentenceStyle = strings.TrimPrefix(line, "- 句式風格：")
+		case strings.HasPrefix(line, "- 節奏感："):
+			sg.Rhythm = strings.TrimPrefix(line, "- 節奏感：")
+		case strings.HasPrefix(line, "- 語氣："):
+			sg.Tone = strings.TrimPrefix(line, "- 語氣：")
+		case strings.HasPrefix(line, "- 禁忌："):
+			sg.Forbidden = strings.TrimPrefix(line, "- 禁忌：")
+		}
+	}
+	return sg
 }
 
 func (m *Manager) FindByName(name string) *Character {

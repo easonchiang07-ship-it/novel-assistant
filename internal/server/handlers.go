@@ -143,6 +143,7 @@ func (s *Server) handleCheckPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "check.html", gin.H{
 		"Title":      "一致性審查",
 		"Characters": s.profiles.Characters,
+		"Styles":     s.profiles.Styles,
 	})
 }
 
@@ -189,7 +190,8 @@ func (s *Server) handleIngest(c *gin.Context) {
 type checkRequest struct {
 	Chapter    string   `json:"chapter"`
 	Characters []string `json:"characters"`
-	Checks     []string `json:"checks"` // ["behavior","dialogue"]
+	Checks     []string `json:"checks"`  // ["behavior","dialogue","style"]
+	Styles     []string `json:"styles"`  // 指定風格名稱；空白 = 所有風格
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -249,6 +251,27 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			if contains(req.Checks, "dialogue") {
 				msgChan <- "\n\n### 對白風格審查\n\n"
 				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, char.SpeechStyle, req.Chapter, cw); err != nil {
+					if ctx.Err() == nil {
+						msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+					}
+					return
+				}
+			}
+		}
+
+		// 寫作風格審查（獨立於角色，逐一套用所選風格）
+		if contains(req.Checks, "style") {
+			stylesToCheck := req.Styles
+			if len(stylesToCheck) == 0 {
+				stylesToCheck = s.profiles.AllStyleNames()
+			}
+			for _, styleName := range stylesToCheck {
+				sg := s.profiles.FindStyleByName(styleName)
+				if sg == nil {
+					continue
+				}
+				msgChan <- fmt.Sprintf("\n\n## 寫作風格：%s\n\n### 風格一致性審查\n\n", sg.Name)
+				if err := s.checker.CheckStyleStream(ctx, sg.RawContent, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 					}

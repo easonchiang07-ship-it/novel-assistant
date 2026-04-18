@@ -17,3 +17,14 @@ type WorldSetting struct {
 	RawContent string `json:"raw_content"`
 	FilePath   string `json:"file_path"`
 }
+
+type StyleGuide struct {
+	Name        string `json:"name"`
+	Perspective string `json:"perspective"` // 敘事視角
+	SentenceStyle string `json:"sentence_style"` // 句式風格
+	Rhythm      string `json:"rhythm"`      // 節奏感
+	Tone        string `json:"tone"`        // 語氣
+	Forbidden   string `json:"forbidden"`   // 禁忌
+	RawContent  string `json:"raw_content"`
+	FilePath    string `json:"file_path"`
+}

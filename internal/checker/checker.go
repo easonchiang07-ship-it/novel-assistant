@@ -51,6 +51,22 @@ func (c *Checker) CheckBehaviorStream(ctx context.Context, profile, chapter stri
 	return c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", prompt, w)
 }
 
+func (c *Checker) CheckStyleStream(ctx context.Context, styleProfile, chapter string, w io.Writer) error {
+	prompt := fmt.Sprintf(`
+【寫作風格設定】
+%s
+
+【待審章節】
+%s
+
+請依序分析：
+1. **風格一致性**：章節的寫作風格是否符合設定？（符合 / 不符合）
+2. **具體問題**：列出不符合風格設定的段落或句子，說明哪裡違和
+3. **修改建議**：針對問題段落，提供符合風格的改寫方向或範例
+`, styleProfile, chapter)
+	return c.stream(ctx, "你是專業文學編輯，專責分析文章寫作風格的一致性。請用繁體中文回答。", prompt, w)
+}
+
 func (c *Checker) CheckDialogueStream(ctx context.Context, name, personality, speechStyle, chapter string, w io.Writer) error {
 	prompt := fmt.Sprintf(`
 【角色說話風格】

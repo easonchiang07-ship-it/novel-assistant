@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -121,7 +122,8 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 		scenes := parseScenes(text)
 		scenePlans, err := s.loadScenePlans(file.Name)
 		if err != nil {
-			return nil, err
+			log.Printf("scene plans load %s: %v", file.Name, err)
+			scenePlans = map[string]scenePlan{}
 		}
 		sceneCards := make([]sceneBoardCard, 0, len(scenes))
 		for _, scene := range scenes {

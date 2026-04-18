@@ -135,7 +135,7 @@
               </div>
 
               <div class="scene-card-actions">
-                <button class="btn btn-ghost btn-sm" type="button" onclick="saveScenePlan({{printf "%q" $.Name}}, {{printf "%q" .Title}})">儲存規劃</button>
+                <button class="btn btn-ghost btn-sm" type="button" data-chapter="{{$.Name}}" data-scene="{{.Title}}" onclick="saveScenePlanFromAttr(this)">儲存規劃</button>
                 <a class="btn btn-ghost btn-sm" href="/check?chapter={{$.Name | urlquery}}&scene={{.Title | urlquery}}">審查這個 scene</a>
               </div>
             </div>
@@ -196,6 +196,11 @@ function sceneFieldValue(chapterName, sceneTitle, field) {
   const selector = `.scene-plan-input[data-chapter="${CSS.escape(chapterName)}"][data-scene="${CSS.escape(sceneTitle)}"][data-field="${field}"]`;
   const el = document.querySelector(selector);
   return el ? el.value : '';
+}
+
+function saveScenePlanFromAttr(button) {
+  if (!button) return;
+  saveScenePlan(button.dataset.chapter || '', button.dataset.scene || '');
 }
 
 async function saveScenePlan(chapterName, sceneTitle) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -61,6 +62,8 @@ func (s *Server) loadScenePlans(chapterName string) (map[string]scenePlan, error
 		if title == "" {
 			continue
 		}
+		// Plans are keyed by scene title, so renaming a scene in markdown can
+		// leave behind orphaned sidecar entries until a future cleanup step prunes them.
 		item.Title = title
 		items[title] = item
 	}
@@ -92,6 +95,9 @@ func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
 	for _, item := range items {
 		out.Items = append(out.Items, item)
 	}
+	sort.Slice(out.Items, func(i, j int) bool {
+		return out.Items[i].Title < out.Items[j].Title
+	})
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err

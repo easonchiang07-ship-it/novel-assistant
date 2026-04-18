@@ -1,6 +1,9 @@
 package server
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"novel-assistant/internal/config"
@@ -114,5 +117,77 @@ Zhang Lei stood in the rain.`)
 	}
 	if scene2.Preview == "" {
 		t.Fatal("expected scene 2 preview to be populated")
+	}
+}
+
+func TestBuildChapterOverviewsKeepsPlainChaptersWithoutSceneBoard(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		history:    reviewhistory.New(dir + "/reviews.json"),
+		timeline:   tracker.NewTimelineTracker(dir + "/timeline.json"),
+		foreshadow: tracker.NewForeshadowTracker(dir + "/foreshadow.json"),
+	}
+
+	if _, err := s.saveChapterFile("第02章", "Lin Hao walked alone through the station."); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	overviews, err := s.buildChapterOverviews()
+	if err != nil {
+		t.Fatalf("build chapter overviews: %v", err)
+	}
+	if len(overviews) != 1 {
+		t.Fatalf("expected 1 chapter overview, got %d", len(overviews))
+	}
+	if overviews[0].SceneCount != 0 {
+		t.Fatalf("expected 0 scenes, got %d", overviews[0].SceneCount)
+	}
+	if len(overviews[0].SceneCards) != 0 {
+		t.Fatalf("expected no scene cards, got %d", len(overviews[0].SceneCards))
+	}
+}
+
+func TestBuildChapterOverviewsIgnoresCorruptScenePlanSidecar(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		history:    reviewhistory.New(dir + "/reviews.json"),
+		timeline:   tracker.NewTimelineTracker(dir + "/timeline.json"),
+		foreshadow: tracker.NewForeshadowTracker(dir + "/foreshadow.json"),
+	}
+
+	if _, err := s.saveChapterFile("第03章", `## Scene 1: Opening
+Lin Hao opened the case file.`); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	sidecarPath, err := s.scenePlanPath("第03章.md")
+	if err != nil {
+		t.Fatalf("scenePlanPath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(sidecarPath), 0755); err != nil {
+		t.Fatalf("mkdir sidecar dir: %v", err)
+	}
+	if err := os.WriteFile(sidecarPath, []byte("{not valid json"), 0644); err != nil {
+		t.Fatalf("write corrupt sidecar: %v", err)
+	}
+
+	overviews, err := s.buildChapterOverviews()
+	if err != nil {
+		t.Fatalf("expected corrupt sidecar to be ignored, got error: %v", err)
+	}
+	if len(overviews) != 1 || len(overviews[0].SceneCards) != 1 {
+		t.Fatalf("expected one chapter with one scene card, got %#v", overviews)
+	}
+	scene := overviews[0].SceneCards[0]
+	if strings.TrimSpace(scene.Synopsis) != "" || strings.TrimSpace(scene.POV) != "" {
+		t.Fatalf("expected empty fallback scene plan metadata, got %#v", scene)
 	}
 }

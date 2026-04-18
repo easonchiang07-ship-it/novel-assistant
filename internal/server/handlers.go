@@ -9,6 +9,7 @@ import (
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/tracker"
 	"strconv"
 	"strings"
@@ -18,10 +19,31 @@ import (
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-type chanWriter struct{ ch chan<- string }
+type streamEvent struct {
+	Event   string
+	Text    string
+	Sources []referenceSummary
+}
+
+type referenceSummary struct {
+	Name         string  `json:"name"`
+	Type         string  `json:"type"`
+	Excerpt      string  `json:"excerpt"`
+	Score        float64 `json:"score"`
+	MatchReason  string  `json:"match_reason"`
+	ChapterMatch string  `json:"chapter_match"`
+}
+
+type chanWriter struct {
+	ch         chan<- streamEvent
+	transcript *strings.Builder
+}
 
 func (cw *chanWriter) Write(p []byte) (n int, err error) {
-	cw.ch <- string(p)
+	if cw.transcript != nil {
+		cw.transcript.Write(p)
+	}
+	cw.ch <- streamEvent{Event: "chunk", Text: string(p)}
 	return len(p), nil
 }
 
@@ -51,6 +73,30 @@ func saveOrAbort(c *gin.Context, err error, action string) bool {
 	return false
 }
 
+func reviewBiasInstruction(mode string) string {
+	switch mode {
+	case "strict":
+		return "偏挑錯模式：優先指出矛盾、違和與模糊處，語氣直接，少做保留。"
+	case "coaching":
+		return "偏修稿建議模式：除了指出問題，也請提供具體修改方向與可執行建議。"
+	case "conservative":
+		return "偏保守模式：只有在問題明顯時才指出，避免過度挑剔。"
+	default:
+		return "平衡模式：兼顧指出問題與肯定有效之處。"
+	}
+}
+
+func rewriteBiasInstruction(mode string) string {
+	switch mode {
+	case "expressive":
+		return "本次修稿偏好：在不破壞原意的前提下，可以適度加強文氣、意象與敘述張力。"
+	case "structural":
+		return "本次修稿偏好：優先整理段落結構、節奏與資訊揭露順序。"
+	default:
+		return "本次修稿偏好：盡量忠於原稿，只做必要調整。"
+	}
+}
+
 func joinProfiles(items []vectorProfile) string {
 	if len(items) == 0 {
 		return ""
@@ -64,9 +110,68 @@ func joinProfiles(items []vectorProfile) string {
 }
 
 type vectorProfile struct {
-	Name    string
-	Type    string
-	Content string
+	Name         string
+	Type         string
+	Content      string
+	Score        float64
+	MatchReason  string
+	ChapterMatch string
+}
+
+func excerptText(content string) string {
+	compacted := strings.Join(strings.Fields(strings.ReplaceAll(content, "\n", " ")), " ")
+	if len(compacted) <= 120 {
+		return compacted
+	}
+	return compacted[:120] + "..."
+}
+
+func summarizeReferences(items []vectorProfile) []referenceSummary {
+	summaries := make([]referenceSummary, 0, len(items))
+	for _, item := range items {
+		summaries = append(summaries, referenceSummary{
+			Name:         item.Name,
+			Type:         item.Type,
+			Excerpt:      excerptText(item.Content),
+			Score:        item.Score,
+			MatchReason:  item.MatchReason,
+			ChapterMatch: item.ChapterMatch,
+		})
+	}
+	return summaries
+}
+
+func referenceNames(items []vectorProfile) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, fmt.Sprintf("%s:%s", item.Type, item.Name))
+	}
+	return names
+}
+
+func filterReferencesByType(items []vectorProfile, refType string) []vectorProfile {
+	var filtered []vectorProfile
+	for _, item := range items {
+		if item.Type == refType {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func joinWorldProfiles(refs []vectorProfile, worlds []*profile.WorldSetting) string {
+	if len(refs) > 0 {
+		return joinProfiles(refs)
+	}
+	if len(worlds) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(worlds))
+	for _, world := range worlds {
+		parts = append(parts, world.RawContent)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func (s *Server) resolveStyles(req checkRequest) ([]*profile.StyleGuide, error) {
@@ -106,18 +211,99 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter string) ([]v
 		return nil, err
 	}
 
-	docs := s.store.Query(queryVec, 4, "")
+	docs := s.store.QueryScored(queryVec, 4, "")
 	results := make([]vectorProfile, 0, len(docs))
 	for _, doc := range docs {
 		name := strings.TrimPrefix(doc.ID, "char_")
 		name = strings.TrimPrefix(name, "world_")
+		name = strings.TrimPrefix(name, "style_")
+		reason, snippet := referenceMatchDetail(chapter, name, doc.Content)
 		results = append(results, vectorProfile{
-			Name:    name,
-			Type:    doc.Type,
-			Content: doc.Content,
+			Name:         name,
+			Type:         doc.Type,
+			Content:      doc.Content,
+			Score:        doc.Score,
+			MatchReason:  reason,
+			ChapterMatch: snippet,
 		})
 	}
 	return results, nil
+}
+
+func referenceMatchDetail(chapter, name, content string) (string, string) {
+	if snippet := chapterSnippetAround(chapter, name); snippet != "" {
+		return "章節直接提到此參考名稱", snippet
+	}
+
+	keywords := extractReferenceKeywords(content)
+	for _, keyword := range keywords {
+		if snippet := chapterSnippetAround(chapter, keyword); snippet != "" {
+			return fmt.Sprintf("章節命中參考關鍵詞「%s」", keyword), snippet
+		}
+	}
+
+	return "由向量相似度命中此參考", excerptText(chapter)
+}
+
+func chapterSnippetAround(chapter, needle string) string {
+	chapter = strings.TrimSpace(chapter)
+	needle = strings.TrimSpace(needle)
+	if chapter == "" || needle == "" {
+		return ""
+	}
+
+	idx := strings.Index(chapter, needle)
+	if idx < 0 {
+		return ""
+	}
+
+	start := idx - 24
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(needle) + 24
+	if end > len(chapter) {
+		end = len(chapter)
+	}
+	snippet := strings.TrimSpace(chapter[start:end])
+	if start > 0 {
+		snippet = "..." + snippet
+	}
+	if end < len(chapter) {
+		snippet += "..."
+	}
+	return snippet
+}
+
+func extractReferenceKeywords(content string) []string {
+	fields := strings.FieldsFunc(content, func(r rune) bool {
+		return r == '\n' || r == '\r' || r == ' ' || r == '：' || r == ':' || r == '、' || r == '，' || r == ',' || r == '-' || r == '。'
+	})
+
+	seen := make(map[string]struct{})
+	keywords := make([]string, 0, 6)
+	for _, field := range fields {
+		trimmed := strings.TrimSpace(field)
+		if len([]rune(trimmed)) < 2 {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			trimmed = strings.TrimPrefix(trimmed, "#")
+			trimmed = strings.TrimSpace(trimmed)
+		}
+		if len([]rune(trimmed)) < 2 {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		keywords = append(keywords, trimmed)
+		if len(keywords) == 6 {
+			break
+		}
+	}
+	return keywords
 }
 
 func (s *Server) resolveCharacters(req checkRequest) []*profile.Character {
@@ -147,13 +333,20 @@ func (s *Server) handleIndex(c *gin.Context) {
 			open++
 		}
 	}
+	chapters, err := s.listChapterFiles()
+	if err != nil {
+		log.Printf("list chapters: %v", err)
+	}
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"Title":          "儀表板",
 		"CharCount":      len(s.profiles.Characters),
 		"WorldCount":     len(s.profiles.Worlds),
+		"StyleCount":     len(s.profiles.Styles),
+		"ChapterCount":   len(chapters),
 		"RelCount":       len(s.relationships.GetAll()),
 		"EventCount":     len(s.timeline.GetSorted()),
 		"ForeshadowOpen": open,
+		"HistoryCount":   len(s.history.Recent(200)),
 		"VectorCount":    s.store.Len(),
 	})
 }
@@ -166,11 +359,28 @@ func (s *Server) handleCharacters(c *gin.Context) {
 	})
 }
 
+func (s *Server) handleStylesPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "styles.html", gin.H{
+		"Title":  "風格管理",
+		"Styles": s.profiles.Styles,
+	})
+}
+
 func (s *Server) handleCheckPage(c *gin.Context) {
+	chapters, err := s.listChapterFiles()
+	if err != nil {
+		log.Printf("list chapters: %v", err)
+	}
+	rules := s.rules.Get()
 	c.HTML(http.StatusOK, "check.html", gin.H{
-		"Title":      "一致性審查",
-		"Characters": s.profiles.Characters,
-		"Styles":     s.profiles.Styles,
+		"Title":         "一致性審查",
+		"Characters":    s.profiles.Characters,
+		"Styles":        s.profiles.Styles,
+		"Chapters":      chapters,
+		"DefaultChecks": rules.DefaultChecks,
+		"DefaultStyles": rules.DefaultStyles,
+		"ReviewBias":    rules.ReviewBias,
+		"RewriteBias":   rules.RewriteBias,
 	})
 }
 
@@ -215,10 +425,12 @@ func (s *Server) handleIngest(c *gin.Context) {
 // ─── check stream ─────────────────────────────────────────────────────────────
 
 type checkRequest struct {
-	Chapter    string   `json:"chapter"`
-	Characters []string `json:"characters"`
-	Checks     []string `json:"checks"` // ["behavior","dialogue","style"]
-	Styles     []string `json:"styles"` // 指定風格名稱；空白 = 所有風格
+	Chapter      string   `json:"chapter"`
+	Characters   []string `json:"characters"`
+	Checks       []string `json:"checks"` // ["behavior","dialogue","style","world"]
+	Styles       []string `json:"styles"` // 指定風格名稱；空白 = 所有風格
+	ChapterFile  string   `json:"chapter_file"`
+	ChapterTitle string   `json:"chapter_title"`
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -236,54 +448,103 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		return
 	}
 
-	msgChan := make(chan string, 512)
+	msgChan := make(chan streamEvent, 512)
 	ctx, cancel := context.WithCancel(c.Request.Context())
+	var transcript strings.Builder
+	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
 
 	go func() {
 		defer close(msgChan)
 		defer cancel()
 
-		cw := &chanWriter{ch: msgChan}
+		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		charsToCheck := s.resolveCharacters(req)
 		if len(charsToCheck) == 0 {
-			msgChan <- "\n> 找不到可審查的角色，請先建立角色設定檔。\n"
+			text := "\n> 找不到可審查的角色，請先建立角色設定檔。\n"
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
 			return
 		}
 
 		references, err := s.buildReferenceContext(ctx, req.Chapter)
 		if err != nil {
-			msgChan <- fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
+			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
+			msgChan <- streamEvent{Event: "sources", Sources: nil}
 		} else if len(references) > 0 {
-			msgChan <- "### 本地參考上下文\n\n"
+			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
+			transcript.WriteString("### 本地參考上下文\n\n")
+			msgChan <- streamEvent{Event: "chunk", Text: "### 本地參考上下文\n\n"}
 			for _, ref := range references {
-				msgChan <- fmt.Sprintf("- [%s] %s\n", ref.Type, ref.Name)
+				text := fmt.Sprintf("- [%s] %s：%s\n", ref.Type, ref.Name, excerptText(ref.Content))
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
-			msgChan <- "\n"
+			transcript.WriteString("\n")
+			msgChan <- streamEvent{Event: "chunk", Text: "\n"}
+		} else {
+			msgChan <- streamEvent{Event: "sources", Sources: nil}
 		}
 
 		referenceText := joinProfiles(references)
+		worldText := joinWorldProfiles(filterReferencesByType(references, "world"), s.profiles.Worlds)
+		if contains(req.Checks, "world") {
+			if strings.TrimSpace(worldText) == "" {
+				text := "\n> 尚無世界觀設定可供審查，請先新增 worldbuilding 檔案或重新索引。\n"
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			} else {
+				transcript.WriteString("\n\n## 世界觀衝突審查\n\n")
+				msgChan <- streamEvent{Event: "chunk", Text: "\n\n## 世界觀衝突審查\n\n"}
+				worldPrompt := worldText + "\n\n【審查偏好】\n" + reviewBias
+				if err := s.checker.CheckWorldConflictStream(ctx, worldPrompt, req.Chapter, cw); err != nil {
+					if ctx.Err() == nil {
+						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+						transcript.WriteString(text)
+						msgChan <- streamEvent{Event: "chunk", Text: text}
+					}
+					return
+				}
+			}
+		}
+
 		for _, char := range charsToCheck {
-			msgChan <- fmt.Sprintf("\n\n## 角色：%s\n\n", char.Name)
+			text := fmt.Sprintf("\n\n## 角色：%s\n\n", char.Name)
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
 
 			if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
-				msgChan <- "### 行為一致性審查\n\n"
+				transcript.WriteString("### 行為一致性審查\n\n")
+				msgChan <- streamEvent{Event: "chunk", Text: "### 行為一致性審查\n\n"}
 				profileText := char.RawContent
+				profileText += "\n\n【審查偏好】\n" + reviewBias
 				if referenceText != "" {
 					profileText += "\n\n【補充參考資料】\n" + referenceText
 				}
 				if err := s.checker.CheckBehaviorStream(ctx, profileText, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
-						msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+						transcript.WriteString(text)
+						msgChan <- streamEvent{Event: "chunk", Text: text}
 					}
 					return
 				}
 			}
 
 			if contains(req.Checks, "dialogue") {
-				msgChan <- "\n\n### 對白風格審查\n\n"
-				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, char.SpeechStyle, req.Chapter, cw); err != nil {
+				transcript.WriteString("\n\n### 對白風格審查\n\n")
+				msgChan <- streamEvent{Event: "chunk", Text: "\n\n### 對白風格審查\n\n"}
+				dialogueStyle := char.SpeechStyle
+				if dialogueStyle != "" {
+					dialogueStyle += "；"
+				}
+				dialogueStyle += reviewBias
+				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
-						msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+						transcript.WriteString(text)
+						msgChan <- streamEvent{Event: "chunk", Text: text}
 					}
 					return
 				}
@@ -293,20 +554,50 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		// 寫作風格審查（獨立於角色，逐一套用所選風格）
 		stylesToCheck, err := s.resolveStyles(req)
 		if err != nil {
-			msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+			text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
 			return
 		}
 		for _, sg := range stylesToCheck {
-			msgChan <- fmt.Sprintf("\n\n## 寫作風格：%s\n\n### 風格一致性審查\n\n", sg.Name)
-			if err := s.checker.CheckStyleStream(ctx, sg.RawContent, req.Chapter, cw); err != nil {
+			text := fmt.Sprintf("\n\n## 寫作風格：%s\n\n### 風格一致性審查\n\n", sg.Name)
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
+			stylePrompt := sg.RawContent + "\n\n【審查偏好】\n" + reviewBias
+			if err := s.checker.CheckStyleStream(ctx, stylePrompt, req.Chapter, cw); err != nil {
 				if ctx.Err() == nil {
-					msgChan <- fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+					transcript.WriteString(text)
+					msgChan <- streamEvent{Event: "chunk", Text: text}
 				}
 				return
 			}
 		}
 
-		msgChan <- "\n\n---\n審查完成\n"
+		completion := "\n\n---\n審查完成\n"
+		msgChan <- streamEvent{Event: "chunk", Text: completion}
+		transcript.WriteString(completion)
+
+		chapterFile := strings.TrimSpace(req.ChapterFile)
+		chapterTitle := strings.TrimSpace(req.ChapterTitle)
+		if chapterTitle == "" && chapterFile != "" {
+			chapterTitle = strings.TrimSuffix(chapterFile, ".md")
+		}
+		if chapterTitle == "" {
+			chapterTitle = "未命名章節"
+		}
+		s.history.Add(&reviewhistory.Entry{
+			Kind:         "review",
+			ChapterTitle: chapterTitle,
+			ChapterFile:  chapterFile,
+			Checks:       append([]string(nil), req.Checks...),
+			Styles:       append([]string(nil), req.Styles...),
+			Sources:      referenceNames(references),
+			Result:       transcript.String(),
+		})
+		if err := s.history.Save(); err != nil {
+			log.Printf("save review history: %v", err)
+		}
 	}()
 
 	c.Header("Content-Type", "text/event-stream")
@@ -320,7 +611,148 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			if !ok {
 				return false
 			}
-			c.SSEvent("chunk", gin.H{"text": msg})
+			if msg.Event == "sources" {
+				c.SSEvent("sources", gin.H{"items": msg.Sources})
+				return true
+			}
+			c.SSEvent("chunk", gin.H{"text": msg.Text})
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	})
+}
+
+type rewriteRequest struct {
+	Chapter      string   `json:"chapter"`
+	Mode         string   `json:"mode"`
+	Characters   []string `json:"characters"`
+	Styles       []string `json:"styles"`
+	ChapterFile  string   `json:"chapter_file"`
+	ChapterTitle string   `json:"chapter_title"`
+}
+
+func rewriteInstruction(mode string) (string, error) {
+	switch mode {
+	case "conservative":
+		return "請做保守修訂：保留原本情節與語意，只修正違和、措辭與局部節奏。", nil
+	case "style":
+		return "請做風格強化修訂：在不改變事件順序的前提下，讓文氣更貼近選定寫作風格。", nil
+	case "structural":
+		return "請做結構修訂：允許調整段落順序、鋪陳與揭露節奏，讓場景張力更完整。", nil
+	default:
+		return "", fmt.Errorf("未知的修稿模式：%s", mode)
+	}
+}
+
+func (s *Server) handleRewriteStream(c *gin.Context) {
+	var req rewriteRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Chapter) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+
+	instruction, err := rewriteInstruction(req.Mode)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	stylesReq := checkRequest{Checks: []string{"style"}, Styles: req.Styles}
+	styles, err := s.resolveStyles(stylesReq)
+	if len(req.Styles) > 0 && err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	msgChan := make(chan streamEvent, 256)
+	var transcript strings.Builder
+	rewriteBias := rewriteBiasInstruction(s.rules.Get().RewriteBias)
+
+	go func() {
+		defer close(msgChan)
+		defer cancel()
+
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter)
+		cw := &chanWriter{ch: msgChan, transcript: &transcript}
+		if refErr != nil {
+			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", refErr.Error())
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
+		} else {
+			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
+		}
+
+		var promptParts []string
+		promptParts = append(promptParts, instruction)
+		promptParts = append(promptParts, rewriteBias)
+		if len(styles) > 0 {
+			var styleTexts []string
+			for _, style := range styles {
+				styleTexts = append(styleTexts, style.RawContent)
+			}
+			promptParts = append(promptParts, "【寫作風格參考】\n"+strings.Join(styleTexts, "\n\n"))
+		}
+		if len(references) > 0 {
+			promptParts = append(promptParts, "【補充參考資料】\n"+joinProfiles(references))
+		}
+		promptParts = append(promptParts, "【原始章節】\n"+req.Chapter)
+
+		if err := s.checker.RewriteChapterStream(ctx, strings.Join(promptParts, "\n\n"), cw); err != nil {
+			if ctx.Err() == nil {
+				text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+			return
+		}
+
+		done := "\n\n---\n修稿完成\n"
+		msgChan <- streamEvent{Event: "chunk", Text: done}
+		transcript.WriteString(done)
+
+		title := strings.TrimSpace(req.ChapterTitle)
+		if title == "" && req.ChapterFile != "" {
+			title = strings.TrimSuffix(req.ChapterFile, ".md")
+		}
+		if title == "" {
+			title = "未命名章節"
+		}
+		s.history.Add(&reviewhistory.Entry{
+			Kind:         "rewrite",
+			ChapterTitle: title,
+			ChapterFile:  strings.TrimSpace(req.ChapterFile),
+			RewriteMode:  req.Mode,
+			Styles:       append([]string(nil), req.Styles...),
+			Sources:      referenceNames(references),
+			Result:       transcript.String(),
+		})
+		if err := s.history.Save(); err != nil {
+			log.Printf("save rewrite history: %v", err)
+		}
+	}()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	c.Stream(func(w io.Writer) bool {
+		select {
+		case msg, ok := <-msgChan:
+			if !ok {
+				return false
+			}
+			if msg.Event == "sources" {
+				c.SSEvent("sources", gin.H{"items": msg.Sources})
+				return true
+			}
+			c.SSEvent("chunk", gin.H{"text": msg.Text})
 			return true
 		case <-ctx.Done():
 			return false

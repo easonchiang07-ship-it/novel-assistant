@@ -1,6 +1,10 @@
 package profile
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseCharacterParsesSupportedFields(t *testing.T) {
 	t.Parallel()
@@ -42,5 +46,43 @@ func TestParseStyleGuideParsesSupportedFields(t *testing.T) {
 	}
 	if style.Forbidden != "避免全知旁白" {
 		t.Fatalf("expected forbidden parsed, got %q", style.Forbidden)
+	}
+}
+
+func TestLoadIndexesCharacterAppearancesFromChapters(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "characters"), 0755); err != nil {
+		t.Fatalf("mkdir characters: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "chapters"), 0755); err != nil {
+		t.Fatalf("mkdir chapters: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "characters", "林昊.md"), []byte("# 角色：林昊\n- 個性：沉默"), 0644); err != nil {
+		t.Fatalf("write character: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chapters", "第01章_開場.md"), []byte("林昊走進房間。"), 0644); err != nil {
+		t.Fatalf("write chapter 1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chapters", "第02章_雨夜.md"), []byte("張雷在雨中等待。"), 0644); err != nil {
+		t.Fatalf("write chapter 2: %v", err)
+	}
+
+	manager := NewManager(dir)
+	if err := manager.Load(); err != nil {
+		t.Fatalf("load manager: %v", err)
+	}
+
+	char := manager.FindByName("林昊")
+	if char == nil {
+		t.Fatal("expected character 林昊 to be loaded")
+	}
+	if len(char.Appearances) != 1 {
+		t.Fatalf("expected 1 appearance, got %d", len(char.Appearances))
+	}
+	if char.Appearances[0].ChapterTitle != "第01章_開場" {
+		t.Fatalf("unexpected appearance title: %s", char.Appearances[0].ChapterTitle)
 	}
 }

@@ -26,6 +26,14 @@
         <div class="stat-label">世界觀文件</div>
       </div>
       <div class="stat-card">
+        <div class="stat-num">{{.ChapterCount}}</div>
+        <div class="stat-label">章節檔案</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.StyleCount}}</div>
+        <div class="stat-label">風格設定</div>
+      </div>
+      <div class="stat-card">
         <div class="stat-num">{{.RelCount}}</div>
         <div class="stat-label">關係紀錄</div>
       </div>
@@ -40,6 +48,10 @@
       <div class="stat-card">
         <div class="stat-num">{{.VectorCount}}</div>
         <div class="stat-label">向量索引數</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.HistoryCount}}</div>
+        <div class="stat-label">審查歷史</div>
       </div>
     </div>
 
@@ -70,7 +82,23 @@
             <div style="color:#64748b;font-size:0.85rem">記錄重要事件，避免前後矛盾</div>
           </div>
         </a>
+        <a href="/history" style="text-decoration:none">
+          <div style="background:#231e35;border:1px solid #3d2d70;border-radius:8px;padding:20px;cursor:pointer">
+            <div style="color:#a78bfa;font-weight:700;margin-bottom:6px">審查歷史</div>
+            <div style="color:#64748b;font-size:0.85rem">回看每次審查與修稿輸出（{{.HistoryCount}} 筆）</div>
+          </div>
+        </a>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>專案模板</h2>
+      <p class="muted">快速套用 starter 模板，直接生成角色、世界觀、風格與章節範例，適合開新專案或測試流程。</p>
+      <div class="template-grid">
+        <button class="btn btn-ghost" type="button" onclick="applyTemplate('urban-fantasy')">都市奇幻模板</button>
+        <button class="btn btn-ghost" type="button" onclick="applyTemplate('mystery')">懸疑推理模板</button>
+      </div>
+      <div id="template-status" class="helper-text">套用後請重新索引，新的資產才會進入本地知識庫。</div>
     </div>
 
     <div class="grid-2">
@@ -84,11 +112,11 @@
           </div>
           <div class="workflow-step">
             <div class="workflow-title">2. 再寫場景</div>
-            <div class="workflow-copy">每次審查都以單一章節或場景為單位，系統會優先抓出章節中出現的角色。</div>
+            <div class="workflow-copy">每次審查都以單一章節或場景為單位，現在也能直接從 <code>data/chapters/</code> 載入與儲存章節。</div>
           </div>
           <div class="workflow-step">
             <div class="workflow-title">3. 最後回補結構</div>
-            <div class="workflow-copy">審查結果可回寫到時間軸或伏筆頁面，形成可追蹤的修稿紀錄。</div>
+            <div class="workflow-copy">審查結果可直接回寫到時間軸、伏筆追蹤與角色關係，形成可追蹤的修稿紀錄。</div>
           </div>
         </div>
       </div>
@@ -110,7 +138,7 @@
             <strong>{{.WorldCount}}</strong>
           </div>
         </div>
-        <p class="muted" style="margin-top:14px">重新索引後，一致性審查會顯示「本地參考上下文」，讓你知道本輪分析實際用了哪些資料。</p>
+        <p class="muted" style="margin-top:14px">重新索引後，一致性審查會顯示帶摘要的參考來源卡片，讓你知道本輪分析實際用了哪些資料。</p>
       </div>
     </div>
 
@@ -120,12 +148,34 @@
         <li>在 <code style="color:#a78bfa">data/characters/</code> 新增角色設定 <code style="color:#a78bfa">.md</code> 檔案</li>
         <li>在 <code style="color:#a78bfa">data/worldbuilding/</code> 新增世界觀設定</li>
         <li>點擊左側「重新索引」，建立本地知識庫</li>
-        <li>前往「一致性審查」貼上單一章節或單一場景，開始分析</li>
-        <li>把重要變化補記到「關係圖 / 時間軸 / 伏筆追蹤」，讓下一次審查有更穩定的上下文</li>
+        <li>前往「一致性審查」從章節檔案庫載入章節，或直接貼上單一場景內容</li>
+        <li>審查完成後，直接把重點回寫到「關係圖 / 時間軸 / 伏筆追蹤」，讓下一次審查有更穩定的上下文</li>
       </ol>
     </div>
   </main>
 </div>
+<script>
+async function applyTemplate(template) {
+  const status = document.getElementById('template-status');
+  status.textContent = '套用模板中...';
+  status.style.color = '#94a3b8';
+  try {
+    const resp = await fetch('/api/templates/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '套用模板失敗');
+
+    const created = (data.created || []).length ? `新增檔案：${data.created.join('、')}` : '所有模板檔案都已存在。';
+    status.textContent = `${data.message} ${created}`;
+  } catch (e) {
+    status.textContent = '套用模板失敗：' + e.message;
+    status.style.color = '#fca5a5';
+  }
+}
+</script>
 </body>
 </html>
 {{end}}

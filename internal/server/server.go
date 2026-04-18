@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
 
@@ -21,6 +25,8 @@ type Server struct {
 	store         *vectorstore.Store
 	embedder      *embedder.OllamaEmbedder
 	checker       *checker.Checker
+	rules         *reviewrules.Store
+	history       *reviewhistory.Store
 	relationships *tracker.RelationshipTracker
 	timeline      *tracker.TimelineTracker
 	foreshadow    *tracker.ForeshadowTracker
@@ -41,6 +47,14 @@ func New(cfg *config.Config) (*Server, error) {
 
 	s.embedder = embedder.New(cfg.OllamaURL, cfg.EmbedModel)
 	s.checker = checker.New(cfg.OllamaURL, cfg.LLMModel)
+	s.rules = reviewrules.New(cfg.DataDir + "/review_rules.json")
+	if err := s.rules.Load(); err != nil {
+		log.Printf("review rules load: %v", err)
+	}
+	s.history = reviewhistory.New(cfg.DataDir + "/reviews.json")
+	if err := s.history.Load(); err != nil {
+		log.Printf("review history load: %v", err)
+	}
 
 	s.relationships = tracker.NewRelationshipTracker(cfg.DataDir + "/relationships.json")
 	if err := s.relationships.Load(); err != nil {
@@ -59,6 +73,15 @@ func New(cfg *config.Config) (*Server, error) {
 
 	gin.SetMode(gin.ReleaseMode)
 	s.router = gin.Default()
+	s.router.SetFuncMap(template.FuncMap{
+		"jsonJS": func(v any) template.JS {
+			data, err := json.Marshal(v)
+			if err != nil {
+				return template.JS("null")
+			}
+			return template.JS(data)
+		},
+	})
 	s.router.LoadHTMLGlob("web/templates/*.html")
 	s.router.Static("/static", "web/static")
 	s.setupRoutes()
@@ -70,14 +93,32 @@ func (s *Server) setupRoutes() {
 	r := s.router
 
 	r.GET("/", s.handleIndex)
+	r.GET("/chapters", s.handleChaptersPage)
 	r.GET("/characters", s.handleCharacters)
+	r.GET("/history", s.handleHistoryPage)
+	r.GET("/settings", s.handleSettingsPage)
+	r.GET("/styles", s.handleStylesPage)
 	r.GET("/check", s.handleCheckPage)
 	r.GET("/relationships", s.handleRelationshipsPage)
 	r.GET("/timeline", s.handleTimelinePage)
 	r.GET("/foreshadow", s.handleForeshadowPage)
+	r.GET("/api/history/:id", s.handleGetHistoryEntry)
+	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
+	r.GET("/api/chapters", s.handleListChapters)
+	r.GET("/api/chapters/:name", s.handleGetChapter)
 
 	r.POST("/ingest", s.handleIngest)
+	r.POST("/api/chapters", s.handleSaveChapter)
+	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
+	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
+	r.POST("/api/history/export", s.handleExportHistory)
+	r.POST("/api/settings", s.handleSaveSettings)
 	r.POST("/check/stream", s.handleCheckStream)
+	r.POST("/rewrite/stream", s.handleRewriteStream)
+	r.POST("/api/templates/apply", s.handleApplyTemplate)
+	r.POST("/api/writeback/timeline", s.handleWritebackTimeline)
+	r.POST("/api/writeback/foreshadow", s.handleWritebackForeshadow)
+	r.POST("/api/writeback/relationship", s.handleWritebackRelationship)
 
 	r.POST("/relationships", s.handleAddRelationship)
 	r.POST("/relationships/delete", s.handleDeleteRelationship)

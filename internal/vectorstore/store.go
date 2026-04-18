@@ -21,6 +21,11 @@ type Store struct {
 	filepath string
 }
 
+type ScoredDocument struct {
+	Document
+	Score float64
+}
+
 func New(filepath string) *Store {
 	return &Store{filepath: filepath}
 }
@@ -73,6 +78,15 @@ func (s *Store) Len() int {
 }
 
 func (s *Store) Query(queryVec []float64, topK int, docType string) []Document {
+	scored := s.QueryScored(queryVec, topK, docType)
+	out := make([]Document, 0, len(scored))
+	for _, item := range scored {
+		out = append(out, item.Document)
+	}
+	return out
+}
+
+func (s *Store) QueryScored(queryVec []float64, topK int, docType string) []ScoredDocument {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -88,9 +102,12 @@ func (s *Store) Query(queryVec []float64, topK int, docType string) []Document {
 		results = append(results, scored{d, cosine(queryVec, d.Embedding)})
 	}
 	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
-	out := make([]Document, 0, topK)
+	out := make([]ScoredDocument, 0, topK)
 	for i := 0; i < topK && i < len(results); i++ {
-		out = append(out, results[i].doc)
+		out = append(out, ScoredDocument{
+			Document: results[i].doc,
+			Score:    results[i].score,
+		})
 	}
 	return out
 }

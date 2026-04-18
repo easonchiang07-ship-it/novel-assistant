@@ -3,6 +3,7 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -71,7 +72,49 @@ func (m *Manager) Load() error {
 			}
 		}
 	}
+
+	m.indexCharacterAppearances()
 	return nil
+}
+
+func (m *Manager) indexCharacterAppearances() {
+	for _, char := range m.Characters {
+		char.Appearances = nil
+	}
+
+	chapterDir := filepath.Join(m.dataDir, "chapters")
+	entries, err := os.ReadDir(chapterDir)
+	if err != nil {
+		return
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			continue
+		}
+
+		path := filepath.Join(chapterDir, e.Name())
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		title := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+		text := string(content)
+		for _, char := range m.Characters {
+			if char.Name == "" || !strings.Contains(text, char.Name) {
+				continue
+			}
+			char.Appearances = append(char.Appearances, CharacterAppearance{
+				ChapterTitle: title,
+				FileName:     e.Name(),
+			})
+		}
+	}
 }
 
 func (m *Manager) AllStyleNames() []string {

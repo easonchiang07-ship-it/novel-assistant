@@ -1,0 +1,106 @@
+{{define "chapters.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>章節總覽 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>章節總覽</h1>
+      <p>快速查看每一章的字數、最後更新、出場角色、審查次數與未回收伏筆，也能直接建立候選設定草稿。</p>
+    </div>
+
+    {{if .Chapters}}
+    <div class="chapter-overview-list">
+      {{range .Chapters}}
+      <div class="card chapter-overview-card">
+        <div class="history-title-row">
+          <div>
+            <h2 style="margin-bottom:6px">{{.Title}}</h2>
+            <div class="helper-text">{{.Name}} ・ 最後更新 {{.UpdatedAt.Format "2006-01-02 15:04:05"}}</div>
+          </div>
+          <a class="btn btn-ghost btn-sm" href="/check?chapter={{.Name}}">載入到審查頁</a>
+        </div>
+
+        <div class="chapter-metrics">
+          <div class="rag-item"><span>字數</span><strong>{{.WordCount}}</strong></div>
+          <div class="rag-item"><span>審查紀錄</span><strong>{{.ReviewCount}}</strong></div>
+          <div class="rag-item"><span>時間軸事件</span><strong>{{.TimelineCount}}</strong></div>
+          <div class="rag-item"><span>未回收伏筆</span><strong>{{.OpenForeshadows}}</strong></div>
+        </div>
+
+        <div class="char-field char-field-block" style="margin-top:16px">
+          <span class="char-label">出場角色</span>
+          <span class="char-value">
+            {{if .Characters}}{{range $i, $name := .Characters}}{{if $i}}、{{end}}{{$name}}{{end}}{{else}}尚未命中既有角色{{end}}
+          </span>
+        </div>
+
+        <div class="chapter-signal-grid">
+          <div class="writeback-card">
+            <h3>角色候選</h3>
+            {{if .Signals.CharacterCandidates}}
+              {{range .Signals.CharacterCandidates}}
+              <div class="candidate-row">
+                <span>{{.}}</span>
+                <button class="btn btn-ghost btn-sm" type="button" onclick="createCandidateDraft('character', '{{.}}')">建立角色草稿</button>
+              </div>
+              {{end}}
+            {{else}}
+              <div class="empty-state">目前沒有新的角色候選。</div>
+            {{end}}
+          </div>
+
+          <div class="writeback-card">
+            <h3>地點 / 世界觀候選</h3>
+            {{if or .Signals.LocationCandidates .Signals.SettingCandidates}}
+              {{range .Signals.LocationCandidates}}
+              <div class="candidate-row">
+                <span>{{.}}</span>
+                <button class="btn btn-ghost btn-sm" type="button" onclick="createCandidateDraft('world', '{{.}}')">建立世界觀草稿</button>
+              </div>
+              {{end}}
+              {{range .Signals.SettingCandidates}}
+              <div class="candidate-row">
+                <span>{{.}}</span>
+                <button class="btn btn-ghost btn-sm" type="button" onclick="createCandidateDraft('world', '{{.}}')">建立世界觀草稿</button>
+              </div>
+              {{end}}
+            {{else}}
+              <div class="empty-state">目前沒有新的地點或設定候選。</div>
+            {{end}}
+          </div>
+        </div>
+      </div>
+      {{end}}
+    </div>
+    {{else}}
+    <div class="empty-state">目前沒有章節檔案。先到一致性審查頁建立一章，或在 <code>data/chapters/</code> 新增 Markdown 檔。</div>
+    {{end}}
+  </main>
+</div>
+<script>
+async function createCandidateDraft(type, name) {
+  try {
+    const resp = await fetch('/api/candidates/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, name })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '建立草稿失敗');
+    alert(data.message + '：' + data.file);
+  } catch (e) {
+    alert('建立草稿失敗：' + e.message);
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

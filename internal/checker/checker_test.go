@@ -3,6 +3,7 @@ package checker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -37,5 +38,31 @@ func TestExtractNamesFindsMentionedCharacters(t *testing.T) {
 	}
 	if names[0] != "林昊" || names[1] != "張雷" {
 		t.Fatalf("unexpected names: %v", names)
+	}
+}
+
+func TestCheckWorldConflictStreamUsesWorldPrompt(t *testing.T) {
+	t.Parallel()
+
+	var captured genReq
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "mock")
+	var out bytes.Buffer
+	if err := c.CheckWorldConflictStream(context.Background(), "世界規則", "章節內容", &out); err != nil {
+		t.Fatalf("expected stream success, got error: %v", err)
+	}
+	if !strings.Contains(captured.Prompt, "世界觀與規則設定") {
+		t.Fatalf("expected world prompt marker, got %q", captured.Prompt)
+	}
+	if !strings.Contains(out.String(), "ok") {
+		t.Fatalf("expected output to contain response, got %q", out.String())
 	}
 }

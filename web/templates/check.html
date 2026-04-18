@@ -13,18 +13,37 @@
   <main class="main-content">
     <div class="page-header">
       <h1>一致性審查</h1>
-      <p>貼上章節，系統會自動抓取章節角色與本地知識庫參考，再分析行為與對白是否符合設定</p>
+      <p>從章節檔案庫載入場景，查看本地參考來源，並把審查結果直接回寫到你的小說追蹤資料。</p>
     </div>
 
-    <div class="grid-2" style="align-items:start">
+    <div class="grid-2 review-layout" style="align-items:start">
 
-      <!-- 左欄：輸入 -->
       <div>
         <div class="card">
+          <h2>章節檔案庫</h2>
+          <p class="muted">支援從 <code>data/chapters/</code> 載入現有章節，也可以把目前編輯中的內容直接存回檔案。</p>
+          <div class="chapter-toolbar">
+            <select id="chapter-file-select">
+              <option value="">選擇章節檔案...</option>
+              {{range .Chapters}}
+              <option value="{{.Name}}">{{.Title}}</option>
+              {{end}}
+            </select>
+            <button class="btn btn-ghost" type="button" onclick="loadSelectedChapter()">載入</button>
+          </div>
+          <div class="chapter-toolbar" style="margin-top:12px">
+            <input type="text" id="chapter-file-name" placeholder="儲存檔名，例如：第03章_雨夜對峙">
+            <button class="btn btn-ghost" type="button" onclick="saveCurrentChapter()">儲存章節</button>
+          </div>
+          <div id="chapter-status" class="helper-text">目前尚未載入章節檔案。</div>
+        </div>
+
+        <div class="card">
           <h2>審查設定</h2>
+          <p class="helper-text">目前規則設定：審查偏好 {{.ReviewBias}} ・ 修稿偏好 {{.RewriteBias}}。可到「規則設定」頁調整。</p>
 
           <div class="form-group">
-            <label>檢查角色（不選則檢查所有角色）</label>
+            <label>檢查角色（不選則依章節自動辨識，若仍找不到則檢查所有角色）</label>
             <div class="checkbox-group">
               {{range .Characters}}
               <label class="checkbox-label">
@@ -50,8 +69,11 @@
                 對白風格
               </label>
               <label class="checkbox-label">
-                <input type="checkbox" name="checks" value="style" id="check-style"
-                  {{if not .Styles}}disabled title="尚無風格設定檔"{{end}}>
+                <input type="checkbox" name="checks" value="world">
+                世界觀衝突
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="checks" value="style" id="check-style" {{if not .Styles}}disabled title="尚無風格設定檔"{{end}}>
                 寫作風格
               </label>
             </div>
@@ -71,18 +93,122 @@
 
           <div class="form-group">
             <label>章節內容</label>
-            <textarea id="chapter" class="large" placeholder="貼上你的章節文字..."></textarea>
+            <textarea id="chapter" class="large" placeholder="貼上你的章節文字，或從上方章節檔案庫載入..."></textarea>
           </div>
 
           <button id="submit-btn" class="btn" onclick="runCheck()">開始審查</button>
         </div>
       </div>
 
-      <!-- 右欄：結果 -->
       <div>
+        <div class="card">
+          <h2>本地參考來源</h2>
+          <div id="source-box" class="source-box">
+            <div class="empty-state">尚未開始審查。重新索引後，這裡會顯示本次引用的角色、世界觀與風格資料。</div>
+          </div>
+        </div>
+
         <div class="card">
           <h2>審查結果</h2>
           <div id="result-box" class="result-box">等待輸入...</div>
+        </div>
+
+        <div id="rewrite-section" class="card">
+          <h2>修稿模式</h2>
+          <p class="muted">在完成審查後，直接套用不同修稿策略：保守修訂、強化風格、或重新整理結構節奏。</p>
+          <div class="rewrite-mode-grid">
+            <button class="btn btn-ghost" type="button" onclick="runRewrite('conservative')">保守修訂</button>
+            <button class="btn btn-ghost" type="button" onclick="runRewrite('style')">強化風格</button>
+            <button class="btn btn-ghost" type="button" onclick="runRewrite('structural')">結構修訂</button>
+          </div>
+          <div id="rewrite-box" class="result-box" style="margin-top:16px;min-height:180px">尚未執行修稿模式。</div>
+        </div>
+
+        <div id="writeback-section" style="display:none" class="card">
+          <h2>回寫到追蹤資料</h2>
+          <p class="muted">審查完成後，可把重點快速記錄到時間軸、伏筆追蹤或角色關係，不用離開這個頁面。</p>
+
+          <div class="writeback-grid">
+            <div class="writeback-card">
+              <h3>加入時間軸</h3>
+              <div class="form-group">
+                <label>章節編號</label>
+                <input type="number" id="writeback-chapter" min="1" placeholder="例：3">
+              </div>
+              <div class="form-group">
+                <label>場景名稱</label>
+                <input type="text" id="timeline-scene" placeholder="例：雨夜對峙">
+              </div>
+              <div class="form-group">
+                <label>事件描述</label>
+                <textarea id="timeline-description" class="compact-textarea"></textarea>
+              </div>
+              <div class="form-group">
+                <label>後續影響</label>
+                <input type="text" id="timeline-consequences" placeholder="這段審查對後續劇情的提醒">
+              </div>
+              <button class="btn btn-ghost" type="button" onclick="writebackTimeline()">加入時間軸</button>
+            </div>
+
+            <div class="writeback-card">
+              <h3>加入伏筆追蹤</h3>
+              <div class="form-group">
+                <label>章節編號</label>
+                <input type="number" id="foreshadow-chapter" min="1" placeholder="例：3">
+              </div>
+              <div class="form-group">
+                <label>伏筆描述</label>
+                <textarea id="foreshadow-description" class="compact-textarea"></textarea>
+              </div>
+              <div class="form-group">
+                <label>埋下方式</label>
+                <input type="text" id="foreshadow-planted" placeholder="這個伏筆在章節中如何出現">
+              </div>
+              <button class="btn btn-ghost" type="button" onclick="writebackForeshadow()">加入伏筆追蹤</button>
+            </div>
+          </div>
+
+          <div class="writeback-card" style="margin-top:16px">
+            <h3>更新角色關係</h3>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>角色 A</label>
+                <select id="relationship-from">
+                  <option value="">選擇角色</option>
+                  {{range .Characters}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+                </select>
+              </div>
+              <div class="form-group">
+                <label>角色 B</label>
+                <select id="relationship-to">
+                  <option value="">選擇角色</option>
+                  {{range .Characters}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+                </select>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label>關係狀態</label>
+                <select id="relationship-status">
+                  <option value="信任">信任</option>
+                  <option value="猜疑">猜疑</option>
+                  <option value="敵對">敵對</option>
+                  <option value="愛情">愛情</option>
+                  <option value="家人">家人</option>
+                  <option value="中立">中立</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>觸發事件</label>
+                <input type="text" id="relationship-trigger" placeholder="例：第3章雨夜對峙">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>備註</label>
+              <textarea id="relationship-note" class="compact-textarea"></textarea>
+            </div>
+            <button class="btn btn-ghost" type="button" onclick="writebackRelationship()">更新角色關係</button>
+          </div>
         </div>
 
         <div id="export-section" style="display:none" class="card">
@@ -107,38 +233,274 @@
 </div>
 
 <script>
-// 切換風格選擇器的顯示
+let currentChapterFile = '';
+let loadedHistoryEntry = null;
+const presetChecks = {{ jsonJS .DefaultChecks }};
+const presetStyles = {{ jsonJS .DefaultStyles }};
+
 document.addEventListener('DOMContentLoaded', () => {
   const styleCheck = document.getElementById('check-style');
   if (styleCheck) {
     styleCheck.addEventListener('change', () => {
-      document.getElementById('style-selector').style.display =
-        styleCheck.checked ? 'block' : 'none';
+      document.getElementById('style-selector').style.display = styleCheck.checked ? 'block' : 'none';
     });
   }
+  document.querySelectorAll('[name="checks"]').forEach((el) => {
+    el.checked = presetChecks.includes(el.value);
+  });
+  document.querySelectorAll('[name="styles"]').forEach((el) => {
+    el.checked = presetStyles.includes(el.value);
+  });
+  if (styleCheck) {
+    document.getElementById('style-selector').style.display = styleCheck.checked ? 'block' : 'none';
+  }
+  hydrateFromHistory();
 });
+
+function chapterTitleFromName(name) {
+  return (name || '').replace(/\.md$/i, '');
+}
+
+function inferChapterNumber(name) {
+  const matched = chapterTitleFromName(name).match(/(\d+)/);
+  return matched ? matched[1] : '';
+}
+
+function setChapterStatus(message, isError = false) {
+  const box = document.getElementById('chapter-status');
+  box.textContent = message;
+  box.style.color = isError ? '#fca5a5' : '#94a3b8';
+}
+
+function suggestedHistoryFilename(entry) {
+  const base = chapterTitleFromName(entry.chapter_file || entry.chapter_title || '未命名章節');
+  const suffix = entry.kind === 'rewrite' && entry.kind_version ? `_rewrite_v${entry.kind_version}` : '_history';
+  return `${base}${suffix}`;
+}
+
+function syncChapterDerivedFields() {
+  const title = chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim());
+  if (title && !document.getElementById('export-chapter').value.trim()) {
+    document.getElementById('export-chapter').value = title;
+  }
+
+  const number = inferChapterNumber(currentChapterFile || document.getElementById('chapter-file-name').value.trim());
+  if (number) {
+    if (!document.getElementById('writeback-chapter').value) document.getElementById('writeback-chapter').value = number;
+    if (!document.getElementById('foreshadow-chapter').value) document.getElementById('foreshadow-chapter').value = number;
+  }
+  if (title && !document.getElementById('timeline-scene').value.trim()) {
+    document.getElementById('timeline-scene').value = title;
+  }
+  if (title && !document.getElementById('relationship-trigger').value.trim()) {
+    document.getElementById('relationship-trigger').value = title;
+  }
+}
+
+async function loadSelectedChapter() {
+  const select = document.getElementById('chapter-file-select');
+  if (!select.value) {
+    setChapterStatus('請先選擇一個章節檔案。', true);
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/chapters/' + encodeURIComponent(select.value));
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '載入失敗');
+
+    currentChapterFile = data.name;
+    document.getElementById('chapter').value = data.content || '';
+    document.getElementById('chapter-file-name').value = data.name;
+    setChapterStatus('已載入章節：' + data.title);
+    syncChapterDerivedFields();
+  } catch (e) {
+    setChapterStatus('載入失敗：' + e.message, true);
+  }
+}
+
+async function loadChapterByName(name) {
+  const select = document.getElementById('chapter-file-select');
+  if (select) {
+    select.value = name;
+  }
+  await loadSelectedChapter();
+}
+
+async function saveCurrentChapter() {
+  const nameInput = document.getElementById('chapter-file-name');
+  const chapter = document.getElementById('chapter').value;
+  const name = nameInput.value.trim() || currentChapterFile;
+
+  if (!name) {
+    setChapterStatus('請先輸入章節檔名。', true);
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/chapters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content: chapter })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '儲存失敗');
+
+    currentChapterFile = data.name;
+    nameInput.value = data.name;
+    await refreshChapterOptions(data.name);
+    setChapterStatus('已儲存章節：' + data.title);
+    syncChapterDerivedFields();
+  } catch (e) {
+    setChapterStatus('儲存失敗：' + e.message, true);
+  }
+}
+
+async function refreshChapterOptions(selectedName = '') {
+  const resp = await fetch('/api/chapters');
+  const data = await resp.json();
+  const select = document.getElementById('chapter-file-select');
+  select.innerHTML = '<option value="">選擇章節檔案...</option>';
+
+  for (const item of data.items || []) {
+    const option = document.createElement('option');
+    option.value = item.name;
+    option.textContent = item.title;
+    if (item.name === selectedName) option.selected = true;
+    select.appendChild(option);
+  }
+}
+
+function renderSources(items) {
+  const box = document.getElementById('source-box');
+  if (!items || items.length === 0) {
+    box.innerHTML = '<div class="empty-state">本輪審查未命中額外參考來源，系統將以角色與章節內容進行基礎分析。</div>';
+    return;
+  }
+
+  box.innerHTML = items.map(item => `
+    <div class="source-card">
+      <div class="source-meta">
+        <span class="source-type">${item.type}</span>
+        <strong>${item.name}</strong>
+      </div>
+      <div class="helper-text">相似度 ${(Number(item.score || 0) * 100).toFixed(1)}% ・ ${item.match_reason || '由向量相似度命中'}</div>
+      ${item.chapter_match ? `<div class="source-match">章節片段：${item.chapter_match}</div>` : ''}
+      <div class="source-excerpt">${item.excerpt || ''}</div>
+    </div>
+  `).join('');
+}
+
+async function hydrateFromHistory() {
+  const params = new URLSearchParams(window.location.search);
+  const historyId = params.get('history_id');
+  const chapterName = params.get('chapter');
+
+  if (chapterName) {
+    await loadChapterByName(chapterName);
+  }
+  if (!historyId) return;
+
+  try {
+    const resp = await fetch('/api/history/' + encodeURIComponent(historyId));
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '載入歷史紀錄失敗');
+
+    const entry = data.item;
+    loadedHistoryEntry = entry;
+    document.getElementById('chapter').value = data.editor_content || entry.result || '';
+    currentChapterFile = '';
+    document.getElementById('chapter-file-name').value = suggestedHistoryFilename(entry);
+    setChapterStatus(`已從歷史紀錄載入：${entry.chapter_title}・${data.kind_label}。請確認後另存或覆寫章節。`);
+    document.getElementById('rewrite-box').textContent = '這份內容來自歷史修稿結果。你可以直接再審查、續改，或存成新章節版本。';
+    syncChapterDerivedFields();
+  } catch (e) {
+    setChapterStatus('載入歷史紀錄失敗：' + e.message, true);
+  }
+}
+
+function parseSSEBlock(block) {
+  let eventName = 'message';
+  const dataLines = [];
+
+  for (const line of block.split('\n')) {
+    if (line.startsWith('event:')) {
+      eventName = line.slice(6).trim();
+    } else if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (dataLines.length === 0) return null;
+  try {
+    return { eventName, payload: JSON.parse(dataLines.join('\n')) };
+  } catch (_) {
+    return null;
+  }
+}
+
+function appendResult(text) {
+  if (!text) return;
+  const resultBox = document.getElementById('result-box');
+  resultBox.textContent += text;
+  resultBox.scrollTop = resultBox.scrollHeight;
+}
+
+function resultSummary(limit = 500) {
+  const content = document.getElementById('result-box').textContent.trim();
+  return content.length <= limit ? content : content.slice(0, limit) + '...';
+}
+
+function selectedCharacters() {
+  return Array.from(document.querySelectorAll('[name="characters"]:checked')).map(el => el.value);
+}
+
+function populateWritebackDefaults() {
+  const summary = resultSummary();
+  if (!document.getElementById('timeline-description').value.trim()) {
+    document.getElementById('timeline-description').value = summary;
+  }
+  if (!document.getElementById('foreshadow-description').value.trim()) {
+    document.getElementById('foreshadow-description').value = summary;
+  }
+  if (!document.getElementById('relationship-note').value.trim()) {
+    document.getElementById('relationship-note').value = summary;
+  }
+  if (!document.getElementById('foreshadow-planted').value.trim()) {
+    document.getElementById('foreshadow-planted').value = chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim());
+  }
+}
 
 async function runCheck() {
   const chapter = document.getElementById('chapter').value.trim();
   if (!chapter) { alert('請先輸入章節內容'); return; }
 
-  const characters = Array.from(document.querySelectorAll('[name="characters"]:checked')).map(el => el.value);
-  const checks     = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
-  const styles     = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
-
+  const characters = selectedCharacters();
+  const checks = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
+  const styles = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
   const resultBox = document.getElementById('result-box');
   const submitBtn = document.getElementById('submit-btn');
+  document.getElementById('rewrite-box').textContent = '尚未執行修稿模式。';
 
   resultBox.textContent = '分析中...\n';
+  renderSources([]);
   submitBtn.disabled = true;
   submitBtn.textContent = '分析中...';
   document.getElementById('export-section').style.display = 'none';
+  document.getElementById('writeback-section').style.display = 'none';
 
   try {
     const resp = await fetch('/check/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chapter, characters, checks, styles })
+      body: JSON.stringify({
+        chapter,
+        characters,
+        checks,
+        styles,
+        chapter_file: currentChapterFile,
+        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim())
+      })
     });
 
     if (!resp.ok) {
@@ -147,7 +509,7 @@ async function runCheck() {
       return;
     }
 
-    const reader  = resp.body.getReader();
+    const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     resultBox.textContent = '';
@@ -161,33 +523,28 @@ async function runCheck() {
       buffer = parts.pop() || '';
 
       for (const part of parts) {
-        for (const line of part.split('\n')) {
-          if (line.startsWith('data: ')) {
-            try {
-              const { text } = JSON.parse(line.slice(6));
-              if (text) {
-                resultBox.textContent += text;
-                resultBox.scrollTop = resultBox.scrollHeight;
-              }
-            } catch (_) {}
-          }
+        const parsed = parseSSEBlock(part);
+        if (!parsed) continue;
+        if (parsed.eventName === 'chunk') {
+          appendResult(parsed.payload.text);
+        } else if (parsed.eventName === 'sources') {
+          renderSources(parsed.payload.items || []);
         }
       }
     }
 
-    // handle leftover
-    if (buffer.includes('data: ')) {
-      for (const line of buffer.split('\n')) {
-        if (line.startsWith('data: ')) {
-          try {
-            const { text } = JSON.parse(line.slice(6));
-            if (text) resultBox.textContent += text;
-          } catch (_) {}
-        }
+    if (buffer.trim()) {
+      const parsed = parseSSEBlock(buffer);
+      if (parsed) {
+        if (parsed.eventName === 'chunk') appendResult(parsed.payload.text);
+        if (parsed.eventName === 'sources') renderSources(parsed.payload.items || []);
       }
     }
 
+    syncChapterDerivedFields();
+    populateWritebackDefaults();
     document.getElementById('export-section').style.display = 'block';
+    document.getElementById('writeback-section').style.display = 'block';
 
   } catch (e) {
     resultBox.textContent = '連線錯誤：' + e.message;
@@ -197,9 +554,126 @@ async function runCheck() {
   }
 }
 
+async function runRewrite(mode) {
+  const chapter = document.getElementById('chapter').value.trim();
+  if (!chapter) { alert('請先輸入章節內容'); return; }
+
+  const rewriteBox = document.getElementById('rewrite-box');
+  rewriteBox.textContent = '修稿中...\n';
+
+  try {
+    const resp = await fetch('/rewrite/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chapter,
+        mode,
+        characters: selectedCharacters(),
+        styles: Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value),
+        chapter_file: currentChapterFile,
+        chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim())
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      rewriteBox.textContent = '錯誤：' + (err.error || resp.status);
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    rewriteBox.textContent = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+
+      for (const part of parts) {
+        const parsed = parseSSEBlock(part);
+        if (!parsed) continue;
+        if (parsed.eventName === 'chunk') {
+          rewriteBox.textContent += parsed.payload.text || '';
+          rewriteBox.scrollTop = rewriteBox.scrollHeight;
+        }
+        if (parsed.eventName === 'sources') {
+          renderSources(parsed.payload.items || []);
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      const parsed = parseSSEBlock(buffer);
+      if (parsed && parsed.eventName === 'chunk') {
+        rewriteBox.textContent += parsed.payload.text || '';
+      }
+    }
+  } catch (e) {
+    rewriteBox.textContent = '連線錯誤：' + e.message;
+  }
+}
+
 function fillExportContent() {
-  document.getElementById('export-content').value =
-    document.getElementById('result-box').textContent;
+  document.getElementById('export-content').value = document.getElementById('result-box').textContent;
+}
+
+async function postJSON(url, payload) {
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || '操作失敗');
+  return data;
+}
+
+async function writebackTimeline() {
+  try {
+    const data = await postJSON('/api/writeback/timeline', {
+      chapter: Number(document.getElementById('writeback-chapter').value),
+      scene: document.getElementById('timeline-scene').value,
+      description: document.getElementById('timeline-description').value,
+      characters: selectedCharacters(),
+      consequences: document.getElementById('timeline-consequences').value
+    });
+    alert(data.message);
+  } catch (e) {
+    alert('寫入時間軸失敗：' + e.message);
+  }
+}
+
+async function writebackForeshadow() {
+  try {
+    const data = await postJSON('/api/writeback/foreshadow', {
+      chapter: Number(document.getElementById('foreshadow-chapter').value),
+      description: document.getElementById('foreshadow-description').value,
+      planted_in: document.getElementById('foreshadow-planted').value
+    });
+    alert(data.message);
+  } catch (e) {
+    alert('寫入伏筆追蹤失敗：' + e.message);
+  }
+}
+
+async function writebackRelationship() {
+  try {
+    const data = await postJSON('/api/writeback/relationship', {
+      from: document.getElementById('relationship-from').value,
+      to: document.getElementById('relationship-to').value,
+      status: document.getElementById('relationship-status').value,
+      note: document.getElementById('relationship-note').value,
+      trigger_event: document.getElementById('relationship-trigger').value
+    });
+    alert(data.message);
+  } catch (e) {
+    alert('更新角色關係失敗：' + e.message);
+  }
 }
 </script>
 </body>

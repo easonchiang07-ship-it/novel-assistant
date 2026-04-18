@@ -1,0 +1,83 @@
+{{define "styles.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>風格管理 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>風格管理</h1>
+      <p>集中查看 <code>data/style/*.md</code> 的寫作風格設定，讓審查時更容易選到正確的文氣模板。</p>
+    </div>
+
+    {{if .Styles}}
+    <div class="card">
+      <h2>風格設定（{{len .Styles}} 份）</h2>
+      <div class="char-grid">
+        {{range .Styles}}
+        <div class="world-card">
+          <div class="world-title">{{.Name}}</div>
+          {{if .Perspective}}
+          <div class="char-field">
+            <span class="char-label">敘事視角</span>
+            <span class="char-value">{{.Perspective}}</span>
+          </div>
+          {{end}}
+          {{if .SentenceStyle}}
+          <div class="char-field char-field-block">
+            <span class="char-label">句式風格</span>
+            <span class="char-value">{{.SentenceStyle}}</span>
+          </div>
+          {{end}}
+          {{if .Rhythm}}
+          <div class="char-field">
+            <span class="char-label">節奏感</span>
+            <span class="char-value">{{.Rhythm}}</span>
+          </div>
+          {{end}}
+          {{if .Tone}}
+          <div class="char-field">
+            <span class="char-label">語氣</span>
+            <span class="char-value">{{.Tone}}</span>
+          </div>
+          {{end}}
+          {{if .Forbidden}}
+          <div class="char-field char-field-block">
+            <span class="char-label">禁忌</span>
+            <span class="char-value">{{.Forbidden}}</span>
+          </div>
+          {{end}}
+          <details style="margin-top:12px">
+            <summary style="color:#64748b;font-size:0.8rem;cursor:pointer">原始設定檔</summary>
+            <pre style="color:#94a3b8;font-size:0.78rem;margin-top:8px;white-space:pre-wrap;line-height:1.5">{{.RawContent}}</pre>
+          </details>
+        </div>
+        {{end}}
+      </div>
+    </div>
+    {{else}}
+    <div class="alert alert-warn">
+      尚無風格設定檔。請在 <code>data/style/</code> 目錄新增 <code>.md</code> 檔案，再點「重新索引」。
+    </div>
+    {{end}}
+
+    <div class="card">
+      <h2>風格設定檔格式</h2>
+      <pre style="color:#94a3b8;font-size:0.85rem;line-height:1.8;background:#0f0d14;padding:16px;border-radius:6px;border:1px solid #2d2540"># 風格：主線敘事
+- 敘事視角：第三人稱有限視角
+- 句式風格：短句、少修飾、避免長段堆疊
+- 節奏感：穩定推進，避免過度停頓
+- 語氣：克制、冷靜、保留情緒張力
+- 禁忌：避免全知旁白、避免突然抒情過滿</pre>
+    </div>
+  </main>
+</div>
+</body>
+</html>
+{{end}}

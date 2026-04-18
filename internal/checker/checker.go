@@ -67,6 +67,22 @@ func (c *Checker) CheckStyleStream(ctx context.Context, styleProfile, chapter st
 	return c.stream(ctx, "你是專業文學編輯，專責分析文章寫作風格的一致性。請用繁體中文回答。", prompt, w)
 }
 
+func (c *Checker) CheckWorldConflictStream(ctx context.Context, worldProfile, chapter string, w io.Writer) error {
+	prompt := fmt.Sprintf(`
+【世界觀與規則設定】
+%s
+
+【待審章節】
+%s
+
+請依序分析：
+1. **世界觀一致性**：章節是否違反既有世界規則、時間線、地點設定、能力限制或勢力關係？（符合 / 不符合）
+2. **具體問題**：若有衝突，列出衝突段落並說明與哪條設定矛盾
+3. **修正建議**：提供最小修改方案，盡量保留原場景張力
+`, worldProfile, chapter)
+	return c.stream(ctx, "你是專責小說世界觀審核的編輯，擅長抓出規則、時間線、地點與能力設定的矛盾。請用繁體中文回答。", prompt, w)
+}
+
 func (c *Checker) CheckDialogueStream(ctx context.Context, name, personality, speechStyle, chapter string, w io.Writer) error {
 	prompt := fmt.Sprintf(`
 【角色說話風格】
@@ -83,6 +99,10 @@ func (c *Checker) CheckDialogueStream(ctx context.Context, name, personality, sp
 3. **修改建議**：提供符合角色風格的改寫版本
 `, name, personality, speechStyle, chapter)
 	return c.stream(ctx, "你是專業對白編輯，分析角色說話風格一致性。請用繁體中文回答。", prompt, w)
+}
+
+func (c *Checker) RewriteChapterStream(ctx context.Context, prompt string, w io.Writer) error {
+	return c.stream(ctx, "你是專業小說編輯，專責修稿。請直接輸出修訂後的章節內容，必要時可在最前面補一小段修訂說明。請用繁體中文回答。", prompt, w)
 }
 
 func (c *Checker) stream(ctx context.Context, system, prompt string, w io.Writer) error {

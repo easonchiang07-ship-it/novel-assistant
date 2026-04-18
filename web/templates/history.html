@@ -1,0 +1,211 @@
+{{define "history.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>審查歷史 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>審查歷史</h1>
+      <p>回看每次審查與修稿的輸出，追蹤某一章到底檢查了什麼、怎麼修過。</p>
+    </div>
+
+    <div class="card">
+      <div class="history-title-row">
+        <h2>最近紀錄（{{.EntryCount}} 筆）</h2>
+        {{if .Entries}}
+        <button class="btn btn-ghost" type="button" onclick="exportVisibleHistory()">匯出目前結果</button>
+        {{end}}
+      </div>
+      {{if .Entries}}
+      <div class="history-toolbar">
+        <div class="history-search">
+          <label for="history-search">搜尋章節、風格、來源或內容</label>
+          <input type="text" id="history-search" placeholder="例如：第03章、主線敘事、world、雨夜對峙">
+        </div>
+        <div class="history-filter">
+          <label for="history-kind-filter">紀錄類型</label>
+          <select id="history-kind-filter">
+            <option value="all">全部</option>
+            <option value="review">只看審查</option>
+            <option value="rewrite">只看修稿</option>
+          </select>
+        </div>
+      </div>
+      <div id="history-match-count" class="helper-text">目前顯示 {{.EntryCount}} 筆紀錄。</div>
+
+      <div class="history-group-list">
+        {{range .Groups}}
+        <section class="history-group" data-chapter="{{.ChapterTitle}}">
+          <div class="history-group-header">
+            <h3>{{.ChapterTitle}}</h3>
+            <span class="helper-text history-group-count">{{len .Entries}} 筆</span>
+          </div>
+          <div class="history-list">
+            {{range .Entries}}
+            <div
+              class="history-card"
+              data-id="{{.ID}}"
+              data-kind="{{.Kind}}"
+              data-search="{{.ChapterTitle}} {{.ChapterFile}} {{.RewriteMode}} {{range .Checks}}{{.}} {{end}}{{range .Styles}}{{.}} {{end}}{{range .Sources}}{{.}} {{end}}{{.Result}}">
+              <div class="history-header">
+                <div>
+                  <strong>{{if eq .Kind "rewrite"}}修稿模式{{else}}審查{{end}}</strong>
+                  <div class="helper-text">
+                    {{if .RewriteMode}}模式：{{.RewriteMode}}{{else}}一般審查{{end}}
+                    {{if .KindVersion}}・第 {{.KindVersion}} 次{{if eq .Kind "rewrite"}}修稿{{else}}審查{{end}}{{end}}
+                    {{if .ChapterVersion}}・本章第 {{.ChapterVersion}} 筆{{end}}
+                    {{if .ChapterFile}}・{{.ChapterFile}}{{end}}
+                  </div>
+                </div>
+                <div class="history-actions">
+                  <div class="helper-text">{{.CreatedAt.Format "2006-01-02 15:04:05"}}</div>
+                  {{if eq .Kind "rewrite"}}
+                  <a class="btn btn-ghost btn-sm" href="/check?history_id={{.ID}}">帶回編輯器</a>
+                  {{end}}
+                  <button class="btn btn-danger btn-sm" type="button" onclick="deleteHistoryEntry('{{.ID}}')">刪除</button>
+                </div>
+              </div>
+              {{if .Checks}}
+              <div class="char-field char-field-block">
+                <span class="char-label">檢查項目</span>
+                <span class="char-value">{{range $i, $check := .Checks}}{{if $i}}、{{end}}{{$check}}{{end}}</span>
+              </div>
+              {{end}}
+              {{if .Styles}}
+              <div class="char-field char-field-block">
+                <span class="char-label">風格</span>
+                <span class="char-value">{{range $i, $style := .Styles}}{{if $i}}、{{end}}{{$style}}{{end}}</span>
+              </div>
+              {{end}}
+              {{if .Sources}}
+              <div class="char-field char-field-block">
+                <span class="char-label">參考來源</span>
+                <span class="char-value">{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}}</span>
+              </div>
+              {{end}}
+              <details style="margin-top:12px">
+                <summary style="color:#64748b;font-size:0.8rem;cursor:pointer">展開結果</summary>
+                <pre style="color:#94a3b8;font-size:0.78rem;margin-top:8px;white-space:pre-wrap;line-height:1.6">{{.Result}}</pre>
+              </details>
+            </div>
+            {{end}}
+          </div>
+        </section>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty-state">尚無審查紀錄。先到一致性審查頁跑一次審查或修稿，這裡就會開始累積歷史。</div>
+      {{end}}
+    </div>
+  </main>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const searchInput = document.getElementById('history-search');
+  const kindFilter = document.getElementById('history-kind-filter');
+  const cards = Array.from(document.querySelectorAll('.history-card'));
+  const groups = Array.from(document.querySelectorAll('.history-group'));
+  const matchCount = document.getElementById('history-match-count');
+
+  if (!searchInput || !kindFilter || cards.length === 0 || !matchCount) {
+    return;
+  }
+
+  window.applyHistoryFilters = () => {
+    const keyword = searchInput.value.trim().toLowerCase();
+    const kind = kindFilter.value;
+    let visible = 0;
+
+    cards.forEach((card) => {
+      const matchesKind = kind === 'all' || card.dataset.kind === kind;
+      const haystack = (card.dataset.search || '').toLowerCase();
+      const matchesKeyword = !keyword || haystack.includes(keyword);
+      const show = matchesKind && matchesKeyword;
+
+      card.style.display = show ? '' : 'none';
+      if (show) visible += 1;
+    });
+
+    groups.forEach((group) => {
+      const visibleCards = group.querySelectorAll('.history-card:not([style*="display: none"])').length;
+      group.style.display = visibleCards > 0 ? '' : 'none';
+      const counter = group.querySelector('.history-group-count');
+      if (counter) counter.textContent = `${visibleCards} 筆`;
+    });
+
+    matchCount.textContent = `目前顯示 ${visible} 筆紀錄。`;
+  };
+
+  searchInput.addEventListener('input', window.applyHistoryFilters);
+  kindFilter.addEventListener('change', window.applyHistoryFilters);
+});
+
+async function deleteHistoryEntry(id) {
+  if (!confirm('要刪除這筆審查歷史嗎？')) return;
+
+  try {
+    const resp = await fetch('/api/history/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '刪除失敗');
+
+    const card = document.querySelector(`.history-card[data-id="${id}"]`);
+    if (card) {
+      card.remove();
+    }
+    if (window.applyHistoryFilters) {
+      window.applyHistoryFilters();
+    }
+  } catch (e) {
+    alert('刪除失敗：' + e.message);
+  }
+}
+
+async function exportVisibleHistory() {
+  const ids = Array.from(document.querySelectorAll('.history-card'))
+    .filter(card => card.style.display !== 'none')
+    .map(card => card.dataset.id)
+    .filter(Boolean);
+
+  try {
+    const resp = await fetch('/api/history/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (!resp.ok) {
+      let message = '匯出失敗';
+      try {
+        const data = await resp.json();
+        message = data.error || message;
+      } catch (_) {}
+      throw new Error(message);
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'review-history.md';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('匯出失敗：' + e.message);
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

@@ -89,3 +89,11 @@ func TestResolveStylesRejectsEmptyContent(t *testing.T) {
 		t.Fatal("expected error for empty style content")
 	}
 }
+
+func TestRewriteInstructionRejectsUnknownMode(t *testing.T) {
+	t.Parallel()
+
+	if _, err := rewriteInstruction("unknown"); err == nil {
+		t.Fatal("expected error for unknown rewrite mode")
+	}
+}

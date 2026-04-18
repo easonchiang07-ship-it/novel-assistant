@@ -1,0 +1,121 @@
+{{define "settings.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>規則設定 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>規則設定</h1>
+      <p>調整預設審查項目、預設風格，以及提示詞偏好，讓每次檢查更貼近你的修稿習慣。</p>
+    </div>
+
+    <div class="card">
+      <h2>預設審查流程</h2>
+      <div class="form-group">
+        <label>預設審查項目</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label"><input type="checkbox" name="default-checks" value="behavior">行為一致性</label>
+          <label class="checkbox-label"><input type="checkbox" name="default-checks" value="dialogue">對白風格</label>
+          <label class="checkbox-label"><input type="checkbox" name="default-checks" value="world">世界觀衝突</label>
+          <label class="checkbox-label"><input type="checkbox" name="default-checks" value="style">寫作風格</label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>預設風格</label>
+        <div class="checkbox-group">
+          {{range .Styles}}
+          <label class="checkbox-label"><input type="checkbox" name="default-styles" value="{{.Name}}">{{.Name}}</label>
+          {{end}}
+          {{if not .Styles}}
+          <span class="helper-text">尚無風格設定檔，先到風格管理建立後再選。</span>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>審查偏好</h2>
+        <div class="form-group">
+          <label for="review-bias">審查提示詞強度</label>
+          <select id="review-bias">
+            <option value="balanced">平衡：兼顧指出問題與肯定有效之處</option>
+            <option value="strict">偏挑錯：優先指出矛盾、違和與模糊處</option>
+            <option value="coaching">偏修稿建議：多給具體修改方向</option>
+            <option value="conservative">偏保守：只抓明顯問題，避免過度挑剔</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>修稿偏好</h2>
+        <div class="form-group">
+          <label for="rewrite-bias">預設修稿傾向</label>
+          <select id="rewrite-bias">
+            <option value="faithful">忠於原稿：只做必要調整</option>
+            <option value="expressive">加強文氣：適度提升情緒與意象</option>
+            <option value="structural">重整節奏：優先整理段落與結構</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <button class="btn" type="button" onclick="saveSettings()">儲存規則設定</button>
+      <div id="settings-status" class="helper-text">調整後會立即套用到後續的審查與修稿流程。</div>
+    </div>
+  </main>
+</div>
+<script>
+const presetChecks = {{ jsonJS .DefaultChecks }};
+const presetStyles = {{ jsonJS .DefaultStyles }};
+const reviewBias = {{ jsonJS .Settings.ReviewBias }};
+const rewriteBias = {{ jsonJS .Settings.RewriteBias }};
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[name="default-checks"]').forEach((el) => {
+    el.checked = presetChecks.includes(el.value);
+  });
+  document.querySelectorAll('[name="default-styles"]').forEach((el) => {
+    el.checked = presetStyles.includes(el.value);
+  });
+  document.getElementById('review-bias').value = reviewBias;
+  document.getElementById('rewrite-bias').value = rewriteBias;
+});
+
+async function saveSettings() {
+  const status = document.getElementById('settings-status');
+  status.textContent = '保存中...';
+  status.style.color = '#94a3b8';
+
+  try {
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        default_checks: Array.from(document.querySelectorAll('[name="default-checks"]:checked')).map(el => el.value),
+        default_styles: Array.from(document.querySelectorAll('[name="default-styles"]:checked')).map(el => el.value),
+        review_bias: document.getElementById('review-bias').value,
+        rewrite_bias: document.getElementById('rewrite-bias').value
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '保存失敗');
+    status.textContent = data.message;
+  } catch (e) {
+    status.textContent = '保存失敗：' + e.message;
+    status.style.color = '#fca5a5';
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

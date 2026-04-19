@@ -276,6 +276,34 @@ func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
 	}
 }
 
+func TestHandleExportManuscriptHTMLFormat(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, "http://127.0.0.1:0")
+	if _, err := s.saveChapterFile("第01章", "內容正文"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/api/manuscript/export", map[string]any{
+		"format": "html",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(resp.Body))
+	}
+
+	body := string(resp.Body)
+	if !strings.Contains(body, "<!DOCTYPE html>") {
+		t.Fatalf("expected HTML document in response, got %s", body)
+	}
+	if !strings.Contains(body, "內容正文") {
+		t.Fatalf("expected chapter content in HTML output, got %s", body)
+	}
+}
+
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	t.Helper()
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"novel-assistant/internal/extractor"
+	"novel-assistant/internal/exporter"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,6 +33,7 @@ type manuscriptExportSelection struct {
 type manuscriptExportRequest struct {
 	Selections      []manuscriptExportSelection `json:"selections"`
 	IncludeMetadata bool                        `json:"include_metadata"`
+	Format          string                      `json:"format"`
 }
 
 type backupItem struct {
@@ -489,13 +491,20 @@ func (s *Server) handleExportManuscript(c *gin.Context) {
 		return
 	}
 
-	report, err := s.buildManuscriptMarkdown(req)
+	markdown, err := s.buildManuscriptMarkdown(req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.Header("Content-Type", "text/markdown; charset=utf-8")
-	c.Header("Content-Disposition", `attachment; filename="novel_manuscript.md"`)
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(report))
+	switch req.Format {
+	case "html":
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.Header("Content-Disposition", `attachment; filename="novel_manuscript.html"`)
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(exporter.ManuscriptToHTML(markdown)))
+	default:
+		c.Header("Content-Type", "text/markdown; charset=utf-8")
+		c.Header("Content-Disposition", `attachment; filename="novel_manuscript.md"`)
+		c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(markdown))
+	}
 }

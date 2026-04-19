@@ -61,6 +61,18 @@
           附加場景 metadata（HTML comment）
         </label>
 
+        <div class="form-group" style="margin-top:10px">
+          <label>附錄</label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="manuscript-appendix-reviews">
+            附加審查與修稿歷史
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="manuscript-appendix-tracker">
+            附加 tracker 摘要（時間軸、伏筆、角色關係）
+          </label>
+        </div>
+
         <div style="margin-top:12px">
           <button class="btn" type="button" onclick="exportManuscriptWithOptions()">匯出手稿</button>
         </div>
@@ -284,6 +296,10 @@ async function exportManuscriptWithOptions() {
       body: JSON.stringify({
         selections: collectManuscriptSelections(),
         include_metadata: document.getElementById('manuscript-include-metadata').checked,
+        appendix: {
+          reviews: document.getElementById('manuscript-appendix-reviews').checked,
+          tracker: document.getElementById('manuscript-appendix-tracker').checked
+        },
         format
       })
     });

@@ -5,9 +5,11 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-Novel Assistant is a local-first AI writing companion for long-form fiction, built with Go and Ollama.
+Novel Assistant is a local AI writing studio for long-form fiction, built with Go and Ollama.
 
-It is designed for authors who want help reviewing character behavior, dialogue, narrative style, story structure, and unresolved foreshadowing without sending manuscript data to a cloud service.
+**Anyone — with no technical background — can install the tool, build their story world, generate a full draft, review it, and revise it into something they love. No cloud. No subscriptions. No coding.**
+
+It runs entirely on your machine. Your manuscript never leaves your computer.
 
 ## Why This Project Exists
 

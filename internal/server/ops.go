@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"novel-assistant/internal/extractor"
 	"novel-assistant/internal/exporter"
+	"novel-assistant/internal/extractor"
 
 	"github.com/gin-gonic/gin"
 )

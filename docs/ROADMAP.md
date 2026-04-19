@@ -77,6 +77,15 @@ Every user has their own style. The style guide wizard must make it easy to capt
 - Show a preview of how the sample will be used so users understand the impact
 - During generation and rewrite, inject sample passages as concrete few-shot examples rather than abstract style rules
 
+### Story structure templates
+
+New writers often don't know how to begin structuring a story. Structure templates lower the entry barrier.
+
+- Offer built-in structure templates in the wizard: Three-Act, Hero's Journey, Snowflake Method, and Save the Cat
+- Each template pre-fills chapter count, synopsis hints, and key turning-point labels
+- Users can start from a template and modify freely, or ignore templates entirely
+- Templates do not lock the story — they are starting scaffolding only
+
 Why this matters:
 
 - abstract style rules ("short sentences, calm tone") produce inconsistent output; concrete examples let the LLM imitate directly
@@ -84,6 +93,7 @@ Why this matters:
 - the entire review and generation pipeline depends on these asset files existing and being correctly formatted
 - asking a non-technical user to write `# 角色：小明\n- 個性：...` by hand is a silent dealbreaker
 - this is the most important onboarding step between "installed the tool" and "got useful output"
+- without structure guidance, new writers face a blank canvas — templates convert "I don't know where to start" into "I'll adjust this outline"
 
 ## Priority 3: Writing Structure
 
@@ -109,6 +119,22 @@ Goal: make retrieval more predictable, tunable, and trustworthy.
 - Add task-specific retrieval presets for behavior review, dialogue review, rewrite, and world conflict checks
 - Show expected-but-missed context when a likely source was not retrieved
 - Add source weighting or priority so critical canon files are harder to ignore
+
+### Glossary and world dictionary
+
+Current string matching relies on character names appearing explicitly. A structured glossary extends this to all proper nouns in the story world.
+
+- Allow users to define glossary entries: proper nouns, place names, faction names, invented terms, and their definitions
+- Auto-detect glossary terms in chapter text during review and flag inconsistencies in spelling, meaning, or usage
+- Link glossary entries to worldbuilding files so the RAG pipeline can retrieve definitions alongside character context
+- Show a glossary sidebar when reviewing a chapter so the author can verify term usage at a glance
+- Detect when a glossary term appears in a chapter but the corresponding worldbuilding file was not retrieved, and surface it as a missed context warning
+
+Why this matters:
+
+- worldbuilding Markdown files are free-form; there is no structured index of what proper nouns exist in the story
+- a world dictionary makes the story universe queryable — the LLM can answer "what is this term?" instead of guessing
+- term consistency across chapters is one of the most common editorial gaps in long-form fiction
 
 ### Pronoun resolution and character detection accuracy (Issue #19)
 
@@ -203,6 +229,27 @@ This is the largest single capability expansion. It turns Novel Assistant from a
 - Findings are surfaced as a post-generation report rather than blocking generation
 - User can trigger targeted rewrite on flagged scenes before final export
 
+### Phase 4 — Inline paragraph suggestions
+
+- Place cursor anywhere in a chapter and trigger "continue from here" to get AI-generated next sentences or paragraphs
+- Suggestions are inline, not full-chapter replacements — the author accepts, rejects, or edits each one
+- Uses the same character, worldbuilding, and style context as full generation so suggestions stay in-world
+- Solves the "I'm stuck mid-scene" problem without requiring the author to leave the editor
+
+### Phase 5 — Brainstorming mode
+
+- Author poses open-ended questions: "What could happen next?", "What would this character do if…?", "What are three ways to raise tension here?"
+- LLM responds with structured options (not prose), each with a one-sentence rationale
+- Author picks, discards, or mixes options before writing — brainstorming never writes the chapter for them
+- Outputs can be saved as scene notes for future reference
+
+Why this matters:
+
+- most local AI writing tools stop at chat or single-scene generation; chapter-by-chapter generation with cross-chapter memory is the missing piece
+- keeping generation and review in the same tool means authors never need to copy-paste between apps to check consistency
+- inline suggestions address the highest-friction moment in writing: being stuck mid-scene with no idea what comes next
+- brainstorming mode mirrors how Sudowrite's most-used feature works — it lowers the blank-page fear without replacing the author's voice
+
 ### Architecture notes
 
 - New `internal/generation` package handles outline state, chapter sequencing, and rolling summary management
@@ -272,22 +319,50 @@ Goal: reduce friction for adoption and maintenance.
 - Add metrics or debug views for index size, retrieval quality, and model latency
 - Add compatibility notes for Windows, macOS, Linux, and containerized setups
 
+## Priority 12: Writing Experience
+
+Goal: turn Novel Assistant from a review tool into a place authors actually want to write in.
+
+### Writing statistics and daily goals
+
+- Track word count per chapter and per session with timestamps
+- Let users set daily or weekly word count targets
+- Show a writing streak, progress bar, and cumulative word count chart on a dashboard
+- Highlight chapters with no recent activity so authors know where they left off
+
+### Distraction-free writing mode
+
+- Full-screen editor with hidden sidebars, minimal chrome, and a soft focus highlight on the current paragraph
+- Toggle with a single keyboard shortcut
+- Retain all review and rewrite tools — they are accessible from a collapsed menu, not removed
+- Optional typewriter scroll so the active line stays centered
+
+Why this matters:
+
+- word count goals are the single most direct driver of daily writing habit — authors who see a streak do not want to break it
+- novelWriter and Manuskript both offer distraction-free modes; their users cite it as a top reason they stay on the tool
+- the current UI is tool-oriented; a distraction-free mode makes it writing-oriented
+- retention is higher when the tool is where writing happens, not just where reviewing happens
+
 ## Suggested Build Order
 
 If development continues in sequence, this is the recommended order:
 
 1. First-run experience (Issues #20–24)
-2. Guided story world setup (wizard UI for characters, worldbuilding, style)
-3. Scene hierarchy and scene board
-4. Pronoun resolution and retrieval accuracy
-5. Bilingual support (Chinese + English)
-6. Chapter version control
-7. Custom check types
-8. AI-assisted novel generation (outline → chapter-by-chapter → consistency loop)
-9. Full manuscript export
-10. Multi-project workspace support
-11. Review feedback collection (after sufficient user base)
-12. Optional local auth and stronger operations tooling
+2. Writing statistics and daily goals — low effort, high retention impact
+3. Guided story world setup (wizard UI for characters, worldbuilding, style, structure templates)
+4. Glossary and world dictionary
+5. Scene hierarchy and scene board
+6. Distraction-free writing mode
+7. Pronoun resolution and retrieval accuracy
+8. Bilingual support (Chinese + English)
+9. Chapter version control
+10. Custom check types
+11. AI-assisted novel generation (outline → chapter-by-chapter → inline suggestions → brainstorming)
+12. Full manuscript export
+13. Multi-project workspace support
+14. Review feedback collection (after sufficient user base)
+15. Optional local auth and stronger operations tooling
 
 ## References
 

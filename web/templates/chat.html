@@ -1,0 +1,140 @@
+{{define "chat.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>角色對談室 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .chat-container { display:flex; flex-direction:column; height:calc(100vh - 240px); min-height:400px; }
+    .chat-messages  { flex:1; overflow-y:auto; padding:16px; background:#0f0d14; border:1px solid #2d2540; border-radius:8px; margin-bottom:12px; }
+    .chat-bubble    { margin-bottom:12px; max-width:75%; }
+    .chat-bubble.user { margin-left:auto; text-align:right; }
+    .chat-bubble.char { margin-right:auto; }
+    .bubble-inner   { display:inline-block; padding:10px 14px; border-radius:12px; font-size:0.9rem; line-height:1.6; white-space:pre-wrap; }
+    .user .bubble-inner { background:#3b82f6; color:#fff; border-bottom-right-radius:3px; }
+    .char .bubble-inner { background:#1a1628; border:1px solid #2d2540; color:#e2e8f0; border-bottom-left-radius:3px; }
+    .bubble-name    { font-size:0.75rem; color:#64748b; margin-bottom:3px; }
+    .chat-input-row { display:flex; gap:8px; }
+    .chat-input-row textarea { flex:1; min-height:52px; max-height:120px; resize:vertical; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>角色對談室</h1>
+      <p>選擇角色後與其進行模擬對話，確認語氣與思考邏輯是否符合設定。</p>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+        <label for="char-select"><strong>選擇角色</strong></label>
+        <select id="char-select" onchange="resetChat()">
+          <option value="">請選擇角色...</option>
+          {{range .Characters}}
+          <option value="{{.Name}}">{{.Name}}</option>
+          {{end}}
+        </select>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="resetChat()">清除對話</button>
+      </div>
+
+      <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <p style="color:#94a3b8;text-align:center;font-size:0.85rem">選擇角色後開始對話</p>
+        </div>
+        <div class="chat-input-row">
+          <textarea id="chat-input" placeholder="輸入你想說的話…" onkeydown="handleChatKey(event)"></textarea>
+          <button class="btn" id="send-btn" type="button" onclick="sendMessage()">送出</button>
+        </div>
+        <div class="helper-text" style="margin-top:6px">Enter 送出，Shift+Enter 換行</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+let chatHistory = [];
+let isStreaming = false;
+
+function resetChat() {
+  chatHistory = [];
+  document.getElementById('chat-messages').innerHTML =
+    '<p style="color:#94a3b8;text-align:center;font-size:0.85rem">選擇角色後開始對話</p>';
+}
+
+function escapeHTML(text) {
+  return String(text || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function appendBubble(role, name, text) {
+  const box = document.getElementById('chat-messages');
+  box.querySelector('p')?.remove();
+  const div = document.createElement('div');
+  div.className = `chat-bubble ${role}`;
+  div.innerHTML = `<div class="bubble-name">${escapeHTML(name)}</div><div class="bubble-inner">${escapeHTML(text)}</div>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+  return div.querySelector('.bubble-inner');
+}
+
+async function sendMessage() {
+  if (isStreaming) return;
+  const charName = document.getElementById('char-select').value;
+  if (!charName) { alert('請先選擇角色'); return; }
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+
+  appendBubble('user', '作者', message);
+  const historyText = chatHistory
+    .map(h => `${h.role === 'user' ? '作者' : charName}：${h.content}`)
+    .join('\n');
+
+  isStreaming = true;
+  document.getElementById('send-btn').disabled = true;
+  const replyEl = appendBubble('char', charName, '');
+  let replyText = '';
+
+  try {
+    const resp = await fetch('/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ character_name: charName, history: historyText, message })
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      replyText += decoder.decode(value, { stream: true });
+      replyEl.textContent = replyText;
+      document.getElementById('chat-messages').scrollTop = 9999;
+    }
+    chatHistory.push({ role: 'user', content: message });
+    chatHistory.push({ role: 'char', content: replyText });
+  } catch (e) {
+    replyEl.textContent = '發生錯誤：' + e.message;
+  } finally {
+    isStreaming = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+function handleChatKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

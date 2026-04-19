@@ -96,6 +96,17 @@
                 <span class="char-value">{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}}</span>
               </div>
               {{end}}
+              {{if .RetrievalConfigs}}
+              <div class="char-field char-field-block">
+                <span class="char-label">Retrieval</span>
+                <span class="char-value">
+                  {{with index .RetrievalConfigs "behavior"}}行為：{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}} / Top-K {{.TopK}} / 門檻 {{printf "%.2f" .Threshold}}<br>{{end}}
+                  {{with index .RetrievalConfigs "dialogue"}}對白：{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}} / Top-K {{.TopK}} / 門檻 {{printf "%.2f" .Threshold}}<br>{{end}}
+                  {{with index .RetrievalConfigs "world"}}世界觀：{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}} / Top-K {{.TopK}} / 門檻 {{printf "%.2f" .Threshold}}<br>{{end}}
+                  {{with index .RetrievalConfigs "rewrite"}}修稿：{{range $i, $source := .Sources}}{{if $i}}、{{end}}{{$source}}{{end}} / Top-K {{.TopK}} / 門檻 {{printf "%.2f" .Threshold}}{{end}}
+                </span>
+              </div>
+              {{end}}
               <details style="margin-top:12px">
                 <summary style="color:#64748b;font-size:0.8rem;cursor:pointer">展開結果</summary>
                 <pre style="color:#94a3b8;font-size:0.78rem;margin-top:8px;white-space:pre-wrap;line-height:1.6">{{.Result}}</pre>

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>時間軸 — 小說助手</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="layout">
@@ -14,6 +15,12 @@
     <div class="page-header">
       <h1>時間軸</h1>
       <p>記錄重要事件，防止前後劇情矛盾（依章節排序）</p>
+    </div>
+
+    <div class="card" style="margin-bottom:24px">
+      <h2>事件分佈圖</h2>
+      <p style="color:#64748b;font-size:0.85rem">X 軸為章節編號，hover 查看事件名稱</p>
+      <canvas id="timeline-chart" height="100"></canvas>
     </div>
 
     <div class="grid-2" style="align-items:start">
@@ -96,6 +103,53 @@ function deleteEvent(id) {
   fetch('/timeline/delete', { method: 'POST', body: fd })
     .then(() => document.getElementById('ev-' + id)?.remove());
 }
+
+(function initTimelineChart() {
+  const events = {{jsonJS .Events}};
+  if (!events || events.length === 0 || typeof Chart === 'undefined') return;
+
+  const chapterCount = {};
+  const dataPoints = events.map(ev => {
+    chapterCount[ev.chapter] = (chapterCount[ev.chapter] || 0) + 1;
+    return { x: ev.chapter, y: chapterCount[ev.chapter], label: ev.scene, desc: ev.description };
+  });
+
+  new Chart(document.getElementById('timeline-chart'), {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: '事件', data: dataPoints,
+        backgroundColor: '#3b82f6', pointRadius: 8, pointHoverRadius: 11
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const p = ctx.raw;
+              const desc = p.desc ? p.desc.slice(0, 60) + (p.desc.length > 60 ? '…' : '') : '';
+              return [`${p.label}`, desc];
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: '章節' },
+          min: 0, max: Math.max(...events.map(e => e.chapter), 1) + 1,
+          ticks: { stepSize: 1, precision: 0 }
+        },
+        y: {
+          title: { display: true, text: '同章事件序' },
+          min: 0, ticks: { stepSize: 1, precision: 0 }
+        }
+      }
+    }
+  });
+})();
 </script>
 </body>
 </html>

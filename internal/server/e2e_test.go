@@ -76,6 +76,9 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	if checkResp.StatusCode != http.StatusOK || !strings.Contains(string(checkResp.Body), "ok") {
 		t.Fatalf("check stream failed: %s", string(checkResp.Body))
 	}
+	if !strings.Contains(string(checkResp.Body), "event:retrieval") {
+		t.Fatalf("expected retrieval metadata event in stream, got %s", string(checkResp.Body))
+	}
 
 	rewriteResp := performJSONRequest(t, app.URL, "POST", "/rewrite/stream", map[string]any{
 		"chapter":       "林昊站在夜港塔下。",
@@ -215,7 +218,7 @@ func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
 		t.Fatalf("expected retrieval_top_k=4, got %#v", got)
 	}
 	sources, ok := payload["retrieval_sources"].([]any)
-	if !ok || len(sources) != 3 {
+	if !ok || len(sources) != 4 {
 		t.Fatalf("expected retrieval_sources in response, got %#v", payload["retrieval_sources"])
 	}
 	presets, ok := payload["presets"].(map[string]any)

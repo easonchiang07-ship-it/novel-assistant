@@ -116,6 +116,7 @@
           <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="character">角色設定</label>
           <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="world">世界觀</label>
           <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="style">寫作風格</label>
+          <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="chapter">章節脈絡</label>
         </div>
       </div>
       <div class="grid-2">
@@ -211,10 +212,10 @@ function renderPresetEditors() {
           <div class="form-group">
             <label>啟用來源</label>
             <div class="checkbox-group">
-              ${['character', 'world', 'style'].map((source) => `
+              ${['character', 'world', 'style', 'chapter'].map((source) => `
                 <label class="checkbox-label">
                   <input type="checkbox" name="preset-${task.key}-source" value="${source}" ${base.sources.includes(source) ? 'checked' : ''}>
-                  ${source === 'character' ? '角色設定' : source === 'world' ? '世界觀' : '寫作風格'}
+                  ${source === 'character' ? '角色設定' : source === 'world' ? '世界觀' : source === 'style' ? '寫作風格' : '章節脈絡'}
                 </label>
               `).join('')}
             </div>

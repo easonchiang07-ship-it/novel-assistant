@@ -108,7 +108,7 @@ func TestBuildReferenceContextReturnsNilWhenStoreIsEmpty(t *testing.T) {
 		store: &vectorstore.Store{},
 	}
 
-	refs, err := s.buildReferenceContext(context.Background(), "chapter", retrievalOptions{})
+	refs, err := s.buildReferenceContext(context.Background(), "chapter", "", retrievalOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error with empty store: %v", err)
 	}

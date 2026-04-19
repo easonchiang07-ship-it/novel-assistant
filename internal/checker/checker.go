@@ -32,6 +32,12 @@ type genChunk struct {
 	Done     bool   `json:"done"`
 }
 
+type EmotionPoint struct {
+	Segment string  `json:"segment"`
+	Score   float64 `json:"score"`
+	Label   string  `json:"label"`
+}
+
 func (c *Checker) CheckBehaviorStream(ctx context.Context, profile, chapter string, w io.Writer) error {
 	prompt := fmt.Sprintf(`
 【角色設定】
@@ -103,6 +109,94 @@ func (c *Checker) CheckDialogueStream(ctx context.Context, name, personality, sp
 
 func (c *Checker) RewriteChapterStream(ctx context.Context, prompt string, w io.Writer) error {
 	return c.stream(ctx, "你是專業小說編輯，專責修稿。請直接輸出修訂後的章節內容，必要時可在最前面補一小段修訂說明。請用繁體中文回答。", prompt, w)
+}
+
+func (c *Checker) EnhanceSensoryStream(ctx context.Context, chapter string, w io.Writer) error {
+	prompt := fmt.Sprintf(`
+【待強化章節】
+%s
+
+請針對以下面向強化此章節的感官描寫：
+1. **視覺**：光線、色彩、空間感、動態細節
+2. **聽覺**：環境音、聲音質感、靜默對比
+3. **嗅覺**：場景氣味、記憶聯想
+4. **觸覺**：材質、溫度、身體感受
+5. **味覺**（如適用）
+
+規則：不改變情節與對白；感官描寫須符合場景氛圍；直接輸出修訂後的完整章節內容。
+`, chapter)
+	return c.stream(ctx, "你是專業文學編輯，擅長將平淡場景改寫為富有感官層次的文學散文。請用繁體中文回答。", prompt, w)
+}
+
+func (c *Checker) DiagnoseOpeningStream(ctx context.Context, chapter string, w io.Writer) error {
+	prompt := fmt.Sprintf(`
+【待診斷章節】
+%s
+
+請模擬普通網路讀者（非文學評論家）閱讀此章節的體驗，從以下五個維度評分並給出建議：
+
+1. **懸念鉤子（Hook）**（1-10分）：開頭是否有讓讀者想繼續讀的疑問或張力？
+2. **主角魅力**（1-10分）：主角是否在短時間內展現出鮮明特質或讓人代入的處境？
+3. **世界觀吸引力**（1-10分）：設定是否讓讀者感到新奇或有探索欲？
+4. **節奏感**（1-10分）：前幾段的閱讀節奏是否流暢、不拖沓？
+5. **留存意願**（1-10分）：讀完此章後，讀者會想看下一章嗎？
+
+輸出格式：每項給出分數＋一到兩句說明；最後給出「總體建議」2-3條可立即執行的修改方向。
+`, chapter)
+	return c.stream(ctx, "你是資深網文平台編輯，擅長從普通讀者視角評估小說開頭的吸引力。請用繁體中文回答。", prompt, w)
+}
+
+func (c *Checker) AnalyzeEmotionCurve(ctx context.Context, chapter string) ([]EmotionPoint, error) {
+	prompt := fmt.Sprintf(`
+【待分析章節】
+%s
+
+請將此章節切成 5-10 個語意段落，對每段分析情緒基調。
+輸出嚴格 JSON 陣列，不要有任何額外說明文字：
+[
+  {"segment": "段落摘要（15字以內）", "score": 0.8, "label": "喜悅"},
+  {"segment": "...", "score": -0.5, "label": "緊張"}
+]
+score 規則：-1.0=極度悲傷/恐懼，0=中性，1.0=極度喜悅/興奮
+label 從以下選一個：喜悅、緊張、悲傷、憤怒、平靜、恐懼、期待、失落
+`, chapter)
+
+	var buf strings.Builder
+	if err := c.stream(ctx, "你是情緒分析專家，只輸出 JSON，不輸出任何額外文字。", prompt, &buf); err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(buf.String())
+	start := strings.Index(raw, "[")
+	end := strings.LastIndex(raw, "]")
+	if start < 0 || end <= start {
+		return nil, fmt.Errorf("無法解析情緒曲線回應")
+	}
+	var points []EmotionPoint
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &points); err != nil {
+		return nil, fmt.Errorf("JSON 解析失敗：%w", err)
+	}
+	return points, nil
+}
+
+func (c *Checker) ChatWithCharacterStream(ctx context.Context, characterProfile, history, userMessage string, w io.Writer) error {
+	prompt := fmt.Sprintf(`
+【對話歷史】
+%s
+
+【使用者說】
+%s
+
+請以角色身份回應，保持角色設定的語氣、用詞習慣與思考邏輯。不要跳出角色，不要說明自己是 AI。
+回應長度：2-6句話，自然對話節奏。
+`, history, userMessage)
+
+	system := fmt.Sprintf(`你正在扮演以下角色，嚴格依照設定回應：
+
+%s
+
+規則：只說角色會說的話；保持設定中的語氣與個性；不要使用角色沒有的知識；請用繁體中文回答。`, characterProfile)
+
+	return c.stream(ctx, system, prompt, w)
 }
 
 func (c *Checker) stream(ctx context.Context, system, prompt string, w io.Writer) error {

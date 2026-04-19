@@ -44,7 +44,7 @@ func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	if got.RetrievalTopK != 4 || got.RetrievalThreshold != 0 {
 		t.Fatalf("expected retrieval defaults, got %#v", got)
 	}
-	if len(got.RetrievalSources) != 3 {
+	if len(got.RetrievalSources) != 4 {
 		t.Fatalf("expected default retrieval sources, got %#v", got.RetrievalSources)
 	}
 }
@@ -89,6 +89,9 @@ func TestPresetFor(t *testing.T) {
 	preset := store.PresetFor("behavior")
 	if !slices.Contains(preset.Sources, "character") {
 		t.Fatal("behavior preset should include character")
+	}
+	if !slices.Contains(preset.Sources, "chapter") {
+		t.Fatal("behavior preset should include chapter context")
 	}
 	if slices.Contains(preset.Sources, "style") {
 		t.Fatal("behavior preset should not include style")

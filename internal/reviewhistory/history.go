@@ -10,20 +10,27 @@ import (
 )
 
 type Entry struct {
-	ID             string    `json:"id"`
-	Kind           string    `json:"kind"` // review | rewrite
-	ChapterTitle   string    `json:"chapter_title"`
-	ChapterFile    string    `json:"chapter_file"`
-	SceneTitle     string    `json:"scene_title,omitempty"` // empty = full chapter
-	ChapterVersion int       `json:"chapter_version"`
-	KindVersion    int       `json:"kind_version"`
-	InputContent   string    `json:"input_content,omitempty"`
-	Checks         []string  `json:"checks,omitempty"`
-	Styles         []string  `json:"styles,omitempty"`
-	RewriteMode    string    `json:"rewrite_mode,omitempty"`
-	Sources        []string  `json:"sources,omitempty"`
-	Result         string    `json:"result"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string                     `json:"id"`
+	Kind             string                     `json:"kind"` // review | rewrite
+	ChapterTitle     string                     `json:"chapter_title"`
+	ChapterFile      string                     `json:"chapter_file"`
+	SceneTitle       string                     `json:"scene_title,omitempty"` // empty = full chapter
+	ChapterVersion   int                        `json:"chapter_version"`
+	KindVersion      int                        `json:"kind_version"`
+	InputContent     string                     `json:"input_content,omitempty"`
+	Checks           []string                   `json:"checks,omitempty"`
+	Styles           []string                   `json:"styles,omitempty"`
+	RewriteMode      string                     `json:"rewrite_mode,omitempty"`
+	Sources          []string                   `json:"sources,omitempty"`
+	RetrievalConfigs map[string]RetrievalConfig `json:"retrieval_configs,omitempty"`
+	Result           string                     `json:"result"`
+	CreatedAt        time.Time                  `json:"created_at"`
+}
+
+type RetrievalConfig struct {
+	Sources   []string `json:"sources"`
+	TopK      int      `json:"top_k"`
+	Threshold float64  `json:"threshold"`
 }
 
 type Store struct {

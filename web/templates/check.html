@@ -6,6 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>一致性審查 — 小說助手</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <script>
+  const KNOWN_NAMES = {
+    characters: {{jsonJS .KnownCharacterNames}},
+    worlds: {{jsonJS .KnownWorldNames}}
+  };
+  </script>
 </head>
 <body>
 <div class="layout">
@@ -43,8 +50,14 @@
           <div id="chapter-status" class="helper-text">目前尚未載入章節檔案。</div>
         </div>
 
-        <div class="card">
-          <h2>RAG 擷取設定</h2>
+        <details class="card retrieval-panel" id="retrieval-panel">
+          <summary class="retrieval-panel-summary">
+            <div>
+              <strong>RAG 擷取設定</strong>
+              <span id="retrieval-collapse-summary" class="helper-text">讀取中...</span>
+            </div>
+          </summary>
+          <div class="retrieval-panel-body">
           <p class="helper-text">依任務 preset 載入預設值；只有在你手動修改後，才會把 override 送到後端。</p>
 
           <div class="grid-2">
@@ -80,6 +93,10 @@
                 <input type="checkbox" name="retrieval-source" value="style" {{if sourceEnabled .RetrievalSources "style"}}checked{{end}}>
                 寫作風格
               </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="retrieval-source" value="chapter" {{if sourceEnabled .RetrievalSources "chapter"}}checked{{end}}>
+                章節脈絡
+              </label>
             </div>
           </div>
 
@@ -93,7 +110,8 @@
               <input type="range" id="retrieval-threshold" min="0" max="1" step="0.01" value="{{.RetrievalThreshold}}" oninput="document.getElementById('threshold-display').textContent=parseFloat(this.value).toFixed(2);updateRetrievalSummary()">
             </div>
           </div>
-        </div>
+          </div>
+        </details>
 
         <div class="card">
           <h2>審查設定</h2>
@@ -133,6 +151,10 @@
                 <input type="checkbox" name="checks" value="style" id="check-style" {{if not .Styles}}disabled title="尚無風格設定檔"{{end}}>
                 寫作風格
               </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="checks" value="opening">
+                黃金三章診斷
+              </label>
             </div>
           </div>
 
@@ -151,6 +173,8 @@
           <div class="form-group">
             <label>章節內容</label>
             <textarea id="chapter" class="large" placeholder="貼上你的章節文字，或從上方章節檔案庫載入..."></textarea>
+            <div id="chapter-preview" style="display:none;padding:12px;background:#0f0d14;border:1px solid #2d2540;border-radius:8px;line-height:1.9;font-size:0.9rem;white-space:pre-wrap;max-height:300px;overflow-y:auto;margin-top:10px"></div>
+            <button class="btn btn-ghost btn-sm" type="button" id="toggle-preview-btn" onclick="toggleTagPreview()" style="margin-top:6px">顯示標籤預覽</button>
           </div>
 
           <button id="submit-btn" class="btn" onclick="runCheck()">開始審查</button>
@@ -160,6 +184,7 @@
       <div>
         <div class="card">
           <h2>本地參考來源</h2>
+          <div id="result-retrieval-box" class="helper-text" style="margin-bottom:12px">尚未收到本次 retrieval 設定。</div>
           <div id="source-box" class="source-box">
             <div class="empty-state">尚未開始審查。重新索引後，這裡會顯示本次引用的角色、世界觀與風格資料。</div>
           </div>
@@ -177,8 +202,18 @@
             <button class="btn btn-ghost" type="button" onclick="runRewrite('conservative')">保守修訂</button>
             <button class="btn btn-ghost" type="button" onclick="runRewrite('style')">強化風格</button>
             <button class="btn btn-ghost" type="button" onclick="runRewrite('structural')">結構修訂</button>
+            <button class="btn btn-ghost" type="button" onclick="runRewrite('sensory')">五感敘事強化</button>
           </div>
           <div id="rewrite-box" class="result-box" style="margin-top:16px;min-height:180px">尚未執行修稿模式。</div>
+        </div>
+
+        <button class="btn btn-ghost" type="button" onclick="runEmotionCurve()" style="margin-top:8px">分析情緒曲線</button>
+        <div class="card" id="emotion-card" style="display:none;margin-top:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2>情緒曲線</h2>
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('emotion-card').style.display='none'">關閉</button>
+          </div>
+          <canvas id="emotion-chart" height="80"></canvas>
         </div>
 
         <div id="writeback-section" style="display:none" class="card">
@@ -306,6 +341,9 @@ let retrievalPresets = {};
 let activeRetrievalTask = 'behavior';
 let currentPresetSnapshot = cloneRetrieval(initialRetrieval);
 let retrievalDirty = false;
+let lastAppliedRetrieval = {};
+let tagPreviewVisible = false;
+let emotionChartInstance = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   const styleCheck = document.getElementById('check-style');
@@ -328,6 +366,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('retrieval-threshold').addEventListener('input', handleRetrievalInputChange);
   document.getElementById('retrieval-task').addEventListener('change', (event) => {
     setActiveRetrievalTask(event.target.value);
+  });
+  document.getElementById('chapter').addEventListener('input', () => {
+    if (tagPreviewVisible) {
+      refreshTagPreview();
+    }
   });
   if (styleCheck) {
     document.getElementById('style-selector').style.display = styleCheck.checked ? 'block' : 'none';
@@ -387,6 +430,26 @@ function setActiveRetrievalTask(task) {
   retrievalDirty = false;
   fillRetrievalInputs(currentPresetSnapshot);
   updateRetrievalSummary();
+}
+
+function retrievalTaskLabel(task) {
+  const labels = {
+    behavior: '行為一致性',
+    dialogue: '對白風格',
+    world: '世界觀衝突',
+    rewrite: '修稿',
+  };
+  return labels[task] || task;
+}
+
+function retrievalSourceLabel(source) {
+  const labels = {
+    character: '角色',
+    world: '世界觀',
+    style: '風格',
+    chapter: '章節脈絡',
+  };
+  return labels[source] || source;
 }
 
 function syncRetrievalTaskFromChecks() {
@@ -611,6 +674,68 @@ function renderSources(items) {
   `).join('');
 }
 
+function escapeHTML(text) {
+  return String(text || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function highlightNames(text) {
+  if (!text) return '';
+  let html = escapeHTML(text);
+  (KNOWN_NAMES.characters || []).forEach(name => {
+    if (!name) return;
+    const esc = escapeHTML(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp(esc, 'g'),
+      `<a href="/characters#char-${encodeURIComponent(name)}" target="_blank" style="color:#60a5fa;text-decoration:underline dotted" title="查看角色：${name}">${escapeHTML(name)}</a>`);
+  });
+  (KNOWN_NAMES.worlds || []).forEach(name => {
+    if (!name) return;
+    const esc = escapeHTML(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp(esc, 'g'),
+      `<a href="/characters#world-${encodeURIComponent(name)}" target="_blank" style="color:#c084fc;text-decoration:underline dotted" title="查看世界觀：${name}">${escapeHTML(name)}</a>`);
+  });
+  return html;
+}
+
+function refreshTagPreview() {
+  const preview = document.getElementById('chapter-preview');
+  const ta = document.getElementById('chapter');
+  preview.innerHTML = highlightNames(ta ? ta.value : '');
+}
+
+function toggleTagPreview() {
+  const preview = document.getElementById('chapter-preview');
+  const btn = document.getElementById('toggle-preview-btn');
+  tagPreviewVisible = !tagPreviewVisible;
+  if (tagPreviewVisible) {
+    refreshTagPreview();
+    preview.style.display = 'block';
+    btn.textContent = '隱藏標籤預覽';
+  } else {
+    preview.style.display = 'none';
+    btn.textContent = '顯示標籤預覽';
+  }
+}
+
+function renderAppliedRetrieval(tasks) {
+  lastAppliedRetrieval = tasks || {};
+  const box = document.getElementById('result-retrieval-box');
+  const entries = Object.entries(lastAppliedRetrieval || {});
+  if (!entries.length) {
+    box.textContent = '尚未收到本次 retrieval 設定。';
+    return;
+  }
+
+  box.innerHTML = entries.map(([task, cfg]) => {
+    const sources = Array.isArray(cfg.sources) && cfg.sources.length
+      ? cfg.sources.map(retrievalSourceLabel).join('、')
+      : '無';
+    return `${retrievalTaskLabel(task)}：來源 ${sources} / Top-K ${Number(cfg.top_k || 0)} / 門檻 ${Number(cfg.threshold || 0).toFixed(2)}`;
+  }).join('<br>');
+}
+
 async function hydrateFromHistory() {
   const params = new URLSearchParams(window.location.search);
   const historyId = params.get('history_id');
@@ -731,11 +856,12 @@ function resetRetrievalToPreset() {
 
 function updateRetrievalSummary() {
   const opts = getCurrentRetrievalInputs();
-  const labels = { character: '角色', world: '世界觀', style: '風格' };
-  const srcStr = opts.sources.length ? opts.sources.map(s => labels[s] || s).join('、') : '（無）';
+  const srcStr = opts.sources.length ? opts.sources.map(retrievalSourceLabel).join('、') : '（無）';
   const modeText = retrievalDirty ? '已覆蓋 preset' : '沿用 preset';
-  document.getElementById('retrieval-summary').textContent =
-    '任務：' + activeRetrievalTask + '　' + modeText + '　來源：' + srcStr + '　Top-K：' + opts.top_k + '　門檻：' + opts.threshold.toFixed(2);
+  const summary =
+    '任務：' + retrievalTaskLabel(activeRetrievalTask) + '　' + modeText + '　來源：' + srcStr + '　Top-K：' + opts.top_k + '　門檻：' + opts.threshold.toFixed(2);
+  document.getElementById('retrieval-summary').textContent = summary;
+  document.getElementById('retrieval-collapse-summary').textContent = summary;
 }
 
 function populateWritebackDefaults() {
@@ -765,6 +891,7 @@ async function runCheck() {
   const resultBox = document.getElementById('result-box');
   const submitBtn = document.getElementById('submit-btn');
   document.getElementById('rewrite-box').textContent = '尚未執行修稿模式。';
+  renderAppliedRetrieval({});
 
   resultBox.textContent = '分析中...\n';
   renderSources([]);
@@ -815,6 +942,8 @@ async function runCheck() {
           appendResult(parsed.payload.text);
         } else if (parsed.eventName === 'sources') {
           renderSources(parsed.payload.items || []);
+        } else if (parsed.eventName === 'retrieval') {
+          renderAppliedRetrieval(parsed.payload.tasks || {});
         }
       }
     }
@@ -824,6 +953,7 @@ async function runCheck() {
       if (parsed) {
         if (parsed.eventName === 'chunk') appendResult(parsed.payload.text);
         if (parsed.eventName === 'sources') renderSources(parsed.payload.items || []);
+        if (parsed.eventName === 'retrieval') renderAppliedRetrieval(parsed.payload.tasks || {});
       }
     }
 
@@ -856,6 +986,7 @@ async function runRewrite(mode) {
 
   const rewriteBox = document.getElementById('rewrite-box');
   rewriteBox.textContent = '修稿中...\n';
+  renderAppliedRetrieval({});
 
   try {
     const resp = await fetch('/rewrite/stream', {
@@ -902,17 +1033,73 @@ async function runRewrite(mode) {
         if (parsed.eventName === 'sources') {
           renderSources(parsed.payload.items || []);
         }
+        if (parsed.eventName === 'retrieval') {
+          renderAppliedRetrieval(parsed.payload.tasks || {});
+        }
       }
     }
 
     if (buffer.trim()) {
       const parsed = parseSSEBlock(buffer);
-      if (parsed && parsed.eventName === 'chunk') {
-        rewriteBox.textContent += parsed.payload.text || '';
+      if (parsed) {
+        if (parsed.eventName === 'chunk') {
+          rewriteBox.textContent += parsed.payload.text || '';
+        }
+        if (parsed.eventName === 'retrieval') {
+          renderAppliedRetrieval(parsed.payload.tasks || {});
+        }
       }
     }
   } catch (e) {
     rewriteBox.textContent = '連線錯誤：' + e.message;
+  }
+}
+
+async function runEmotionCurve() {
+  const ta = document.getElementById('chapter');
+  const text = ta ? ta.value.trim() : '';
+  if (!text) { alert('請先輸入章節內容'); return; }
+
+  document.getElementById('emotion-card').style.display = 'block';
+
+  try {
+    const resp = await fetch('/api/emotion-curve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter: text })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '分析失敗');
+
+    const points = data.points || [];
+    if (emotionChartInstance) emotionChartInstance.destroy();
+    emotionChartInstance = new Chart(document.getElementById('emotion-chart'), {
+      type: 'line',
+      data: {
+        labels: points.map(p => p.segment),
+        datasets: [{
+          label: '情緒分數', data: points.map(p => p.score),
+          borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
+          pointBackgroundColor: points.map(p => p.score > 0.3 ? '#22c55e' : p.score < -0.3 ? '#ef4444' : '#f59e0b'),
+          pointRadius: 7, tension: 0.4, fill: true
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { afterLabel: ctx => points[ctx.dataIndex]?.label || '' } }
+        },
+        scales: {
+          y: {
+            min: -1, max: 1,
+            title: { display: true, text: '情緒強度（負=悲/懼，正=喜/奮）' }
+          }
+        }
+      }
+    });
+  } catch (e) {
+    alert('情緒曲線分析失敗：' + e.message);
   }
 }
 

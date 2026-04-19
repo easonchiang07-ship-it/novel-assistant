@@ -21,9 +21,10 @@ import (
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 type streamEvent struct {
-	Event   string
-	Text    string
-	Sources []referenceSummary
+	Event     string
+	Text      string
+	Sources   []referenceSummary
+	Retrieval any
 }
 
 type referenceSummary struct {
@@ -33,6 +34,13 @@ type referenceSummary struct {
 	Score        float64 `json:"score"`
 	MatchReason  string  `json:"match_reason"`
 	ChapterMatch string  `json:"chapter_match"`
+}
+
+type retrievalSummary struct {
+	Task      string   `json:"task"`
+	Sources   []string `json:"sources"`
+	TopK      int      `json:"top_k"`
+	Threshold float64  `json:"threshold"`
 }
 
 type chanWriter struct {
@@ -46,6 +54,19 @@ func (cw *chanWriter) Write(p []byte) (n int, err error) {
 	}
 	cw.ch <- streamEvent{Event: "chunk", Text: string(p)}
 	return len(p), nil
+}
+
+type flushWriter struct {
+	w       io.Writer
+	flusher http.Flusher
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if err == nil && fw.flusher != nil {
+		fw.flusher.Flush()
+	}
+	return n, err
 }
 
 func contains(s []string, v string) bool {
@@ -145,6 +166,33 @@ func mergeRetrieval(preset reviewrules.RetrievalPreset, override retrievalOption
 	return result
 }
 
+func summarizeRetrieval(task string, opts retrievalOptions) retrievalSummary {
+	return retrievalSummary{
+		Task:      task,
+		Sources:   append([]string(nil), opts.Sources...),
+		TopK:      opts.TopK,
+		Threshold: opts.Threshold,
+	}
+}
+
+func historyRetrievalConfig(opts retrievalSummary) reviewhistory.RetrievalConfig {
+	return reviewhistory.RetrievalConfig{
+		Sources:   append([]string(nil), opts.Sources...),
+		TopK:      opts.TopK,
+		Threshold: opts.Threshold,
+	}
+}
+
+func buildHistoryRetrievalConfigs(active map[string]retrievalSummary) map[string]reviewhistory.RetrievalConfig {
+	result := make(map[string]reviewhistory.RetrievalConfig, len(active))
+	for task, summary := range active {
+		if summary.TopK > 0 {
+			result[task] = historyRetrievalConfig(summary)
+		}
+	}
+	return result
+}
+
 func summarizeReferences(items []vectorProfile) []referenceSummary {
 	summaries := make([]referenceSummary, 0, len(items))
 	for _, item := range items {
@@ -236,7 +284,7 @@ func (s *Server) resolveStyles(req checkRequest) ([]*profile.StyleGuide, error) 
 	return styles, nil
 }
 
-func (s *Server) buildReferenceContext(ctx context.Context, chapter string, opts retrievalOptions) ([]vectorProfile, error) {
+func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile string, opts retrievalOptions) ([]vectorProfile, error) {
 	if s.store.Len() == 0 {
 		return nil, nil
 	}
@@ -263,9 +311,13 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter string, opts
 	docs := s.store.QueryFilteredScored(queryVec, topK, sources, threshold)
 	results := make([]vectorProfile, 0, len(docs))
 	for _, doc := range docs {
+		if doc.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && doc.ID == "chapter_"+chapterFile {
+			continue
+		}
 		name := strings.TrimPrefix(doc.ID, "char_")
 		name = strings.TrimPrefix(name, "world_")
 		name = strings.TrimPrefix(name, "style_")
+		name = strings.TrimPrefix(name, "chapter_")
 		reason, snippet := referenceMatchDetail(chapter, name, doc.Content)
 		results = append(results, vectorProfile{
 			Name:         name,
@@ -421,18 +473,51 @@ func (s *Server) handleCheckPage(c *gin.Context) {
 		log.Printf("list chapters: %v", err)
 	}
 	rules := s.rules.Get()
+	knownCharacterNames := make([]string, 0, len(s.profiles.Characters))
+	for _, ch := range s.profiles.Characters {
+		knownCharacterNames = append(knownCharacterNames, ch.Name)
+	}
+	knownWorldNames := make([]string, 0, len(s.profiles.Worlds))
+	for _, world := range s.profiles.Worlds {
+		knownWorldNames = append(knownWorldNames, world.Name)
+	}
 	c.HTML(http.StatusOK, "check.html", gin.H{
-		"Title":              "一致性審查",
-		"Characters":         s.profiles.Characters,
-		"Styles":             s.profiles.Styles,
-		"Chapters":           chapters,
-		"DefaultChecks":      rules.DefaultChecks,
-		"DefaultStyles":      rules.DefaultStyles,
-		"ReviewBias":         rules.ReviewBias,
-		"RewriteBias":        rules.RewriteBias,
-		"RetrievalSources":   rules.RetrievalSources,
-		"RetrievalTopK":      rules.RetrievalTopK,
-		"RetrievalThreshold": rules.RetrievalThreshold,
+		"Title":               "一致性審查",
+		"Characters":          s.profiles.Characters,
+		"Styles":              s.profiles.Styles,
+		"Chapters":            chapters,
+		"DefaultChecks":       rules.DefaultChecks,
+		"DefaultStyles":       rules.DefaultStyles,
+		"ReviewBias":          rules.ReviewBias,
+		"RewriteBias":         rules.RewriteBias,
+		"RetrievalSources":    rules.RetrievalSources,
+		"RetrievalTopK":       rules.RetrievalTopK,
+		"RetrievalThreshold":  rules.RetrievalThreshold,
+		"KnownCharacterNames": knownCharacterNames,
+		"KnownWorldNames":     knownWorldNames,
+	})
+}
+
+func (s *Server) handleEmotionCurve(c *gin.Context) {
+	var req struct {
+		Chapter string `json:"chapter"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Chapter) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+	points, err := s.checker.AnalyzeEmotionCurve(c.Request.Context(), req.Chapter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"points": points})
+}
+
+func (s *Server) handleChatPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "chat.html", gin.H{
+		"Title":      "角色對談室",
+		"Characters": s.profiles.Characters,
 	})
 }
 
@@ -528,7 +613,8 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		charsToCheck := s.resolveCharacters(req)
-		if len(charsToCheck) == 0 {
+		needsCharacters := len(req.Checks) == 0 || contains(req.Checks, "behavior") || contains(req.Checks, "dialogue")
+		if needsCharacters && len(charsToCheck) == 0 {
 			text := "\n> 找不到可審查的角色，請先建立角色設定檔。\n"
 			transcript.WriteString(text)
 			msgChan <- streamEvent{Event: "chunk", Text: text}
@@ -538,10 +624,13 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		var behaviorRefs []vectorProfile
 		var dialogueRefs []vectorProfile
 		var worldRefs []vectorProfile
+		activeRetrieval := make(map[string]retrievalSummary)
 		var err error
 
 		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
-			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior")))
+			behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
+			activeRetrieval["behavior"] = summarizeRetrieval("behavior", behaviorOpts)
+			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
 			if err != nil {
 				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -549,7 +638,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 		}
 		if contains(req.Checks, "dialogue") {
-			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue")))
+			dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
+			activeRetrieval["dialogue"] = summarizeRetrieval("dialogue", dialogueOpts)
+			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
 			if err != nil {
 				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -557,13 +648,17 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 		}
 		if contains(req.Checks, "world") {
-			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world")))
+			worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
+			activeRetrieval["world"] = summarizeRetrieval("world", worldOpts)
+			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
 			if err != nil {
 				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
 				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
 		}
+
+		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": activeRetrieval}}
 
 		references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
 		if len(references) > 0 {
@@ -600,6 +695,20 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 						msgChan <- streamEvent{Event: "chunk", Text: text}
 					}
 					return
+				}
+			}
+		}
+
+		if contains(req.Checks, "opening") {
+			text := "\n\n## 黃金三章診斷\n\n"
+			transcript.WriteString(text)
+			msgChan <- streamEvent{Event: "chunk", Text: text}
+			if err := s.checker.DiagnoseOpeningStream(ctx, req.Chapter, cw); err != nil {
+				if ctx.Err() == nil {
+					log.Printf("opening diagnosis: %v", err)
+					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+					transcript.WriteString(text)
+					msgChan <- streamEvent{Event: "chunk", Text: text}
 				}
 			}
 		}
@@ -685,15 +794,16 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			chapterTitle = "未命名章節"
 		}
 		s.history.Add(&reviewhistory.Entry{
-			Kind:         "review",
-			ChapterTitle: chapterTitle,
-			ChapterFile:  chapterFile,
-			SceneTitle:   strings.TrimSpace(req.SceneTitle),
-			InputContent: req.Chapter,
-			Checks:       append([]string(nil), req.Checks...),
-			Styles:       append([]string(nil), req.Styles...),
-			Sources:      referenceNames(references),
-			Result:       transcript.String(),
+			Kind:             "review",
+			ChapterTitle:     chapterTitle,
+			ChapterFile:      chapterFile,
+			SceneTitle:       strings.TrimSpace(req.SceneTitle),
+			InputContent:     req.Chapter,
+			Checks:           append([]string(nil), req.Checks...),
+			Styles:           append([]string(nil), req.Styles...),
+			Sources:          referenceNames(references),
+			RetrievalConfigs: buildHistoryRetrievalConfigs(activeRetrieval),
+			Result:           transcript.String(),
 		})
 		if err := s.history.Save(); err != nil {
 			log.Printf("save review history: %v", err)
@@ -715,6 +825,10 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				c.SSEvent("sources", gin.H{"items": msg.Sources})
 				return true
 			}
+			if msg.Event == "retrieval" {
+				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})
 			return true
 		case <-ctx.Done():
@@ -734,6 +848,12 @@ type rewriteRequest struct {
 	SceneTitle   string           `json:"scene_title,omitempty"` // empty = full chapter
 }
 
+type chatRequest struct {
+	CharacterName string `json:"character_name"`
+	History       string `json:"history"`
+	Message       string `json:"message"`
+}
+
 func rewriteInstruction(mode string) (string, error) {
 	switch mode {
 	case "conservative":
@@ -742,6 +862,8 @@ func rewriteInstruction(mode string) (string, error) {
 		return "請做風格強化修訂：在不改變事件順序的前提下，讓文氣更貼近選定寫作風格。", nil
 	case "structural":
 		return "請做結構修訂：允許調整段落順序、鋪陳與揭露節奏，讓場景張力更完整。", nil
+	case "sensory":
+		return "", nil
 	default:
 		return "", fmt.Errorf("未知的修稿模式：%s", mode)
 	}
@@ -758,10 +880,14 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		return
 	}
 
-	instruction, err := rewriteInstruction(req.Mode)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+	instruction := ""
+	if req.Mode != "sensory" {
+		var err error
+		instruction, err = rewriteInstruction(req.Mode)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	stylesReq := checkRequest{Checks: []string{"style"}, Styles: req.Styles}
@@ -780,8 +906,15 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer close(msgChan)
 		defer cancel()
 
-		references, refErr := s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
+		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
+			Sources:      append([]string(nil), activeRetrieval.Sources...),
+			TopK:         activeRetrieval.TopK,
+			Threshold:    activeRetrieval.Threshold,
+			ThresholdSet: true,
+		})
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
+		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": gin.H{"rewrite": activeRetrieval}}}
 		if refErr != nil {
 			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", refErr.Error())
 			transcript.WriteString(text)
@@ -805,9 +938,15 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		}
 		promptParts = append(promptParts, "【原始章節】\n"+req.Chapter)
 
-		if err := s.checker.RewriteChapterStream(ctx, strings.Join(promptParts, "\n\n"), cw); err != nil {
+		var rewriteErr error
+		if req.Mode == "sensory" {
+			rewriteErr = s.checker.EnhanceSensoryStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+		} else {
+			rewriteErr = s.checker.RewriteChapterStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+		}
+		if rewriteErr != nil {
 			if ctx.Err() == nil {
-				text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
+				text := fmt.Sprintf("\n> 錯誤：%s\n", rewriteErr.Error())
 				transcript.WriteString(text)
 				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
@@ -834,7 +973,10 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 			InputContent: req.Chapter,
 			Styles:       append([]string(nil), req.Styles...),
 			Sources:      referenceNames(references),
-			Result:       transcript.String(),
+			RetrievalConfigs: map[string]reviewhistory.RetrievalConfig{
+				"rewrite": historyRetrievalConfig(activeRetrieval),
+			},
+			Result: transcript.String(),
 		})
 		if err := s.history.Save(); err != nil {
 			log.Printf("save rewrite history: %v", err)
@@ -856,12 +998,46 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 				c.SSEvent("sources", gin.H{"items": msg.Sources})
 				return true
 			}
+			if msg.Event == "retrieval" {
+				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})
 			return true
 		case <-ctx.Done():
 			return false
 		}
 	})
+}
+
+func (s *Server) handleChatStream(c *gin.Context) {
+	var req chatRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.String(http.StatusBadRequest, "請求格式錯誤")
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		c.String(http.StatusBadRequest, "訊息不可為空")
+		return
+	}
+	character := s.profiles.FindByName(req.CharacterName)
+	if character == nil {
+		c.String(http.StatusBadRequest, "找不到角色："+req.CharacterName)
+		return
+	}
+
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Header("Transfer-Encoding", "chunked")
+	c.Header("X-Content-Type-Options", "nosniff")
+	flusher, _ := c.Writer.(http.Flusher)
+	if err := s.checker.ChatWithCharacterStream(
+		c.Request.Context(), character.RawContent, req.History, req.Message, &flushWriter{w: c.Writer, flusher: flusher},
+	); err != nil {
+		log.Printf("chat stream: %v", err)
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
 }
 
 // ─── relationships ────────────────────────────────────────────────────────────

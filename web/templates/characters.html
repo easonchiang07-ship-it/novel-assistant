@@ -21,7 +21,7 @@
       <h2>角色列表（{{len .Characters}} 位）</h2>
       <div class="char-grid">
         {{range .Characters}}
-        <div class="char-card">
+        <div class="char-card" id="char-{{urlquery .Name}}">
           <div class="char-name">{{.Name}}</div>
           {{if .Personality}}
           <div class="char-field">
@@ -88,7 +88,7 @@
       <h2>世界觀設定（{{len .Worlds}} 份）</h2>
       <div class="char-grid">
         {{range .Worlds}}
-        <div class="world-card">
+        <div class="world-card" id="world-{{urlquery .Name}}">
           <div class="world-title">{{.Name}}</div>
           <div class="world-content">{{.RawContent}}</div>
         </div>

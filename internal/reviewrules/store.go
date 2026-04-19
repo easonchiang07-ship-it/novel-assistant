@@ -35,14 +35,14 @@ func Defaults() Settings {
 		DefaultChecks:      []string{"behavior"},
 		ReviewBias:         "balanced",
 		RewriteBias:        "faithful",
-		RetrievalSources:   []string{"character", "world", "style"},
+		RetrievalSources:   []string{"character", "world", "style", "chapter"},
 		RetrievalTopK:      4,
 		RetrievalThreshold: 0,
 		Presets: map[string]RetrievalPreset{
-			"behavior": {Sources: []string{"character", "world"}, TopK: 4, Threshold: 0},
-			"dialogue": {Sources: []string{"character"}, TopK: 3, Threshold: 0},
-			"world":    {Sources: []string{"world"}, TopK: 4, Threshold: 0},
-			"rewrite":  {Sources: []string{"character", "world", "style"}, TopK: 5, Threshold: 0},
+			"behavior": {Sources: []string{"character", "world", "chapter"}, TopK: 4, Threshold: 0},
+			"dialogue": {Sources: []string{"character", "chapter"}, TopK: 3, Threshold: 0},
+			"world":    {Sources: []string{"world", "chapter"}, TopK: 4, Threshold: 0},
+			"rewrite":  {Sources: []string{"character", "world", "style", "chapter"}, TopK: 5, Threshold: 0},
 		},
 	}
 }
@@ -119,6 +119,7 @@ func normalize(item Settings) Settings {
 		"character": {},
 		"world":     {},
 		"style":     {},
+		"chapter":   {},
 	}
 	filtered := make([]string, 0, len(item.RetrievalSources))
 	for _, source := range uniqueNonEmpty(item.RetrievalSources) {

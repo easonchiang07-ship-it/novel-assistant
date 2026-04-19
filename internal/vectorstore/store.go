@@ -10,7 +10,7 @@ import (
 
 type Document struct {
 	ID        string    `json:"id"`
-	Type      string    `json:"type"` // "character" | "world"
+	Type      string    `json:"type"` // "character" | "world" | "style" | "chapter"
 	Content   string    `json:"content"`
 	Embedding []float64 `json:"embedding"`
 }

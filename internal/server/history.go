@@ -55,6 +55,45 @@ func historySourceContent(entry *reviewhistory.Entry) string {
 	return strings.TrimSpace(entry.InputContent)
 }
 
+func formatRetrievalConfigMap(items map[string]reviewhistory.RetrievalConfig) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	order := []string{"behavior", "dialogue", "world", "rewrite"}
+	labels := map[string]string{
+		"behavior":  "行為",
+		"dialogue":  "對白",
+		"world":     "世界觀",
+		"rewrite":   "修稿",
+		"chapter":   "章節脈絡",
+		"character": "角色",
+		"style":     "風格",
+	}
+
+	parts := make([]string, 0, len(items))
+	for _, key := range order {
+		cfg, ok := items[key]
+		if !ok || cfg.TopK == 0 {
+			continue
+		}
+		sourceLabels := make([]string, 0, len(cfg.Sources))
+		for _, source := range cfg.Sources {
+			if label, ok := labels[source]; ok {
+				sourceLabels = append(sourceLabels, label)
+			} else {
+				sourceLabels = append(sourceLabels, source)
+			}
+		}
+		taskLabel := labels[key]
+		if taskLabel == "" {
+			taskLabel = key
+		}
+		parts = append(parts, fmt.Sprintf("%s：%s / Top-K %d / 門檻 %.2f", taskLabel, strings.Join(sourceLabels, "、"), cfg.TopK, cfg.Threshold))
+	}
+	return strings.Join(parts, "；")
+}
+
 func buildHistoryGroups(entries []*reviewhistory.Entry) []historyGroup {
 	order := make([]string, 0)
 	groups := make(map[string][]*reviewhistory.Entry)
@@ -112,6 +151,9 @@ func formatHistoryMarkdown(entries []*reviewhistory.Entry) []byte {
 		}
 		if len(entry.Sources) > 0 {
 			buf.WriteString(fmt.Sprintf("- 參考來源：%s\n", strings.Join(entry.Sources, "、")))
+		}
+		if summary := formatRetrievalConfigMap(entry.RetrievalConfigs); summary != "" {
+			buf.WriteString(fmt.Sprintf("- Retrieval 設定：%s\n", summary))
 		}
 		buf.WriteString(fmt.Sprintf("- 建立時間：%s\n\n", entry.CreatedAt.Format("2006-01-02 15:04:05")))
 		buf.WriteString("```text\n")

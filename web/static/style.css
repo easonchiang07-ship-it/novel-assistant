@@ -267,6 +267,25 @@ tr:hover td { background: #1e1a30; }
   gap: 12px;
 }
 
+.retrieval-panel summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.retrieval-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.retrieval-panel-summary strong {
+  color: #a78bfa;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.retrieval-panel-body {
+  margin-top: 16px;
+}
+
 .source-card {
   background: #15111f;
   border: 1px solid #2d2540;

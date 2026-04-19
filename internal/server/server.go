@@ -15,6 +15,9 @@ import (
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +127,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/settings", s.handleSettingsPage)
 	r.GET("/styles", s.handleStylesPage)
 	r.GET("/check", s.handleCheckPage)
+	r.GET("/chat", s.handleChatPage)
 	r.GET("/relationships", s.handleRelationshipsPage)
 	r.GET("/timeline", s.handleTimelinePage)
 	r.GET("/foreshadow", s.handleForeshadowPage)
@@ -148,7 +152,9 @@ func (s *Server) setupRoutes() {
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
 	r.POST("/api/settings", s.handleSaveSettings)
+	r.POST("/api/emotion-curve", s.handleEmotionCurve)
 	r.POST("/check/stream", s.handleCheckStream)
+	r.POST("/chat/stream", s.handleChatStream)
 	r.POST("/rewrite/stream", s.handleRewriteStream)
 	r.POST("/api/templates/apply", s.handleApplyTemplate)
 	r.POST("/api/writeback/timeline", s.handleWritebackTimeline)
@@ -214,6 +220,31 @@ func (s *Server) Ingest(ctx context.Context) error {
 			Embedding: vec,
 		})
 		log.Printf("indexed style: %s", style.Name)
+	}
+
+	files, err := os.ReadDir(s.chapterDir())
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("list chapters: %w", err)
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(s.chapterDir(), file.Name()))
+		if err != nil {
+			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
+		}
+		vec, err := s.embedder.Embed(ctx, string(content))
+		if err != nil {
+			return fmt.Errorf("embed chapter %s: %w", file.Name(), err)
+		}
+		s.store.Upsert(vectorstore.Document{
+			ID:        "chapter_" + file.Name(),
+			Type:      "chapter",
+			Content:   string(content),
+			Embedding: vec,
+		})
+		log.Printf("indexed chapter: %s", file.Name())
 	}
 
 	return s.store.Save()

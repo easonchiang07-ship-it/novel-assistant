@@ -15,6 +15,7 @@ import (
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
+	"novel-assistant/internal/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,9 +24,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type projectState struct {
+	dataDir       string
+	profiles      *profile.Manager
+	store         *vectorstore.Store
+	project       *projectsettings.Store
+	rules         *reviewrules.Store
+	history       *reviewhistory.Store
+	relationships *tracker.RelationshipTracker
+	timeline      *tracker.TimelineTracker
+	foreshadow    *tracker.ForeshadowTracker
+}
+
 type Server struct {
 	cfg            *config.Config
 	router         *gin.Engine
+	stateMu        sync.RWMutex
+	state          *projectState
 	profiles       *profile.Manager
 	store          *vectorstore.Store
 	project        *projectsettings.Store
@@ -41,55 +56,23 @@ type Server struct {
 }
 
 func New(cfg *config.Config) (*Server, error) {
-	s := &Server{cfg: cfg}
-
-	s.project = projectsettings.New(cfg.DataDir+"/project_settings.json", projectsettings.Settings{
-		OllamaURL:  cfg.OllamaURL,
-		LLMModel:   cfg.LLMModel,
-		EmbedModel: cfg.EmbedModel,
-		Port:       cfg.Port,
-		DataDir:    cfg.DataDir,
-	})
-	if err := s.project.Load(); err != nil {
-		log.Printf("project settings load: %v", err)
+	idx, err := workspace.EnsureIndex()
+	if err != nil {
+		return nil, fmt.Errorf("load workspace index: %w", err)
 	}
+
+	s := &Server{
+		cfg:      cfg,
+		embedder: embedder.New(cfg.OllamaURL, cfg.EmbedModel),
+		checker:  checker.New(cfg.OllamaURL, cfg.LLMModel),
+	}
+
+	st, err := s.loadProjectState(idx.Active)
+	if err != nil {
+		return nil, fmt.Errorf("load project state: %w", err)
+	}
+	s.setProjectState(st)
 	s.applyProjectSettings()
-
-	s.profiles = profile.NewManager(cfg.DataDir)
-	if err := s.profiles.Load(); err != nil {
-		log.Printf("profiles load: %v", err)
-	}
-
-	s.store = vectorstore.New(cfg.DataDir + "/store.json")
-	if err := s.store.Load(); err != nil {
-		log.Printf("store load: %v", err)
-	}
-
-	s.embedder = embedder.New(cfg.OllamaURL, cfg.EmbedModel)
-	s.checker = checker.New(cfg.OllamaURL, cfg.LLMModel)
-	s.rules = reviewrules.New(cfg.DataDir + "/review_rules.json")
-	if err := s.rules.Load(); err != nil {
-		log.Printf("review rules load: %v", err)
-	}
-	s.history = reviewhistory.New(cfg.DataDir + "/reviews.json")
-	if err := s.history.Load(); err != nil {
-		log.Printf("review history load: %v", err)
-	}
-
-	s.relationships = tracker.NewRelationshipTracker(cfg.DataDir + "/relationships.json")
-	if err := s.relationships.Load(); err != nil {
-		log.Printf("relationships load: %v", err)
-	}
-
-	s.timeline = tracker.NewTimelineTracker(cfg.DataDir + "/timeline.json")
-	if err := s.timeline.Load(); err != nil {
-		log.Printf("timeline load: %v", err)
-	}
-
-	s.foreshadow = tracker.NewForeshadowTracker(cfg.DataDir + "/foreshadow.json")
-	if err := s.foreshadow.Load(); err != nil {
-		log.Printf("foreshadow load: %v", err)
-	}
 
 	gin.SetMode(gin.ReleaseMode)
 	s.router = gin.Default()
@@ -134,6 +117,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/history/:id", s.handleGetHistoryEntry)
 	r.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
 	r.GET("/api/backups", s.handleListBackups)
+	r.GET("/api/projects", s.handleListProjects)
 	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
 	r.GET("/api/chapters", s.handleListChapters)
 	r.GET("/api/chapters/:name", s.handleGetChapter)
@@ -152,6 +136,8 @@ func (s *Server) setupRoutes() {
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
 	r.POST("/api/settings", s.handleSaveSettings)
+	r.POST("/api/projects", s.handleCreateProject)
+	r.POST("/api/projects/:name/switch", s.handleSwitchProject)
 	r.POST("/api/emotion-curve", s.handleEmotionCurve)
 	r.POST("/check/stream", s.handleCheckStream)
 	r.POST("/chat/stream", s.handleChatStream)
@@ -174,18 +160,128 @@ func (s *Server) setupRoutes() {
 	r.POST("/export", s.handleExport)
 }
 
+func (s *Server) loadProjectState(name string) (*projectState, error) {
+	dataDir := workspace.ProjectDataDir(name)
+
+	st := &projectState{dataDir: dataDir}
+	st.project = projectsettings.New(
+		filepath.Join(dataDir, "project_settings.json"),
+		projectsettings.Settings{
+			OllamaURL:  s.cfg.OllamaURL,
+			LLMModel:   s.cfg.LLMModel,
+			EmbedModel: s.cfg.EmbedModel,
+			Port:       s.cfg.Port,
+			DataDir:    dataDir,
+		},
+	)
+	if err := st.project.Load(); err != nil {
+		log.Printf("project settings load: %v", err)
+	}
+
+	st.profiles = profile.NewManager(dataDir)
+	if err := st.profiles.Load(); err != nil {
+		log.Printf("profiles load: %v", err)
+	}
+
+	st.store = vectorstore.New(filepath.Join(dataDir, "store.json"))
+	if err := st.store.Load(); err != nil {
+		log.Printf("store load: %v", err)
+	}
+
+	st.rules = reviewrules.New(filepath.Join(dataDir, "review_rules.json"))
+	if err := st.rules.Load(); err != nil {
+		log.Printf("review rules load: %v", err)
+	}
+
+	st.history = reviewhistory.New(filepath.Join(dataDir, "reviews.json"))
+	if err := st.history.Load(); err != nil {
+		log.Printf("review history load: %v", err)
+	}
+
+	st.relationships = tracker.NewRelationshipTracker(filepath.Join(dataDir, "relationships.json"))
+	if err := st.relationships.Load(); err != nil {
+		log.Printf("relationships load: %v", err)
+	}
+
+	st.timeline = tracker.NewTimelineTracker(filepath.Join(dataDir, "timeline.json"))
+	if err := st.timeline.Load(); err != nil {
+		log.Printf("timeline load: %v", err)
+	}
+
+	st.foreshadow = tracker.NewForeshadowTracker(filepath.Join(dataDir, "foreshadow.json"))
+	if err := st.foreshadow.Load(); err != nil {
+		log.Printf("foreshadow load: %v", err)
+	}
+
+	return st, nil
+}
+
+func (s *Server) currentState() *projectState {
+	s.stateMu.RLock()
+	st := s.state
+	s.stateMu.RUnlock()
+	if st != nil {
+		return st
+	}
+	if s.profiles == nil && s.store == nil && s.project == nil && s.rules == nil && s.history == nil &&
+		s.relationships == nil && s.timeline == nil && s.foreshadow == nil {
+		return nil
+	}
+	dataDir := s.cfg.DataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	return &projectState{
+		dataDir:       dataDir,
+		profiles:      s.profiles,
+		store:         s.store,
+		project:       s.project,
+		rules:         s.rules,
+		history:       s.history,
+		relationships: s.relationships,
+		timeline:      s.timeline,
+		foreshadow:    s.foreshadow,
+	}
+}
+
+func (s *Server) setProjectState(st *projectState) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.state = st
+	s.profiles = st.profiles
+	s.store = st.store
+	s.project = st.project
+	s.rules = st.rules
+	s.history = st.history
+	s.relationships = st.relationships
+	s.timeline = st.timeline
+	s.foreshadow = st.foreshadow
+	s.cfg.DataDir = st.dataDir
+}
+
+func (s *Server) switchProject(name string) error {
+	newState, err := s.loadProjectState(name)
+	if err != nil {
+		return err
+	}
+	s.setProjectState(newState)
+	s.applyProjectSettings()
+	return nil
+}
+
 func (s *Server) Ingest(ctx context.Context) error {
-	if err := s.profiles.Load(); err != nil {
+	st := s.currentState()
+	if err := st.profiles.Load(); err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
-	s.store.Clear()
+	st.store.Clear()
 
-	for _, char := range s.profiles.Characters {
+	for _, char := range st.profiles.Characters {
 		vec, err := s.embedder.Embed(ctx, char.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed %s: %w", char.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "char_" + char.Name,
 			Type:      "character",
 			Content:   char.RawContent,
@@ -194,12 +290,12 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed character: %s", char.Name)
 	}
 
-	for _, world := range s.profiles.Worlds {
+	for _, world := range st.profiles.Worlds {
 		vec, err := s.embedder.Embed(ctx, world.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed world %s: %w", world.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "world_" + world.Name,
 			Type:      "world",
 			Content:   world.RawContent,
@@ -208,12 +304,12 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed world: %s", world.Name)
 	}
 
-	for _, style := range s.profiles.Styles {
+	for _, style := range st.profiles.Styles {
 		vec, err := s.embedder.Embed(ctx, style.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed style %s: %w", style.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "style_" + style.Name,
 			Type:      "style",
 			Content:   style.RawContent,
@@ -222,7 +318,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed style: %s", style.Name)
 	}
 
-	files, err := os.ReadDir(s.chapterDir())
+	files, err := os.ReadDir(chapterDirFor(st.dataDir))
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("list chapters: %w", err)
 	}
@@ -230,7 +326,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if file.IsDir() || !strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(s.chapterDir(), file.Name()))
+		content, err := os.ReadFile(filepath.Join(chapterDirFor(st.dataDir), file.Name()))
 		if err != nil {
 			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
 		}
@@ -238,7 +334,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("embed chapter %s: %w", file.Name(), err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "chapter_" + file.Name(),
 			Type:      "chapter",
 			Content:   string(content),
@@ -247,7 +343,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed chapter: %s", file.Name())
 	}
 
-	return s.store.Save()
+	return st.store.Save()
 }
 
 func (s *Server) Run() error {
@@ -255,12 +351,16 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) applyProjectSettings() {
-	settings := s.project.Get()
+	st := s.currentState()
+	if st == nil || st.project == nil {
+		return
+	}
+	settings := st.project.Get()
 	s.cfg.OllamaURL = settings.OllamaURL
 	s.cfg.LLMModel = settings.LLMModel
 	s.cfg.EmbedModel = settings.EmbedModel
 	s.cfg.Port = settings.Port
-	if settings.DataDir != "" {
-		s.cfg.DataDir = settings.DataDir
-	}
+	s.cfg.DataDir = st.dataDir
+	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
+	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
 }

@@ -2,6 +2,16 @@
 
 This roadmap reflects the current product direction after chapter workflow, review history, rewrite diff, project settings, Docker support, and local backup / restore were added.
 
+## Product Vision
+
+A local AI writing studio where anyone — with no technical background — can install the tool, build their story world, generate a full draft, review it, and revise it into something they love. No cloud. No subscriptions. No coding.
+
+The intended user journey:
+
+```
+Install → Build story world → Generate draft → Review → Revise → Export
+```
+
 ## Current Focus
 
 Novel Assistant is now strongest as a local-first fiction review workstation.
@@ -12,7 +22,42 @@ The next step is not adding more isolated features, but deepening three product 
 - controllable story-specific RAG behavior
 - safer long-term project management
 
-## Priority 1: Writing Structure
+## Priority 0: First-Run Experience
+
+Goal: make sure any user who clones the repo and runs `docker-compose up` has a working tool within minutes, with no manual steps.
+
+- Auto-pull required Ollama models (`llama3.2`, `nomic-embed-text`) on first startup
+- Add Ollama health check so the app waits for the model server before accepting requests
+- Add a sample chapter to `data/chapters/` so the review page has something to try immediately
+- Fix Docker quick-start docs to include `cp .env.example .env` as the first step
+
+Why this matters:
+
+- the first five minutes determine whether an open-source user keeps the tool or closes the tab
+- all of this is tracked in Issues #20–24 and is the prerequisite for any growth
+
+## Priority 1: Guided Story World Setup
+
+Goal: let users build their character profiles, worldbuilding notes, and style preferences through a guided Q&A interface — no Markdown knowledge required.
+
+Currently, setting up a project requires manually writing formatted `.md` files with specific Chinese or English field headers. This is an invisible wall for non-technical users.
+
+- Add a setup wizard page that walks users through story world creation step by step:
+  - Story premise and genre
+  - Characters (name, personality, core fear, speech style, etc.) via form fields
+  - Worldbuilding (setting, rules, factions, locations) via free-form prompts
+  - Writing style preferences (tone, pacing, perspective, forbidden patterns)
+- System generates the correctly formatted `data/characters/`, `data/worldbuilding/`, and `data/style/` files automatically
+- Users can edit generated files later if they want to go deeper, but never have to touch them to get started
+- Add an "edit story world" page so users can update their setup without touching raw files
+
+Why this matters:
+
+- the entire review and generation pipeline depends on these asset files existing and being correctly formatted
+- asking a non-technical user to write `# 角色：小明\n- 個性：...` by hand is a silent dealbreaker
+- this is the most important onboarding step between "installed the tool" and "got useful output"
+
+## Priority 3: Writing Structure
 
 Goal: move from chapter review to full manuscript organization.
 
@@ -37,12 +82,117 @@ Goal: make retrieval more predictable, tunable, and trustworthy.
 - Show expected-but-missed context when a likely source was not retrieved
 - Add source weighting or priority so critical canon files are harder to ignore
 
+### Pronoun resolution and character detection accuracy (Issue #19)
+
+Current string matching only finds characters when their name appears explicitly. Scenes written entirely in pronouns are silently skipped, making consistency checks incomplete.
+
+**Phase 1 — Prompt-level guidance (low effort)**
+- Add an instruction to `CheckBehaviorStream` telling the LLM to treat pronouns (他 / 她 / he / she) as potentially referring to the target character based on context
+- Covers the majority of single-chapter review scenarios within llama3.2's 128K context window
+
+**Phase 2 — Sliding window for long-form text**
+- Split chapters exceeding the context window into overlapping chunks
+- Inject a character summary header into each chunk so the LLM has cross-chunk character context
+- Merge and deduplicate findings across chunks
+
 Why this matters:
 
-- `AnythingLLM` style workspace behavior and clear citations make systems feel dependable
-- controllable retrieval is one of the most important differences between a clever demo and a serious writing tool
+- without pronoun resolution, a character who is only referred to by pronoun throughout a scene produces zero behavior findings, making the check misleading rather than just incomplete
 
-## Priority 3: Manuscript Build and Delivery
+## Priority 4: Bilingual Support (Chinese + English)
+
+Goal: make the tool usable for authors writing in English without requiring Chinese-format asset files.
+
+- Support English-format character profiles alongside existing Chinese format:
+  ```
+  # Character: John
+  - Personality: ...
+  - Core fear: ...
+  - Speech style: ...
+  ```
+- Support English-format style guides and worldbuilding files
+- Detect chapter language and switch LLM prompt language accordingly (Chinese chapter → Chinese prompt, English chapter → English prompt)
+- Translate UI labels and error messages to English; add a language toggle in settings
+
+Why this matters:
+
+- currently `profile/manager.go` hardcodes Chinese field headers; English asset files produce empty character data and completely broken review output
+- bilingual support is the minimum viable step before the project can attract a non-Chinese-speaking community
+
+## Priority 5: Chapter Version Control
+
+Goal: give authors a safe, reversible history for every chapter they edit or rewrite.
+
+- Track every saved version of a chapter file with a timestamp and source label (manual save, rewrite, writeback)
+- Allow users to diff any two versions side by side
+- Allow one-click restore to any previous version
+- Optionally tag versions (e.g. "before structural rewrite", "beta reader draft")
+
+Why this matters:
+
+- currently rewriting a chapter and saving overwrites the previous version with no recovery path
+- authors revising a long manuscript cannot afford to lose work; version control is a basic safety guarantee that any serious writing tool must provide
+
+## Priority 6: Custom Check Types
+
+Goal: let users define their own review dimensions beyond the four built-in types.
+
+- Allow users to add custom check definitions in settings: a name, a prompt template, and an optional retrieval preset
+- Custom checks appear alongside behavior / dialogue / world / style in the review page
+- Built-in checks remain unchanged; custom checks are additive
+- Allow export and import of check definitions for sharing between projects or users
+
+Why this matters:
+
+- different genres have different consistency concerns; a hard sci-fi author needs a physics-consistency check, a historical fiction author needs an anachronism check
+- the current four check types reflect general fiction; they cannot cover every author's needs
+
+## Priority 7: AI-Assisted Novel Generation
+
+Goal: let users go from story concept to full draft manuscript using the same local-first setup.
+
+This is the largest single capability expansion. It turns Novel Assistant from a review workstation into a full writing companion that can generate as well as critique.
+
+### Phase 1 — Outline generation
+
+- User provides character profiles, worldbuilding notes, style guide, and a brief story premise
+- LLM generates a structured outline: chapter list, per-chapter synopsis, key scene nodes, and word count targets
+- Outline is editable before generation begins; each chapter can be approved, adjusted, or regenerated independently
+
+### Phase 2 — Chapter-by-chapter generation
+
+- Each chapter is generated in sequence using:
+  - the approved chapter synopsis and scene nodes
+  - a rolling summary of previously generated chapters (compressed to fit context)
+  - the full character and worldbuilding profiles via RAG
+  - the selected style guide
+- Output streams in real time via SSE, same as the existing review and rewrite flows
+- After each chapter, the user can review, edit, or regenerate before continuing
+
+### Phase 3 — Consistency loop
+
+- After generation, the existing behavior, dialogue, world, and style review flows run automatically on each chapter
+- Findings are surfaced as a post-generation report rather than blocking generation
+- User can trigger targeted rewrite on flagged scenes before final export
+
+### Architecture notes
+
+- New `internal/generation` package handles outline state, chapter sequencing, and rolling summary management
+- New `generation.html` page with a step-by-step wizard UI: setup → outline → generate → review → export
+- Shares `internal/profile`, `internal/embedder`, `internal/checker`, and `internal/vectorstore` with existing flows
+- Outline state is persisted in `data/generation/` so interrupted sessions can resume
+
+### Dependencies
+
+- Requires Priority 1 (scene hierarchy) to be complete first; generation targets scenes, not raw chapter files
+- Works best after Priority 2 (Story-RAG Control) is stable so retrieval during generation is reliable
+
+Why this matters:
+
+- most local AI writing tools stop at chat or single-scene generation; chapter-by-chapter generation with cross-chapter memory is the missing piece
+- keeping generation and review in the same tool means authors never need to copy-paste between apps to check consistency
+
+## Priority 8: Manuscript Build and Delivery
 
 Goal: export writing projects in formats closer to real author workflows.
 
@@ -56,7 +206,7 @@ Why this matters:
 
 - mature writing tools do not stop at editing; they help produce the manuscript you actually send out
 
-## Priority 4: Multi-Project Safety
+## Priority 9: Multi-Project Safety
 
 Goal: make the app safe for heavier long-term usage.
 
@@ -70,7 +220,22 @@ Why this matters:
 
 - once writers trust a tool with months of story work, project safety becomes as important as model quality
 
-## Priority 5: Mature App Surface
+## Priority 10: Review Feedback Collection
+
+Goal: let users mark which review findings were useful, building a local dataset for future model improvement.
+
+- Add thumbs-up / thumbs-down on individual review findings in the history page
+- Store accepted / rejected labels alongside existing `reviewhistory` entries
+- Show per-check-type acceptance rate in a simple quality summary
+- When the user opts in, provide an export of labeled findings for fine-tuning use
+
+Why this matters:
+
+- labeled review data (chapter + character profile → accepted finding) is the highest-value training signal for a future domain-specific model
+- the data structure is already 90% there in `reviewhistory`; only the accept/reject label is missing
+- no real value until there is an active user base — implement after growth, not before
+
+## Priority 11: Mature App Surface
 
 Goal: reduce friction for adoption and maintenance.
 
@@ -84,11 +249,18 @@ Goal: reduce friction for adoption and maintenance.
 
 If development continues in sequence, this is the recommended order:
 
-1. Scene hierarchy and scene board
-2. Retrieval controls and source weighting
-3. Full manuscript export
-4. Multi-project workspace support
-5. Optional local auth and stronger operations tooling
+1. First-run experience (Issues #20–24)
+2. Guided story world setup (wizard UI for characters, worldbuilding, style)
+3. Scene hierarchy and scene board
+4. Pronoun resolution and retrieval accuracy
+5. Bilingual support (Chinese + English)
+6. Chapter version control
+7. Custom check types
+8. AI-assisted novel generation (outline → chapter-by-chapter → consistency loop)
+9. Full manuscript export
+10. Multi-project workspace support
+11. Review feedback collection (after sufficient user base)
+12. Optional local auth and stronger operations tooling
 
 ## References
 
@@ -97,3 +269,4 @@ The roadmap direction is especially informed by the strengths of:
 - `novelWriter` for chapters, scenes, structure, and manuscript build
 - `Manuskript` for outlines, index cards, and story organization
 - `AnythingLLM` for workspace and retrieval ergonomics
+- `Sudowrite` and `NovelAI` for AI-assisted generation UX patterns

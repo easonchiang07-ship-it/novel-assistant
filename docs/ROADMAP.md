@@ -31,10 +31,24 @@ Goal: make sure any user who clones the repo and runs `docker-compose up` has a 
 - Add a sample chapter to `data/chapters/` so the review page has something to try immediately
 - Fix Docker quick-start docs to include `cp .env.example .env` as the first step
 
+### Model selection by hardware tier
+
+Users should never need to know a model name. The settings page should recommend the right model based on their hardware.
+
+- Add a hardware tier selector in the settings page:
+  - Entry (4GB VRAM) → `llama3.2:3b` — fast, basic quality
+  - Standard (8GB VRAM) → `llama3.1:8b` — balanced (recommended default)
+  - Advanced (24GB VRAM) → `gemma3:27b` — strong Traditional Chinese, high quality
+  - Pro (48GB+ VRAM) → `llama3.3:70b` — near cloud-service quality
+  - Custom → free text input for any Ollama model name
+- Selecting a tier automatically updates `LLM_MODEL` and triggers `ollama pull` in the background
+- Embed model (`nomic-embed-text`) is fixed and not exposed to users — it works well across all tiers
+
 Why this matters:
 
 - the first five minutes determine whether an open-source user keeps the tool or closes the tab
 - all of this is tracked in Issues #20–24 and is the prerequisite for any growth
+- users should not need to know what a quantized model is to get good output
 
 ## Priority 1: Guided Story World Setup
 

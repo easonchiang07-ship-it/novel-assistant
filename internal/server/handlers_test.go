@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/vectorstore"
 	"testing"
 )
@@ -113,5 +114,81 @@ func TestBuildReferenceContextReturnsNilWhenStoreIsEmpty(t *testing.T) {
 	}
 	if refs != nil {
 		t.Fatalf("expected nil refs for empty store, got %#v", refs)
+	}
+}
+
+func TestMergeRetrievalUsesPresetUntilOverrideProvided(t *testing.T) {
+	t.Parallel()
+
+	preset := reviewrules.RetrievalPreset{
+		Sources:   []string{"character", "world"},
+		TopK:      4,
+		Threshold: 0.25,
+	}
+
+	got := mergeRetrieval(preset, retrievalOptions{})
+	if len(got.Sources) != 2 || got.TopK != 4 || got.Threshold != 0.25 {
+		t.Fatalf("expected preset values to survive zero-value override, got %#v", got)
+	}
+
+	got = mergeRetrieval(preset, retrievalOptions{
+		Sources:      []string{"style"},
+		TopK:         2,
+		Threshold:    0.8,
+		ThresholdSet: true,
+	})
+	if len(got.Sources) != 1 || got.Sources[0] != "style" {
+		t.Fatalf("expected sources override, got %#v", got.Sources)
+	}
+	if got.TopK != 2 || got.Threshold != 0.8 {
+		t.Fatalf("expected numeric overrides, got %#v", got)
+	}
+}
+
+func TestMergeRetrievalAllowsThresholdOverrideToZero(t *testing.T) {
+	t.Parallel()
+
+	preset := reviewrules.RetrievalPreset{
+		Sources:   []string{"world"},
+		TopK:      4,
+		Threshold: 0.6,
+	}
+
+	got := mergeRetrieval(preset, retrievalOptions{
+		Threshold:    0,
+		ThresholdSet: true,
+	})
+	if got.Threshold != 0 {
+		t.Fatalf("expected threshold override to zero, got %#v", got)
+	}
+}
+
+func TestCheckRequestRetrievalOverrideForTask(t *testing.T) {
+	t.Parallel()
+
+	req := checkRequest{
+		Retrieval: retrievalOptions{
+			Sources:   []string{"character"},
+			TopK:      4,
+			Threshold: 0.1,
+		},
+		RetrievalOverrides: map[string]retrievalOptions{
+			"world": {
+				Sources:      []string{"world"},
+				TopK:         2,
+				Threshold:    0,
+				ThresholdSet: true,
+			},
+		},
+	}
+
+	world := req.retrievalOverrideFor("world")
+	if len(world.Sources) != 1 || world.Sources[0] != "world" || world.TopK != 2 || !world.ThresholdSet {
+		t.Fatalf("expected task-specific override, got %#v", world)
+	}
+
+	behavior := req.retrievalOverrideFor("behavior")
+	if len(behavior.Sources) != 1 || behavior.Sources[0] != "character" || behavior.TopK != 4 {
+		t.Fatalf("expected fallback to shared retrieval, got %#v", behavior)
 	}
 }

@@ -45,7 +45,23 @@
 
         <div class="card">
           <h2>RAG 擷取設定</h2>
-          <p class="helper-text">控制哪些知識來源會被納入本次審查的參考上下文。</p>
+          <p class="helper-text">依任務 preset 載入預設值；只有在你手動修改後，才會把 override 送到後端。</p>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="retrieval-task">目前調整的任務 preset</label>
+              <select id="retrieval-task">
+                <option value="behavior">行為一致性</option>
+                <option value="dialogue">對白風格</option>
+                <option value="world">世界觀衝突</option>
+                <option value="rewrite">修稿</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <button class="btn btn-ghost" type="button" onclick="resetRetrievalToPreset()">重設為 preset 預設值</button>
+            </div>
+          </div>
 
           <div id="retrieval-summary" class="helper-text" style="margin-bottom:12px;font-weight:600"></div>
 
@@ -77,8 +93,6 @@
               <input type="range" id="retrieval-threshold" min="0" max="1" step="0.01" value="{{.RetrievalThreshold}}" oninput="document.getElementById('threshold-display').textContent=parseFloat(this.value).toFixed(2);updateRetrievalSummary()">
             </div>
           </div>
-
-          <button class="btn btn-ghost" type="button" onclick="saveRetrievalDefaults()">設為預設</button>
         </div>
 
         <div class="card">
@@ -283,6 +297,15 @@ let loadedScenes = [];
 let loadedHistoryEntry = null;
 const presetChecks = {{ jsonJS .DefaultChecks }};
 const presetStyles = {{ jsonJS .DefaultStyles }};
+const initialRetrieval = {
+  sources: {{ jsonJS .RetrievalSources }},
+  top_k: {{ jsonJS .RetrievalTopK }},
+  threshold: {{ jsonJS .RetrievalThreshold }},
+};
+let retrievalPresets = {};
+let activeRetrievalTask = 'behavior';
+let currentPresetSnapshot = cloneRetrieval(initialRetrieval);
+let retrievalDirty = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   const styleCheck = document.getElementById('check-style');
@@ -293,20 +316,84 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   document.querySelectorAll('[name="checks"]').forEach((el) => {
     el.checked = presetChecks.includes(el.value);
+    el.addEventListener('change', syncRetrievalTaskFromChecks);
   });
   document.querySelectorAll('[name="styles"]').forEach((el) => {
     el.checked = presetStyles.includes(el.value);
   });
   document.querySelectorAll('[name="retrieval-source"]').forEach((el) => {
-    el.addEventListener('change', updateRetrievalSummary);
+    el.addEventListener('change', handleRetrievalInputChange);
   });
-  document.getElementById('retrieval-topk').addEventListener('input', updateRetrievalSummary);
+  document.getElementById('retrieval-topk').addEventListener('input', handleRetrievalInputChange);
+  document.getElementById('retrieval-threshold').addEventListener('input', handleRetrievalInputChange);
+  document.getElementById('retrieval-task').addEventListener('change', (event) => {
+    setActiveRetrievalTask(event.target.value);
+  });
   if (styleCheck) {
     document.getElementById('style-selector').style.display = styleCheck.checked ? 'block' : 'none';
   }
-  updateRetrievalSummary();
+  loadRetrievalPresets();
   hydrateFromHistory();
 });
+
+function cloneRetrieval(opts) {
+  return {
+    sources: Array.isArray(opts?.sources) ? [...opts.sources] : [],
+    top_k: Number(opts?.top_k) || 0,
+    threshold: Number(opts?.threshold) || 0,
+  };
+}
+
+function retrievalEqual(left, right) {
+  const leftSources = [...(left?.sources || [])].sort();
+  const rightSources = [...(right?.sources || [])].sort();
+  return JSON.stringify(leftSources) === JSON.stringify(rightSources)
+    && Number(left?.top_k || 0) === Number(right?.top_k || 0)
+    && Number(left?.threshold || 0) === Number(right?.threshold || 0);
+}
+
+function normalizeTaskPreset(task) {
+  return cloneRetrieval(retrievalPresets[task] || initialRetrieval);
+}
+
+function fillRetrievalInputs(opts) {
+  const wanted = new Set(opts.sources || []);
+  document.querySelectorAll('[name="retrieval-source"]').forEach((el) => {
+    el.checked = wanted.has(el.value);
+  });
+  document.getElementById('retrieval-topk').value = Number(opts.top_k) || initialRetrieval.top_k;
+  document.getElementById('retrieval-threshold').value = Number(opts.threshold) || 0;
+  document.getElementById('threshold-display').textContent = Number(opts.threshold || 0).toFixed(2);
+}
+
+async function loadRetrievalPresets() {
+  try {
+    const resp = await fetch('/api/settings');
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '載入 retrieval presets 失敗');
+    retrievalPresets = data.presets || {};
+  } catch (e) {
+    retrievalPresets = {};
+    console.error(e);
+  } finally {
+    syncRetrievalTaskFromChecks();
+  }
+}
+
+function setActiveRetrievalTask(task) {
+  activeRetrievalTask = task || 'behavior';
+  document.getElementById('retrieval-task').value = activeRetrievalTask;
+  currentPresetSnapshot = normalizeTaskPreset(activeRetrievalTask);
+  retrievalDirty = false;
+  fillRetrievalInputs(currentPresetSnapshot);
+  updateRetrievalSummary();
+}
+
+function syncRetrievalTaskFromChecks() {
+  const checked = Array.from(document.querySelectorAll('[name="checks"]:checked')).map((el) => el.value);
+  const next = checked.find((value) => ['behavior', 'dialogue', 'world'].includes(value)) || activeRetrievalTask || 'behavior';
+  setActiveRetrievalTask(next);
+}
 
 function chapterTitleFromName(name) {
   return (name || '').replace(/\.md$/i, '');
@@ -593,48 +680,62 @@ function selectedCharacters() {
 }
 
 function getRetrievalOptions() {
+  if (!retrievalDirty) {
+    return {
+      sources: [],
+      top_k: 0,
+      threshold: 0,
+      threshold_set: false,
+    };
+  }
+  const current = getCurrentRetrievalInputs();
+  return {
+    ...current,
+    threshold_set: Number(current.threshold) !== Number(currentPresetSnapshot.threshold),
+  };
+}
+
+function buildCheckRetrievalOverrides(checks) {
+  if (!retrievalDirty) {
+    return {};
+  }
+  if (!checks.includes(activeRetrievalTask)) {
+    return {};
+  }
+  return {
+    [activeRetrievalTask]: getRetrievalOptions(),
+  };
+}
+
+function getCurrentRetrievalInputs() {
   return {
     sources: Array.from(document.querySelectorAll('[name="retrieval-source"]:checked')).map(el => el.value),
-    top_k: Math.max(1, Number(document.getElementById('retrieval-topk').value) || 4),
+    top_k: Math.max(1, Number(document.getElementById('retrieval-topk').value) || initialRetrieval.top_k),
     threshold: Number(document.getElementById('retrieval-threshold').value) || 0,
   };
 }
 
-function updateRetrievalSummary() {
-  const opts = getRetrievalOptions();
-  const labels = { character: '角色', world: '世界觀', style: '風格' };
-  const srcStr = opts.sources.length ? opts.sources.map(s => labels[s] || s).join('、') : '（無）';
-  document.getElementById('retrieval-summary').textContent =
-    '來源：' + srcStr + '　Top-K：' + opts.top_k + '　門檻：' + opts.threshold.toFixed(2);
+function handleRetrievalInputChange() {
+  document.getElementById('threshold-display').textContent =
+    Number(document.getElementById('retrieval-threshold').value || 0).toFixed(2);
+  retrievalDirty = !retrievalEqual(getCurrentRetrievalInputs(), currentPresetSnapshot);
+  updateRetrievalSummary();
 }
 
-async function saveRetrievalDefaults() {
-  const opts = getRetrievalOptions();
-  try {
-    const current = await fetch('/api/settings')
-      .then(async (r) => {
-        if (!r.ok) {
-          const data = await r.json().catch(() => ({}));
-          throw new Error(data.error || '讀取現有設定失敗');
-        }
-        return r.json();
-      });
-    const body = Object.assign({}, current, {
-      retrieval_sources: opts.sources,
-      retrieval_top_k: opts.top_k,
-      retrieval_threshold: opts.threshold,
-    });
-    const resp = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '儲存失敗');
-    alert('已設定為預設擷取設定');
-  } catch (e) {
-    alert('儲存失敗：' + e.message);
-  }
+function resetRetrievalToPreset() {
+  currentPresetSnapshot = normalizeTaskPreset(activeRetrievalTask);
+  retrievalDirty = false;
+  fillRetrievalInputs(currentPresetSnapshot);
+  updateRetrievalSummary();
+}
+
+function updateRetrievalSummary() {
+  const opts = getCurrentRetrievalInputs();
+  const labels = { character: '角色', world: '世界觀', style: '風格' };
+  const srcStr = opts.sources.length ? opts.sources.map(s => labels[s] || s).join('、') : '（無）';
+  const modeText = retrievalDirty ? '已覆蓋 preset' : '沿用 preset';
+  document.getElementById('retrieval-summary').textContent =
+    '任務：' + activeRetrievalTask + '　' + modeText + '　來源：' + srcStr + '　Top-K：' + opts.top_k + '　門檻：' + opts.threshold.toFixed(2);
 }
 
 function populateWritebackDefaults() {
@@ -660,6 +761,7 @@ async function runCheck() {
   const characters = selectedCharacters();
   const checks = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
   const styles = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
+  const retrievalOverrides = buildCheckRetrievalOverrides(checks);
   const resultBox = document.getElementById('result-box');
   const submitBtn = document.getElementById('submit-btn');
   document.getElementById('rewrite-box').textContent = '尚未執行修稿模式。';
@@ -680,7 +782,7 @@ async function runCheck() {
         characters,
         checks,
         styles,
-        retrieval: getRetrievalOptions(),
+        retrieval_overrides: retrievalOverrides,
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
         scene_title: currentSceneTitle
@@ -741,6 +843,16 @@ async function runCheck() {
 async function runRewrite(mode) {
   const chapter = document.getElementById('chapter').value.trim();
   if (!chapter) { alert('請先輸入章節內容'); return; }
+  const pendingRetrieval = getCurrentRetrievalInputs();
+  const hadDirtyRetrieval = retrievalDirty;
+  if (activeRetrievalTask !== 'rewrite') {
+    setActiveRetrievalTask('rewrite');
+    if (hadDirtyRetrieval) {
+      fillRetrievalInputs(pendingRetrieval);
+      retrievalDirty = !retrievalEqual(pendingRetrieval, currentPresetSnapshot);
+      updateRetrievalSummary();
+    }
+  }
 
   const rewriteBox = document.getElementById('rewrite-box');
   rewriteBox.textContent = '修稿中...\n';

@@ -26,9 +26,14 @@ Novel Assistant combines both directions:
 - Character behavior review with streaming output
 - Dialogue style review per character
 - Writing style review with reusable `data/style/*.md` profiles
+- Rewrite modes with history-aware diff view
+- Chapter overview with review counts, tracker signals, and candidate extraction
+- Project settings page for Ollama URL, models, defaults, and backups
 - Relationship, timeline, and foreshadow trackers
 - Local vector indexing for story context retrieval
 - Markdown export for review reports
+- Chapter bundle export with review, rewrite, timeline, foreshadow, and relationship context
+- Local backup / restore for `data/`
 - Local-first design using Ollama and file-based project assets
 
 ## Review Flow
@@ -58,14 +63,14 @@ What is already solid:
 
 - Local review workflow
 - File-based story asset loading
-- Basic tests and CI
+- Unit tests, API-level e2e coverage, and CI
 - Tracker pages and export flow
 
 What is still evolving:
 
-- Richer citation display for retrieved context
-- Scene and chapter file management
-- More complete release process and packaging
+- More advanced manuscript editing ergonomics
+- Richer publishing assets and screenshots
+- Additional import / export formats
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work.
 
@@ -92,6 +97,35 @@ go run ./cmd
 
 Open `http://localhost:8080`.
 
+### Environment Configuration
+
+Copy `.env.example` to `.env` and adjust values if needed:
+
+```bash
+cp .env.example .env
+```
+
+Supported variables:
+
+- `OLLAMA_URL`
+- `LLM_MODEL`
+- `EMBED_MODEL`
+- `DATA_DIR`
+- `PORT`
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- `app`: the Go web server
+- `ollama`: a local Ollama container
+
+The compose file expects a local `.env` file and mounts `./data` for persistence.
+
 ### Common Development Commands
 
 PowerShell:
@@ -109,6 +143,7 @@ Story assets live in the repository as simple files:
 
 ```text
 data/
+├── backups/         # local snapshots created from the settings page
 ├── characters/      # character profiles in Markdown
 ├── worldbuilding/   # world notes in Markdown
 ├── style/           # writing style guides in Markdown
@@ -158,9 +193,16 @@ Built-in examples:
 
 1. Maintain character, worldbuilding, and style files under `data/`
 2. Click `重新索引` to rebuild the local knowledge base
-3. Paste a single chapter or scene into the review page
-4. Select behavior, dialogue, and optional writing-style review scopes
-5. Export the review or update relationship, timeline, and foreshadow trackers
+3. Use `Chapter Overview` to inspect chapter counts, unresolved signals, and draft candidates
+4. Review or rewrite a single chapter from the review page
+5. Inspect rewrite diffs and history before saving a new chapter version
+6. Export a full chapter bundle or update relationship, timeline, and foreshadow trackers
+
+## New Workflow Pages
+
+- `Chapter Overview`: chapter counts, tracker summaries, candidate extraction, and chapter bundle export
+- `History`: grouped review / rewrite history with export, delete, diff view, and send-back-to-editor flow
+- `Settings`: Ollama and model settings, default review rules, `.env`-friendly project values, and backup / restore
 
 ## Architecture
 
@@ -183,12 +225,16 @@ Example files for onboarding and demos live in [examples/README.md](examples/REA
 
 - VSCode shows red errors but `go test` and `go build` pass:
   Open the `novel-assistant` folder directly in VSCode, not the outer `gopl.io` workspace.
+- Docker starts but review requests fail:
+  Make sure the Ollama container is healthy and the configured models have been pulled.
 - `寫作風格` has no selectable items:
   Add `.md` files under `data/style/` and reindex.
 - Review requests fail immediately:
   Verify Ollama is running locally and the configured models exist.
 - Writing style review returns a validation error:
   Make sure the selected style file exists, is not empty, and includes a `# 風格：...` heading.
+- Restored backup looks stale:
+  Restore the backup, then click `重新索引` to rebuild vector state from restored assets.
 
 ## Privacy Notes
 
@@ -203,6 +249,7 @@ Contributions are welcome.
 Start here:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [SECURITY.md](SECURITY.md)
 
@@ -210,11 +257,19 @@ Start here:
 
 See [CHANGELOG.md](CHANGELOG.md).
 
+## Planning Docs
+
+- [docs/ROADMAP.md](docs/ROADMAP.md)
+- [docs/BACKLOG.md](docs/BACKLOG.md)
+- [docs/GITHUB_ISSUES.md](docs/GITHUB_ISSUES.md)
+- [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)
+
 ## Release Notes
 
 Current release notes:
 
 - [v0.1.0](docs/releases/v0.1.0.md)
+- [v0.2.0 draft](docs/releases/v0.2.0.md)
 
 ## License
 

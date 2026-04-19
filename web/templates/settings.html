@@ -108,6 +108,35 @@
     </div>
 
     <div class="card">
+      <h2>全域 Retrieval 設定</h2>
+      <p class="helper-text">作為各任務 preset 的後備值；當 preset 欄位無效或缺漏時，會回退到這裡。</p>
+      <div class="form-group">
+        <label>啟用來源</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="character">角色設定</label>
+          <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="world">世界觀</label>
+          <label class="checkbox-label"><input type="checkbox" name="global-retrieval-source" value="style">寫作風格</label>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label for="global-retrieval-topk">Top-K（最多取幾筆）</label>
+          <input type="number" id="global-retrieval-topk" min="1" max="20">
+        </div>
+        <div class="form-group">
+          <label for="global-retrieval-threshold">相似度門檻 <span id="global-threshold-display">0.00</span></label>
+          <input type="range" id="global-retrieval-threshold" min="0" max="1" step="0.01">
+        </div>
+      </div>
+    </div>
+
+    <section class="card" id="retrieval-presets-section">
+      <h2>各任務 Retrieval Preset</h2>
+      <p class="helper-text">每種審查類型的預設 retrieval 策略；可各自指定來源、Top-K 與相似度門檻。</p>
+      <div id="retrieval-preset-list"></div>
+    </section>
+
+    <div class="card">
       <button class="btn" type="button" onclick="saveSettings()">儲存規則設定</button>
       <div id="settings-status" class="helper-text">調整後會立即套用到後續的審查與修稿流程。</div>
     </div>
@@ -121,6 +150,13 @@ const rewriteBias = {{ jsonJS .Settings.RewriteBias }};
 const retrievalSources = {{ jsonJS .Settings.RetrievalSources }};
 const retrievalTopK = {{ jsonJS .Settings.RetrievalTopK }};
 const retrievalThreshold = {{ jsonJS .Settings.RetrievalThreshold }};
+const retrievalPresets = {{ jsonJS .Settings.Presets }} || {};
+const presetTasks = [
+  { key: 'behavior', label: '行為一致性' },
+  { key: 'dialogue', label: '對白風格' },
+  { key: 'world', label: '世界觀衝突' },
+  { key: 'rewrite', label: '修稿' },
+];
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[name="default-checks"]').forEach((el) => {
@@ -131,7 +167,85 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('review-bias').value = reviewBias;
   document.getElementById('rewrite-bias').value = rewriteBias;
+  setSourcesByName('global-retrieval-source', retrievalSources);
+  document.getElementById('global-retrieval-topk').value = retrievalTopK;
+  document.getElementById('global-retrieval-threshold').value = retrievalThreshold;
+  document.getElementById('global-retrieval-threshold').addEventListener('input', updateGlobalThresholdDisplay);
+  updateGlobalThresholdDisplay();
+  renderPresetEditors();
 });
+
+function updateGlobalThresholdDisplay() {
+  document.getElementById('global-threshold-display').textContent =
+    Number(document.getElementById('global-retrieval-threshold').value || 0).toFixed(2);
+}
+
+function setSourcesByName(name, selected) {
+  const wanted = new Set(selected || []);
+  document.querySelectorAll(`[name="${name}"]`).forEach((el) => {
+    el.checked = wanted.has(el.value);
+  });
+}
+
+function collectSourcesByName(name) {
+  return Array.from(document.querySelectorAll(`[name="${name}"]:checked`)).map((el) => el.value);
+}
+
+function fallbackPreset(task) {
+  const preset = retrievalPresets[task] || {};
+  return {
+    sources: Array.isArray(preset.sources) && preset.sources.length ? preset.sources : retrievalSources,
+    top_k: Number(preset.top_k) || retrievalTopK,
+    threshold: Number.isFinite(Number(preset.threshold)) ? Number(preset.threshold) : retrievalThreshold,
+  };
+}
+
+function renderPresetEditors() {
+  const host = document.getElementById('retrieval-preset-list');
+  host.innerHTML = presetTasks.map((task) => {
+    const base = fallbackPreset(task.key);
+    return `
+      <details class="card" style="margin-top:12px">
+        <summary style="cursor:pointer;font-weight:600">${task.label}</summary>
+        <div style="margin-top:12px">
+          <div class="form-group">
+            <label>啟用來源</label>
+            <div class="checkbox-group">
+              ${['character', 'world', 'style'].map((source) => `
+                <label class="checkbox-label">
+                  <input type="checkbox" name="preset-${task.key}-source" value="${source}" ${base.sources.includes(source) ? 'checked' : ''}>
+                  ${source === 'character' ? '角色設定' : source === 'world' ? '世界觀' : '寫作風格'}
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label for="preset-${task.key}-topk">Top-K</label>
+              <input type="number" id="preset-${task.key}-topk" min="1" max="20" value="${base.top_k}">
+            </div>
+            <div class="form-group">
+              <label for="preset-${task.key}-threshold">相似度門檻 <span id="preset-${task.key}-threshold-display">${Number(base.threshold).toFixed(2)}</span></label>
+              <input type="range" id="preset-${task.key}-threshold" min="0" max="1" step="0.01" value="${base.threshold}" oninput="document.getElementById('preset-${task.key}-threshold-display').textContent=Number(this.value||0).toFixed(2)">
+            </div>
+          </div>
+        </div>
+      </details>
+    `;
+  }).join('');
+}
+
+function collectRetrievalPresets() {
+  const out = {};
+  for (const task of presetTasks) {
+    out[task.key] = {
+      sources: collectSourcesByName(`preset-${task.key}-source`),
+      top_k: Math.max(1, Number(document.getElementById(`preset-${task.key}-topk`).value) || retrievalTopK),
+      threshold: Number(document.getElementById(`preset-${task.key}-threshold`).value) || 0,
+    };
+  }
+  return out;
+}
 
 async function saveSettings() {
   const status = document.getElementById('settings-status');
@@ -147,9 +261,10 @@ async function saveSettings() {
         default_styles: Array.from(document.querySelectorAll('[name="default-styles"]:checked')).map(el => el.value),
         review_bias: document.getElementById('review-bias').value,
         rewrite_bias: document.getElementById('rewrite-bias').value,
-        retrieval_sources: retrievalSources,
-        retrieval_top_k: retrievalTopK,
-        retrieval_threshold: retrievalThreshold,
+        retrieval_sources: collectSourcesByName('global-retrieval-source'),
+        retrieval_top_k: Math.max(1, Number(document.getElementById('global-retrieval-topk').value) || retrievalTopK),
+        retrieval_threshold: Number(document.getElementById('global-retrieval-threshold').value) || 0,
+        presets: collectRetrievalPresets(),
         ollama_url: document.getElementById('ollama-url').value.trim(),
         llm_model: document.getElementById('llm-model').value.trim(),
         embed_model: document.getElementById('embed-model').value.trim(),

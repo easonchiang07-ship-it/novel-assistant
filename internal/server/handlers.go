@@ -10,6 +10,7 @@ import (
 	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"strconv"
 	"strings"
@@ -126,6 +127,24 @@ func excerptText(content string) string {
 	return compacted[:120] + "..."
 }
 
+func mergeRetrieval(preset reviewrules.RetrievalPreset, override retrievalOptions) retrievalOptions {
+	result := retrievalOptions{
+		Sources:   append([]string(nil), preset.Sources...),
+		TopK:      preset.TopK,
+		Threshold: preset.Threshold,
+	}
+	if len(override.Sources) > 0 {
+		result.Sources = append([]string(nil), override.Sources...)
+	}
+	if override.TopK >= 1 {
+		result.TopK = override.TopK
+	}
+	if override.ThresholdSet {
+		result.Threshold = override.Threshold
+	}
+	return result
+}
+
 func summarizeReferences(items []vectorProfile) []referenceSummary {
 	summaries := make([]referenceSummary, 0, len(items))
 	for _, item := range items {
@@ -157,6 +176,22 @@ func filterReferencesByType(items []vectorProfile, refType string) []vectorProfi
 		}
 	}
 	return filtered
+}
+
+func mergeReferenceLists(groups ...[]vectorProfile) []vectorProfile {
+	seen := make(map[string]struct{})
+	merged := make([]vectorProfile, 0)
+	for _, group := range groups {
+		for _, item := range group {
+			key := item.Type + "\x00" + item.Name
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, item)
+		}
+	}
+	return merged
 }
 
 func joinWorldProfiles(refs []vectorProfile, worlds []*profile.WorldSetting) string {
@@ -442,20 +477,29 @@ func (s *Server) handleIngest(c *gin.Context) {
 // ─── check stream ─────────────────────────────────────────────────────────────
 
 type checkRequest struct {
-	Chapter      string           `json:"chapter"`
-	Characters   []string         `json:"characters"`
-	Checks       []string         `json:"checks"` // ["behavior","dialogue","style","world"]
-	Styles       []string         `json:"styles"` // style guide names to apply; empty = all styles
-	Retrieval    retrievalOptions `json:"retrieval"`
-	ChapterFile  string           `json:"chapter_file"`
-	ChapterTitle string           `json:"chapter_title"`
-	SceneTitle   string           `json:"scene_title,omitempty"` // empty = full chapter
+	Chapter            string                      `json:"chapter"`
+	Characters         []string                    `json:"characters"`
+	Checks             []string                    `json:"checks"` // ["behavior","dialogue","style","world"]
+	Styles             []string                    `json:"styles"` // style guide names to apply; empty = all styles
+	Retrieval          retrievalOptions            `json:"retrieval"`
+	RetrievalOverrides map[string]retrievalOptions `json:"retrieval_overrides,omitempty"`
+	ChapterFile        string                      `json:"chapter_file"`
+	ChapterTitle       string                      `json:"chapter_title"`
+	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
 }
 
 type retrievalOptions struct {
-	Sources   []string `json:"sources"`
-	TopK      int      `json:"top_k"`
-	Threshold float64  `json:"threshold"`
+	Sources      []string `json:"sources"`
+	TopK         int      `json:"top_k"`
+	Threshold    float64  `json:"threshold"`
+	ThresholdSet bool     `json:"threshold_set,omitempty"`
+}
+
+func (r checkRequest) retrievalOverrideFor(task string) retrievalOptions {
+	if override, ok := r.RetrievalOverrides[task]; ok {
+		return override
+	}
+	return r.Retrieval
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -491,13 +535,38 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			return
 		}
 
-		references, err := s.buildReferenceContext(ctx, req.Chapter, req.Retrieval)
-		if err != nil {
-			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
-			transcript.WriteString(text)
-			msgChan <- streamEvent{Event: "chunk", Text: text}
-			msgChan <- streamEvent{Event: "sources", Sources: nil}
-		} else if len(references) > 0 {
+		var behaviorRefs []vectorProfile
+		var dialogueRefs []vectorProfile
+		var worldRefs []vectorProfile
+		var err error
+
+		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
+			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior")))
+			if err != nil {
+				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+		}
+		if contains(req.Checks, "dialogue") {
+			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue")))
+			if err != nil {
+				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+		}
+		if contains(req.Checks, "world") {
+			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world")))
+			if err != nil {
+				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+		}
+
+		references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
+		if len(references) > 0 {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
 			transcript.WriteString("### 本地參考上下文\n\n")
 			msgChan <- streamEvent{Event: "chunk", Text: "### 本地參考上下文\n\n"}
@@ -512,8 +581,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			msgChan <- streamEvent{Event: "sources", Sources: nil}
 		}
 
-		referenceText := joinProfiles(references)
-		worldText := joinWorldProfiles(filterReferencesByType(references, "world"), s.profiles.Worlds)
+		behaviorRefText := joinProfiles(behaviorRefs)
+		dialogueRefText := joinProfiles(dialogueRefs)
+		worldText := joinWorldProfiles(filterReferencesByType(worldRefs, "world"), s.profiles.Worlds)
 		if contains(req.Checks, "world") {
 			if strings.TrimSpace(worldText) == "" {
 				text := "\n> 尚無世界觀設定可供審查，請先新增 worldbuilding 檔案或重新索引。\n"
@@ -544,8 +614,8 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				msgChan <- streamEvent{Event: "chunk", Text: "### 行為一致性審查\n\n"}
 				profileText := char.RawContent
 				profileText += "\n\n【審查偏好】\n" + reviewBias
-				if referenceText != "" {
-					profileText += "\n\n【補充參考資料】\n" + referenceText
+				if behaviorRefText != "" {
+					profileText += "\n\n【補充參考資料】\n" + behaviorRefText
 				}
 				if err := s.checker.CheckBehaviorStream(ctx, profileText, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
@@ -565,6 +635,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 					dialogueStyle += "；"
 				}
 				dialogueStyle += reviewBias
+				if dialogueRefText != "" {
+					dialogueStyle += "\n\n【補充參考資料】\n" + dialogueRefText
+				}
 				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
@@ -707,7 +780,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer close(msgChan)
 		defer cancel()
 
-		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.Retrieval)
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		if refErr != nil {
 			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", refErr.Error())

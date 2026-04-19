@@ -300,7 +300,7 @@ func TestBuildManuscriptMarkdownAppendsTrackerAppendix(t *testing.T) {
 
 	for _, fragment := range []string{
 		"# 附錄",
-		"## Tracker",
+		"## 追蹤資料",
 		"### 時間軸",
 		"第01章：夜港塔：主角抵達現場",
 		"### 伏筆",
@@ -311,6 +311,36 @@ func TestBuildManuscriptMarkdownAppendsTrackerAppendix(t *testing.T) {
 	} {
 		if !strings.Contains(manuscript, fragment) {
 			t.Fatalf("expected tracker appendix fragment %q, got %q", fragment, manuscript)
+		}
+	}
+}
+
+func TestBuildManuscriptMarkdownMatchesNonStandardChapterNamesInTrackerAppendix(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("prologue", "序章內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+	s.timeline.Add(&tracker.TimelineEvent{Chapter: 0, Scene: "開場", Description: "序章事件"})
+	s.foreshadow.Add(&tracker.Foreshadowing{Chapter: 0, Description: "序章伏筆", PlantedIn: "prologue"})
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{{Name: "prologue.md"}},
+		Appendix:   manuscriptAppendixOptions{Tracker: true},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+	for _, fragment := range []string{
+		"## 追蹤資料",
+		"prologue：開場：序章事件",
+		"prologue：序章伏筆（未回收）",
+	} {
+		if !strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected nonstandard chapter appendix fragment %q, got %q", fragment, manuscript)
 		}
 	}
 }

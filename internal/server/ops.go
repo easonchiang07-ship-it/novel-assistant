@@ -478,8 +478,61 @@ func writeAppendixListSection(sb *strings.Builder, title string, lines []string)
 	sb.WriteString("\n")
 }
 
-func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest) string {
+type appendixChapterRef struct {
+	Name  string
+	Title string
+}
+
+func buildAppendixChapterRefs(files []chapterFile) map[int][]appendixChapterRef {
+	refs := make(map[int][]appendixChapterRef, len(files))
+	for _, file := range files {
+		number := chapterNumberFromName(file.Name)
+		refs[number] = append(refs[number], appendixChapterRef{
+			Name:  file.Name,
+			Title: file.Title,
+		})
+	}
+	return refs
+}
+
+func resolveAppendixChapterRef(selected map[string]manuscriptExportSelection, refs map[int][]appendixChapterRef, chapter int, fallback string) (string, string) {
+	if fallback != "" {
+		if normalized, err := normalizeChapterName(fallback); err == nil {
+			return normalized, chapterTitle(normalized)
+		}
+		return fallback, strings.TrimSpace(fallback)
+	}
+
+	candidates := refs[chapter]
+	if len(candidates) == 0 {
+		if chapter > 0 {
+			name := fmt.Sprintf("第%02d章.md", chapter)
+			return name, chapterTitle(name)
+		}
+		return "", ""
+	}
+
+	if len(selected) > 0 {
+		selectedMatches := make([]appendixChapterRef, 0, len(candidates))
+		for _, candidate := range candidates {
+			if _, ok := selected[candidate.Name]; ok {
+				selectedMatches = append(selectedMatches, candidate)
+			}
+		}
+		if len(selectedMatches) == 1 {
+			return selectedMatches[0].Name, selectedMatches[0].Title
+		}
+	}
+
+	if len(candidates) == 1 {
+		return candidates[0].Name, candidates[0].Title
+	}
+	return "", ""
+}
+
+func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest, files []chapterFile) string {
 	selected := normalizedSelectionMap(req.Selections)
+	chapterRefs := buildAppendixChapterRefs(files)
 	sections := make([]string, 0, 2)
 
 	if req.Appendix.Reviews {
@@ -523,13 +576,12 @@ func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest) string {
 
 	if req.Appendix.Tracker {
 		var sb strings.Builder
-		sb.WriteString("## Tracker\n\n")
+		sb.WriteString("## 追蹤資料\n\n")
 
 		timelineLines := make([]string, 0)
 		for _, event := range s.timeline.GetSorted() {
-			chapterName := fmt.Sprintf("第%02d章.md", event.Chapter)
-			chapterTitle := chapterTitle(chapterName)
-			if !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
+			chapterName, chapterTitle := resolveAppendixChapterRef(selected, chapterRefs, event.Chapter, "")
+			if chapterName == "" || !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
 				continue
 			}
 			timelineLines = append(timelineLines, fmt.Sprintf("%s：%s：%s", chapterTitle, event.Scene, event.Description))
@@ -538,12 +590,8 @@ func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest) string {
 
 		foreshadowLines := make([]string, 0)
 		for _, item := range s.foreshadow.GetAll() {
-			chapterName := item.PlantedIn
-			if chapterName == "" && item.Chapter > 0 {
-				chapterName = fmt.Sprintf("第%02d章.md", item.Chapter)
-			}
-			chapterTitle := chapterTitle(chapterName)
-			if !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
+			chapterName, chapterTitle := resolveAppendixChapterRef(selected, chapterRefs, item.Chapter, item.PlantedIn)
+			if chapterName == "" || !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
 				continue
 			}
 			foreshadowLines = append(foreshadowLines, fmt.Sprintf("%s：%s（%s）", chapterTitle, item.Description, item.Status))
@@ -564,7 +612,7 @@ func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest) string {
 		writeAppendixListSection(&sb, "角色關係", relationshipLines)
 
 		trackerSection := strings.TrimSpace(sb.String())
-		if trackerSection != "## Tracker" {
+		if trackerSection != "## 追蹤資料" {
 			sections = append(sections, trackerSection)
 		}
 	}
@@ -636,7 +684,7 @@ func (s *Server) buildManuscriptMarkdown(req manuscriptExportRequest) (string, e
 		}
 	}
 
-	if appendix := strings.TrimSpace(s.buildManuscriptAppendix(req)); appendix != "" {
+	if appendix := strings.TrimSpace(s.buildManuscriptAppendix(req, files)); appendix != "" {
 		sb.WriteString(appendix)
 		sb.WriteString("\n")
 	}

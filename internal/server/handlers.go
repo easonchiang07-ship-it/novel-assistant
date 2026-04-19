@@ -608,8 +608,8 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
 
 	go func() {
-		defer close(msgChan)
 		defer cancel()
+		defer close(msgChan)
 
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		charsToCheck := s.resolveCharacters(req)
@@ -903,8 +903,8 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 	rewriteBias := rewriteBiasInstruction(s.rules.Get().RewriteBias)
 
 	go func() {
-		defer close(msgChan)
 		defer cancel()
+		defer close(msgChan)
 
 		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
 		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{

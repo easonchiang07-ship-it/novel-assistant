@@ -1,5 +1,7 @@
 # Roadmap
 
+English | [繁體中文](ROADMAP.zh-TW.md)
+
 This roadmap reflects the current product direction after chapter workflow, review history, rewrite diff, project settings, Docker support, and local backup / restore were added.
 
 ## Product Vision

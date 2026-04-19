@@ -1,5 +1,7 @@
 # Contributing
 
+English | [繁體中文](CONTRIBUTING.zh-TW.md)
+
 Thanks for helping improve Novel Assistant.
 
 ## Before You Start

@@ -38,6 +38,7 @@ type projectState struct {
 
 type Server struct {
 	cfg            *config.Config
+	globalDataDir  string
 	router         *gin.Engine
 	stateMu        sync.RWMutex
 	state          *projectState
@@ -62,9 +63,24 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	s := &Server{
-		cfg:      cfg,
-		embedder: embedder.New(cfg.OllamaURL, cfg.EmbedModel),
-		checker:  checker.New(cfg.OllamaURL, cfg.LLMModel),
+		cfg:           cfg,
+		globalDataDir: cfg.DataDir,
+		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
+		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
+	}
+	if s.globalDataDir == "" {
+		s.globalDataDir = "data"
+	}
+
+	s.project = projectsettings.New(filepath.Join(s.globalDataDir, "project_settings.json"), projectsettings.Settings{
+		OllamaURL:  cfg.OllamaURL,
+		LLMModel:   cfg.LLMModel,
+		EmbedModel: cfg.EmbedModel,
+		Port:       cfg.Port,
+		DataDir:    s.globalDataDir,
+	})
+	if err := s.project.Load(); err != nil {
+		log.Printf("project settings load: %v", err)
 	}
 
 	st, err := s.loadProjectState(idx.Active)
@@ -164,19 +180,7 @@ func (s *Server) loadProjectState(name string) (*projectState, error) {
 	dataDir := workspace.ProjectDataDir(name)
 
 	st := &projectState{dataDir: dataDir}
-	st.project = projectsettings.New(
-		filepath.Join(dataDir, "project_settings.json"),
-		projectsettings.Settings{
-			OllamaURL:  s.cfg.OllamaURL,
-			LLMModel:   s.cfg.LLMModel,
-			EmbedModel: s.cfg.EmbedModel,
-			Port:       s.cfg.Port,
-			DataDir:    dataDir,
-		},
-	)
-	if err := st.project.Load(); err != nil {
-		log.Printf("project settings load: %v", err)
-	}
+	st.project = s.project
 
 	st.profiles = profile.NewManager(dataDir)
 	if err := st.profiles.Load(); err != nil {
@@ -351,16 +355,17 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) applyProjectSettings() {
-	st := s.currentState()
-	if st == nil || st.project == nil {
+	if s.project == nil {
 		return
 	}
-	settings := st.project.Get()
+	settings := s.project.Get()
 	s.cfg.OllamaURL = settings.OllamaURL
 	s.cfg.LLMModel = settings.LLMModel
 	s.cfg.EmbedModel = settings.EmbedModel
 	s.cfg.Port = settings.Port
-	s.cfg.DataDir = st.dataDir
+	if st := s.currentState(); st != nil {
+		s.cfg.DataDir = st.dataDir
+	}
 	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
 	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
 }

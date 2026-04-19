@@ -87,7 +87,7 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 		LLMModel:   req.LLMModel,
 		EmbedModel: req.EmbedModel,
 		Port:       req.Port,
-		DataDir:    s.cfg.DataDir,
+		DataDir:    s.globalDataDir,
 	})
 	if err := s.project.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "專案設定保存失敗"})

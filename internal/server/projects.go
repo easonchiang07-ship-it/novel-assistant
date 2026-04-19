@@ -8,8 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var ensureWorkspaceIndex = workspace.EnsureIndex
+var saveWorkspaceIndex = workspace.SaveIndex
+
 func (s *Server) handleListProjects(c *gin.Context) {
-	idx, err := workspace.EnsureIndex()
+	idx, err := ensureWorkspaceIndex()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -34,7 +37,7 @@ func (s *Server) handleCreateProject(c *gin.Context) {
 		return
 	}
 
-	idx, err := workspace.EnsureIndex()
+	idx, err := ensureWorkspaceIndex()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -51,7 +54,7 @@ func (s *Server) handleCreateProject(c *gin.Context) {
 	}
 
 	idx.Names = append(idx.Names, req.Name)
-	if err := workspace.SaveIndex(idx); err != nil {
+	if err := saveWorkspaceIndex(idx); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -61,7 +64,7 @@ func (s *Server) handleCreateProject(c *gin.Context) {
 func (s *Server) handleSwitchProject(c *gin.Context) {
 	name := c.Param("name")
 
-	idx, err := workspace.EnsureIndex()
+	idx, err := ensureWorkspaceIndex()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -70,15 +73,18 @@ func (s *Server) handleSwitchProject(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "找不到專案：" + name})
 		return
 	}
-	if err := s.switchProject(name); err != nil {
+	newState, err := s.loadProjectState(name)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	idx.Active = name
-	if err := workspace.SaveIndex(idx); err != nil {
+	if err := saveWorkspaceIndex(idx); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.setProjectState(newState)
+	s.applyProjectSettings()
 	c.JSON(http.StatusOK, gin.H{"active": name})
 }

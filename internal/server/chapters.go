@@ -94,8 +94,12 @@ func chapterTitle(name string) string {
 	return strings.TrimSuffix(name, filepath.Ext(name))
 }
 
+func chapterDirFor(dataDir string) string {
+	return filepath.Join(dataDir, "chapters")
+}
+
 func (s *Server) chapterDir() string {
-	return filepath.Join(s.cfg.DataDir, "chapters")
+	return chapterDirFor(s.cfg.DataDir)
 }
 
 func (s *Server) listChapterFiles() ([]chapterFile, error) {

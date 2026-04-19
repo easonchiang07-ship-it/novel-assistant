@@ -118,6 +118,9 @@ const presetChecks = {{ jsonJS .DefaultChecks }};
 const presetStyles = {{ jsonJS .DefaultStyles }};
 const reviewBias = {{ jsonJS .Settings.ReviewBias }};
 const rewriteBias = {{ jsonJS .Settings.RewriteBias }};
+const retrievalSources = {{ jsonJS .Settings.RetrievalSources }};
+const retrievalTopK = {{ jsonJS .Settings.RetrievalTopK }};
+const retrievalThreshold = {{ jsonJS .Settings.RetrievalThreshold }};
 
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[name="default-checks"]').forEach((el) => {
@@ -135,8 +138,8 @@ async function saveSettings() {
   status.textContent = '保存中...';
   status.style.color = '#94a3b8';
 
-      try {
-        const resp = await fetch('/api/settings', {
+  try {
+    const resp = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -144,6 +147,9 @@ async function saveSettings() {
         default_styles: Array.from(document.querySelectorAll('[name="default-styles"]:checked')).map(el => el.value),
         review_bias: document.getElementById('review-bias').value,
         rewrite_bias: document.getElementById('rewrite-bias').value,
+        retrieval_sources: retrievalSources,
+        retrieval_top_k: retrievalTopK,
+        retrieval_threshold: retrievalThreshold,
         ollama_url: document.getElementById('ollama-url').value.trim(),
         llm_model: document.getElementById('llm-model').value.trim(),
         embed_model: document.getElementById('embed-model').value.trim(),

@@ -98,6 +98,14 @@ func New(cfg *config.Config) (*Server, error) {
 			}
 			return template.JS(data)
 		},
+		"sourceEnabled": func(sources []string, name string) bool {
+			for _, source := range sources {
+				if source == name {
+					return true
+				}
+			}
+			return false
+		},
 	})
 	s.router.LoadHTMLGlob("web/templates/*.html")
 	s.router.Static("/static", "web/static")
@@ -125,6 +133,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
 	r.GET("/api/chapters", s.handleListChapters)
 	r.GET("/api/chapters/:name", s.handleGetChapter)
+	r.GET("/api/settings", s.handleGetSettings)
 
 	r.POST("/ingest", s.handleIngest)
 	r.POST("/api/chapters", s.handleSaveChapter)

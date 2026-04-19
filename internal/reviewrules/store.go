@@ -8,10 +8,13 @@ import (
 )
 
 type Settings struct {
-	DefaultChecks []string `json:"default_checks"`
-	DefaultStyles []string `json:"default_styles"`
-	ReviewBias    string   `json:"review_bias"`
-	RewriteBias   string   `json:"rewrite_bias"`
+	DefaultChecks      []string `json:"default_checks"`
+	DefaultStyles      []string `json:"default_styles"`
+	ReviewBias         string   `json:"review_bias"`
+	RewriteBias        string   `json:"rewrite_bias"`
+	RetrievalSources   []string `json:"retrieval_sources"`
+	RetrievalTopK      int      `json:"retrieval_top_k"`
+	RetrievalThreshold float64  `json:"retrieval_threshold"`
 }
 
 type Store struct {
@@ -22,9 +25,12 @@ type Store struct {
 
 func Defaults() Settings {
 	return Settings{
-		DefaultChecks: []string{"behavior"},
-		ReviewBias:    "balanced",
-		RewriteBias:   "faithful",
+		DefaultChecks:      []string{"behavior"},
+		ReviewBias:         "balanced",
+		RewriteBias:        "faithful",
+		RetrievalSources:   []string{"character", "world", "style"},
+		RetrievalTopK:      4,
+		RetrievalThreshold: 0,
 	}
 }
 
@@ -95,12 +101,36 @@ func normalize(item Settings) Settings {
 	default:
 		item.RewriteBias = def.RewriteBias
 	}
+
+	allowed := map[string]struct{}{
+		"character": {},
+		"world":     {},
+		"style":     {},
+	}
+	filtered := make([]string, 0, len(item.RetrievalSources))
+	for _, source := range uniqueNonEmpty(item.RetrievalSources) {
+		if _, ok := allowed[source]; ok {
+			filtered = append(filtered, source)
+		}
+	}
+	if len(filtered) == 0 {
+		item.RetrievalSources = append([]string(nil), def.RetrievalSources...)
+	} else {
+		item.RetrievalSources = filtered
+	}
+	if item.RetrievalTopK < 1 || item.RetrievalTopK > 20 {
+		item.RetrievalTopK = def.RetrievalTopK
+	}
+	if item.RetrievalThreshold < 0 || item.RetrievalThreshold > 1 {
+		item.RetrievalThreshold = def.RetrievalThreshold
+	}
 	return item
 }
 
 func clone(item Settings) Settings {
 	item.DefaultChecks = append([]string(nil), item.DefaultChecks...)
 	item.DefaultStyles = append([]string(nil), item.DefaultStyles...)
+	item.RetrievalSources = append([]string(nil), item.RetrievalSources...)
 	return item
 }
 

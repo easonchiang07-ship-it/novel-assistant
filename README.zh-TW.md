@@ -26,9 +26,14 @@ Novel Assistant 想把兩者結合：
 - 角色行為一致性審查
 - 角色對白風格審查
 - 可重複使用的 `data/style/*.md` 寫作風格審查
+- 修稿模式與歷史 diff 差異比較
+- 章節總覽、審查次數、候選訊號與草稿建立
+- 專案設定頁，可管理 Ollama、模型、預設審查與備份
 - 關係圖、時間軸、伏筆追蹤
 - 本地向量索引與 RAG 上下文提示
 - Markdown 審查報告匯出
+- 單章完整報告匯出，整合審查 / 修稿 / 時間軸 / 伏筆 / 關係
+- `data/` 備份與還原
 - 本地優先，搭配 Ollama 與檔案式故事資產
 
 ## 審查流程
@@ -58,14 +63,14 @@ flowchart TD
 
 - 本地審查主流程
 - 檔案式故事資產載入
-- 基本測試與 CI
+- 單元測試、API 級 e2e 測試與 CI
 - 追蹤頁面與匯出流程
 
 持續演進中的部分：
 
-- 更清楚的引用來源顯示
-- 場景與章節檔案管理
-- 更完整的版本發佈與封裝流程
+- 更進階的編輯體驗
+- 更完整的展示素材與專案首頁視覺
+- 更多匯入 / 匯出格式
 
 後續規劃可參考 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
@@ -92,6 +97,35 @@ go run ./cmd
 
 啟動後開啟 `http://localhost:8080`。
 
+### 環境變數設定
+
+可將 `.env.example` 複製成 `.env` 後再啟動：
+
+```bash
+cp .env.example .env
+```
+
+支援的變數有：
+
+- `OLLAMA_URL`
+- `LLM_MODEL`
+- `EMBED_MODEL`
+- `DATA_DIR`
+- `PORT`
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+這會啟動：
+
+- `app`：Go 網頁伺服器
+- `ollama`：本地 Ollama 容器
+
+`docker-compose.yml` 會讀取本地 `.env`，並將 `./data` 掛載成持久化資料目錄。
+
 ### 常用開發指令
 
 PowerShell：
@@ -109,6 +143,7 @@ PowerShell：
 
 ```text
 data/
+├── backups/         # 從設定頁建立的本地快照
 ├── characters/      # 角色設定 Markdown
 ├── worldbuilding/   # 世界觀 Markdown
 ├── style/           # 寫作風格 Markdown
@@ -158,9 +193,16 @@ data/
 
 1. 在 `data/` 下維護角色、世界觀與風格設定
 2. 點擊 `重新索引` 建立本地知識庫
-3. 在審查頁貼上一段單一章節或單一場景
-4. 依需求勾選行為、對白與寫作風格審查
-5. 匯出結果，或把變化補記到關係圖、時間軸與伏筆追蹤
+3. 在 `章節總覽` 查看字數、審查次數、候選角色 / 設定訊號
+4. 在審查頁檢查或修稿單一章節
+5. 在 `審查歷史` 看 diff、回填編輯器，決定是否另存新版本
+6. 匯出單章完整報告，或把變化補記到關係圖、時間軸與伏筆追蹤
+
+## 主要工作頁
+
+- `章節總覽`：查看章節狀態、候選訊號、完整報告匯出
+- `審查歷史`：分章節查看審查 / 修稿紀錄，支援 diff、刪除、匯出、回填
+- `規則設定`：集中管理 Ollama、模型、預設審查項目、風格、備份與還原
 
 ## 架構說明
 
@@ -183,12 +225,16 @@ data/
 
 - VSCode 顯示紅字，但 `go test` 和 `go build` 都正常：
   請直接用 VSCode 開 `novel-assistant` 資料夾，不要開外層 `gopl.io` workspace。
+- Docker 可以啟動，但審查送出失敗：
+  請確認 Ollama 容器已正常啟動，且所需模型已先 pull。
 - `寫作風格` 沒有可選項目：
   請確認 `data/style/` 內已有 `.md` 檔案，並重新索引。
 - 審查一送出就失敗：
   請確認 Ollama 已在本地執行，且需要的模型已安裝。
 - 寫作風格審查出現驗證錯誤：
   請確認所選風格檔存在、內容不為空，且包含 `# 風格：...` 標題。
+- 還原備份後結果看起來不對：
+  還原完成後請再點一次 `重新索引`，讓向量索引與資料快照重新同步。
 
 ## 隱私說明
 
@@ -203,6 +249,7 @@ data/
 入口文件：
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [SECURITY.md](SECURITY.md)
 
@@ -210,11 +257,19 @@ data/
 
 請見 [CHANGELOG.md](CHANGELOG.md)。
 
+## 規劃文件
+
+- [docs/ROADMAP.md](docs/ROADMAP.md)
+- [docs/BACKLOG.md](docs/BACKLOG.md)
+- [docs/GITHUB_ISSUES.md](docs/GITHUB_ISSUES.md)
+- [docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)
+
 ## Release Notes
 
 目前版本說明：
 
 - [v0.1.0](docs/releases/v0.1.0.md)
+- [v0.2.0 草稿](docs/releases/v0.2.0.zh-TW.md)
 
 ## 授權
 

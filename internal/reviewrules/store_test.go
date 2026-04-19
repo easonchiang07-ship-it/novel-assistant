@@ -2,6 +2,7 @@ package reviewrules
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -77,5 +78,45 @@ func TestNormalizeRetrievalSourcesFallbackToDefaults(t *testing.T) {
 
 	if len(item.RetrievalSources) != len(Defaults().RetrievalSources) {
 		t.Fatalf("expected default retrieval sources, got %#v", item.RetrievalSources)
+	}
+}
+
+func TestPresetFor(t *testing.T) {
+	t.Parallel()
+
+	store := New(filepath.Join(t.TempDir(), "review_rules.json"))
+
+	preset := store.PresetFor("behavior")
+	if !slices.Contains(preset.Sources, "character") {
+		t.Fatal("behavior preset should include character")
+	}
+	if slices.Contains(preset.Sources, "style") {
+		t.Fatal("behavior preset should not include style")
+	}
+
+	fallback := store.PresetFor("unknown")
+	if fallback.TopK != Defaults().RetrievalTopK {
+		t.Fatal("unknown task should fallback to global default")
+	}
+}
+
+func TestNormalizePresets(t *testing.T) {
+	t.Parallel()
+
+	item := normalize(Settings{
+		Presets: map[string]RetrievalPreset{
+			"behavior": {Sources: []string{"character", "invalid_source"}, TopK: 0, Threshold: -1},
+		},
+	})
+
+	preset := item.Presets["behavior"]
+	if slices.Contains(preset.Sources, "invalid_source") {
+		t.Fatal("invalid source should be filtered")
+	}
+	if preset.TopK < 1 {
+		t.Fatal("TopK should be normalized to default")
+	}
+	if len(item.Presets) != len(Defaults().Presets) {
+		t.Fatalf("expected missing presets to be backfilled, got %#v", item.Presets)
 	}
 }

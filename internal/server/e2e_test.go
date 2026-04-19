@@ -218,6 +218,17 @@ func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
 	if !ok || len(sources) != 3 {
 		t.Fatalf("expected retrieval_sources in response, got %#v", payload["retrieval_sources"])
 	}
+	presets, ok := payload["presets"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected presets in response, got %#v", payload["presets"])
+	}
+	dialogue, ok := presets["dialogue"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected dialogue preset, got %#v", presets["dialogue"])
+	}
+	if got := dialogue["top_k"]; got != float64(3) {
+		t.Fatalf("expected dialogue top_k=3, got %#v", got)
+	}
 }
 
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {

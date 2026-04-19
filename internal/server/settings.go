@@ -12,17 +12,18 @@ import (
 )
 
 type settingsSaveRequest struct {
-	DefaultChecks      []string `json:"default_checks"`
-	DefaultStyles      []string `json:"default_styles"`
-	ReviewBias         string   `json:"review_bias"`
-	RewriteBias        string   `json:"rewrite_bias"`
-	RetrievalSources   []string `json:"retrieval_sources"`
-	RetrievalTopK      int      `json:"retrieval_top_k"`
-	RetrievalThreshold float64  `json:"retrieval_threshold"`
-	OllamaURL          string   `json:"ollama_url"`
-	LLMModel           string   `json:"llm_model"`
-	EmbedModel         string   `json:"embed_model"`
-	Port               string   `json:"port"`
+	DefaultChecks      []string                               `json:"default_checks"`
+	DefaultStyles      []string                               `json:"default_styles"`
+	ReviewBias         string                                 `json:"review_bias"`
+	RewriteBias        string                                 `json:"rewrite_bias"`
+	RetrievalSources   []string                               `json:"retrieval_sources"`
+	RetrievalTopK      int                                    `json:"retrieval_top_k"`
+	RetrievalThreshold float64                                `json:"retrieval_threshold"`
+	Presets            map[string]reviewrules.RetrievalPreset `json:"presets,omitempty"`
+	OllamaURL          string                                 `json:"ollama_url"`
+	LLMModel           string                                 `json:"llm_model"`
+	EmbedModel         string                                 `json:"embed_model"`
+	Port               string                                 `json:"port"`
 }
 
 func (s *Server) handleSettingsPage(c *gin.Context) {
@@ -51,6 +52,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 		"retrieval_sources":   rules.RetrievalSources,
 		"retrieval_top_k":     rules.RetrievalTopK,
 		"retrieval_threshold": rules.RetrievalThreshold,
+		"presets":             rules.Presets,
 		"ollama_url":          project.OllamaURL,
 		"llm_model":           project.LLMModel,
 		"embed_model":         project.EmbedModel,
@@ -73,6 +75,7 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 		RetrievalSources:   req.RetrievalSources,
 		RetrievalTopK:      req.RetrievalTopK,
 		RetrievalThreshold: req.RetrievalThreshold,
+		Presets:            req.Presets,
 	})
 	if err := s.rules.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "規則設定保存失敗"})

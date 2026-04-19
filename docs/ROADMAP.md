@@ -246,20 +246,19 @@ Why this matters:
 
 - once writers trust a tool with months of story work, project safety becomes as important as model quality
 
-## Priority 10: Review Feedback Collection
+## Priority 10: Review Quality Feedback (Local Only)
 
-Goal: let users mark which review findings were useful, building a local dataset for future model improvement.
+Goal: let users mark which review findings were useful, purely to improve their own local experience — no data ever leaves the device.
 
 - Add thumbs-up / thumbs-down on individual review findings in the history page
-- Store accepted / rejected labels alongside existing `reviewhistory` entries
-- Show per-check-type acceptance rate in a simple quality summary
-- When the user opts in, provide an export of labeled findings for fine-tuning use
+- Store accepted / rejected labels locally alongside existing `reviewhistory` entries
+- Use labels to surface per-check-type acceptance rate as a personal quality summary
+- No export, no opt-in sharing, no telemetry of any kind — labels stay on the user's machine
 
 Why this matters:
 
-- labeled review data (chapter + character profile → accepted finding) is the highest-value training signal for a future domain-specific model
-- the data structure is already 90% there in `reviewhistory`; only the accept/reject label is missing
-- no real value until there is an active user base — implement after growth, not before
+- the core promise of this project is that manuscripts never leave the user's computer; any data collection mechanism, even opt-in, risks eroding that trust
+- local feedback labels still have value: users can see which check types consistently produce useful findings for their own writing, and tune their preset settings accordingly
 
 ## Priority 11: Mature App Surface
 

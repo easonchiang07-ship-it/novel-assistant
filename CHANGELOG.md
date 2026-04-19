@@ -8,17 +8,9 @@ The format is inspired by Keep a Changelog.
 
 ### Added
 
-- Rewrite diff view for history entries
-- Project settings for Ollama URL, models, and default review behavior
-- Chapter bundle export with review, rewrite, timeline, foreshadow, and relationship context
-- Data backup and restore from the settings page
-- Dockerfile, docker-compose support, and `.env.example`
-- API-level e2e coverage for chapter save, review, rewrite, writeback, and history export
-
-### Changed
-
-- Chapter review and rewrite history now retains input content for later diff comparison
-- Config loading now supports environment variables and local `.env`
+- Task-specific retrieval presets for behavior, dialogue, world, and rewrite workflows
+- Per-task retrieval overrides from the review page; overrides are only sent when the user modifies the preset
+- Preset editor in the settings page for all four task types
 
 ## [0.1.0] - 2026-04-18
 

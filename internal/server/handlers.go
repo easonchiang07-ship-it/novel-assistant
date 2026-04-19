@@ -201,7 +201,7 @@ func (s *Server) resolveStyles(req checkRequest) ([]*profile.StyleGuide, error) 
 	return styles, nil
 }
 
-func (s *Server) buildReferenceContext(ctx context.Context, chapter string) ([]vectorProfile, error) {
+func (s *Server) buildReferenceContext(ctx context.Context, chapter string, opts retrievalOptions) ([]vectorProfile, error) {
 	if s.store.Len() == 0 {
 		return nil, nil
 	}
@@ -211,7 +211,21 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter string) ([]v
 		return nil, err
 	}
 
-	docs := s.store.QueryScored(queryVec, 4, "")
+	rules := s.rules.Get()
+	topK := opts.TopK
+	if topK < 1 {
+		topK = rules.RetrievalTopK
+	}
+	sources := opts.Sources
+	if len(sources) == 0 {
+		sources = rules.RetrievalSources
+	}
+	threshold := opts.Threshold
+	if threshold < 0 || threshold > 1 {
+		threshold = rules.RetrievalThreshold
+	}
+
+	docs := s.store.QueryFilteredScored(queryVec, topK, sources, threshold)
 	results := make([]vectorProfile, 0, len(docs))
 	for _, doc := range docs {
 		name := strings.TrimPrefix(doc.ID, "char_")
@@ -373,14 +387,17 @@ func (s *Server) handleCheckPage(c *gin.Context) {
 	}
 	rules := s.rules.Get()
 	c.HTML(http.StatusOK, "check.html", gin.H{
-		"Title":         "一致性審查",
-		"Characters":    s.profiles.Characters,
-		"Styles":        s.profiles.Styles,
-		"Chapters":      chapters,
-		"DefaultChecks": rules.DefaultChecks,
-		"DefaultStyles": rules.DefaultStyles,
-		"ReviewBias":    rules.ReviewBias,
-		"RewriteBias":   rules.RewriteBias,
+		"Title":              "一致性審查",
+		"Characters":         s.profiles.Characters,
+		"Styles":             s.profiles.Styles,
+		"Chapters":           chapters,
+		"DefaultChecks":      rules.DefaultChecks,
+		"DefaultStyles":      rules.DefaultStyles,
+		"ReviewBias":         rules.ReviewBias,
+		"RewriteBias":        rules.RewriteBias,
+		"RetrievalSources":   rules.RetrievalSources,
+		"RetrievalTopK":      rules.RetrievalTopK,
+		"RetrievalThreshold": rules.RetrievalThreshold,
 	})
 }
 
@@ -425,13 +442,20 @@ func (s *Server) handleIngest(c *gin.Context) {
 // ─── check stream ─────────────────────────────────────────────────────────────
 
 type checkRequest struct {
-	Chapter      string   `json:"chapter"`
-	Characters   []string `json:"characters"`
-	Checks       []string `json:"checks"` // ["behavior","dialogue","style","world"]
-	Styles       []string `json:"styles"` // style guide names to apply; empty = all styles
-	ChapterFile  string   `json:"chapter_file"`
-	ChapterTitle string   `json:"chapter_title"`
-	SceneTitle   string   `json:"scene_title,omitempty"` // empty = full chapter
+	Chapter      string           `json:"chapter"`
+	Characters   []string         `json:"characters"`
+	Checks       []string         `json:"checks"` // ["behavior","dialogue","style","world"]
+	Styles       []string         `json:"styles"` // style guide names to apply; empty = all styles
+	Retrieval    retrievalOptions `json:"retrieval"`
+	ChapterFile  string           `json:"chapter_file"`
+	ChapterTitle string           `json:"chapter_title"`
+	SceneTitle   string           `json:"scene_title,omitempty"` // empty = full chapter
+}
+
+type retrievalOptions struct {
+	Sources   []string `json:"sources"`
+	TopK      int      `json:"top_k"`
+	Threshold float64  `json:"threshold"`
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -467,7 +491,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			return
 		}
 
-		references, err := s.buildReferenceContext(ctx, req.Chapter)
+		references, err := s.buildReferenceContext(ctx, req.Chapter, req.Retrieval)
 		if err != nil {
 			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 			transcript.WriteString(text)
@@ -627,13 +651,14 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 }
 
 type rewriteRequest struct {
-	Chapter      string   `json:"chapter"`
-	Mode         string   `json:"mode"`
-	Characters   []string `json:"characters"`
-	Styles       []string `json:"styles"`
-	ChapterFile  string   `json:"chapter_file"`
-	ChapterTitle string   `json:"chapter_title"`
-	SceneTitle   string   `json:"scene_title,omitempty"` // empty = full chapter
+	Chapter      string           `json:"chapter"`
+	Mode         string           `json:"mode"`
+	Characters   []string         `json:"characters"`
+	Styles       []string         `json:"styles"`
+	Retrieval    retrievalOptions `json:"retrieval"`
+	ChapterFile  string           `json:"chapter_file"`
+	ChapterTitle string           `json:"chapter_title"`
+	SceneTitle   string           `json:"scene_title,omitempty"` // empty = full chapter
 }
 
 func rewriteInstruction(mode string) (string, error) {
@@ -682,7 +707,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer close(msgChan)
 		defer cancel()
 
-		references, refErr := s.buildReferenceContext(ctx, req.Chapter)
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.Retrieval)
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		if refErr != nil {
 			text := fmt.Sprintf("\n> RAG 參考載入失敗，改用基礎模式繼續：%s\n", refErr.Error())

@@ -18,6 +18,7 @@ type scenePlan struct {
 }
 
 type scenePlanFile struct {
+	Order []string    `json:"order,omitempty"`
 	Items []scenePlan `json:"items"`
 }
 
@@ -48,17 +49,24 @@ func (s *Server) loadScenePlans(chapterName string) (map[string]scenePlan, error
 	return loadScenePlansFromPath(path)
 }
 
-func loadScenePlansFromPath(path string) (map[string]scenePlan, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return map[string]scenePlan{}, nil
-	}
+func (s *Server) loadScenePlanOrder(chapterName string) ([]string, error) {
+	s.scenePlansMu.RLock()
+	defer s.scenePlansMu.RUnlock()
+
+	path, err := s.scenePlanPath(chapterName)
 	if err != nil {
 		return nil, err
 	}
+	stored, err := loadScenePlanFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return sanitizeSceneOrder(stored.Order), nil
+}
 
-	var stored scenePlanFile
-	if err := json.Unmarshal(data, &stored); err != nil {
+func loadScenePlansFromPath(path string) (map[string]scenePlan, error) {
+	stored, err := loadScenePlanFile(path)
+	if err != nil {
 		return nil, err
 	}
 
@@ -74,6 +82,39 @@ func loadScenePlansFromPath(path string) (map[string]scenePlan, error) {
 		items[title] = item
 	}
 	return items, nil
+}
+
+func loadScenePlanFile(path string) (scenePlanFile, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return scenePlanFile{}, nil
+	}
+	if err != nil {
+		return scenePlanFile{}, err
+	}
+
+	var stored scenePlanFile
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return scenePlanFile{}, err
+	}
+	return stored, nil
+}
+
+func sanitizeSceneOrder(order []string) []string {
+	out := make([]string, 0, len(order))
+	seen := make(map[string]struct{}, len(order))
+	for _, title := range order {
+		clean := strings.TrimSpace(title)
+		if clean == "" {
+			continue
+		}
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+		out = append(out, clean)
+	}
+	return out
 }
 
 func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
@@ -94,13 +135,25 @@ func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
 		return err
 	}
 
-	items, err := loadScenePlansFromPath(path)
+	stored, err := loadScenePlanFile(path)
 	if err != nil {
 		return err
 	}
+	items := make(map[string]scenePlan, len(stored.Items))
+	for _, item := range stored.Items {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		item.Title = title
+		items[title] = item
+	}
 	items[plan.Title] = plan
 
-	out := scenePlanFile{Items: make([]scenePlan, 0, len(items))}
+	out := scenePlanFile{
+		Order: sanitizeSceneOrder(stored.Order),
+		Items: make([]scenePlan, 0, len(items)),
+	}
 	for _, item := range items {
 		out.Items = append(out.Items, item)
 	}
@@ -112,6 +165,32 @@ func (s *Server) saveScenePlan(chapterName string, plan scenePlan) error {
 		return err
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileReplace(path, data, 0644)
+}
+
+func (s *Server) saveScenePlanOrder(chapterName string, order []string) error {
+	s.scenePlansMu.Lock()
+	defer s.scenePlansMu.Unlock()
+
+	path, err := s.scenePlanPath(chapterName)
+	if err != nil {
+		return err
+	}
+	stored, err := loadScenePlanFile(path)
+	if err != nil {
+		return err
+	}
+	stored.Order = sanitizeSceneOrder(order)
+	sort.Slice(stored.Items, func(i, j int) bool {
+		return stored.Items[i].Title < stored.Items[j].Title
+	})
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -12,14 +12,17 @@ import (
 )
 
 type settingsSaveRequest struct {
-	DefaultChecks []string `json:"default_checks"`
-	DefaultStyles []string `json:"default_styles"`
-	ReviewBias    string   `json:"review_bias"`
-	RewriteBias   string   `json:"rewrite_bias"`
-	OllamaURL     string   `json:"ollama_url"`
-	LLMModel      string   `json:"llm_model"`
-	EmbedModel    string   `json:"embed_model"`
-	Port          string   `json:"port"`
+	DefaultChecks      []string `json:"default_checks"`
+	DefaultStyles      []string `json:"default_styles"`
+	ReviewBias         string   `json:"review_bias"`
+	RewriteBias        string   `json:"rewrite_bias"`
+	RetrievalSources   []string `json:"retrieval_sources"`
+	RetrievalTopK      int      `json:"retrieval_top_k"`
+	RetrievalThreshold float64  `json:"retrieval_threshold"`
+	OllamaURL          string   `json:"ollama_url"`
+	LLMModel           string   `json:"llm_model"`
+	EmbedModel         string   `json:"embed_model"`
+	Port               string   `json:"port"`
 }
 
 func (s *Server) handleSettingsPage(c *gin.Context) {
@@ -37,6 +40,24 @@ func (s *Server) handleSettingsPage(c *gin.Context) {
 	})
 }
 
+func (s *Server) handleGetSettings(c *gin.Context) {
+	rules := s.rules.Get()
+	project := s.project.Get()
+	c.JSON(http.StatusOK, gin.H{
+		"default_checks":      rules.DefaultChecks,
+		"default_styles":      rules.DefaultStyles,
+		"review_bias":         rules.ReviewBias,
+		"rewrite_bias":        rules.RewriteBias,
+		"retrieval_sources":   rules.RetrievalSources,
+		"retrieval_top_k":     rules.RetrievalTopK,
+		"retrieval_threshold": rules.RetrievalThreshold,
+		"ollama_url":          project.OllamaURL,
+		"llm_model":           project.LLMModel,
+		"embed_model":         project.EmbedModel,
+		"port":                project.Port,
+	})
+}
+
 func (s *Server) handleSaveSettings(c *gin.Context) {
 	var req settingsSaveRequest
 	if err := c.BindJSON(&req); err != nil {
@@ -45,10 +66,13 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 	}
 
 	s.rules.Update(reviewrules.Settings{
-		DefaultChecks: req.DefaultChecks,
-		DefaultStyles: req.DefaultStyles,
-		ReviewBias:    req.ReviewBias,
-		RewriteBias:   req.RewriteBias,
+		DefaultChecks:      req.DefaultChecks,
+		DefaultStyles:      req.DefaultStyles,
+		ReviewBias:         req.ReviewBias,
+		RewriteBias:        req.RewriteBias,
+		RetrievalSources:   req.RetrievalSources,
+		RetrievalTopK:      req.RetrievalTopK,
+		RetrievalThreshold: req.RetrievalThreshold,
 	})
 	if err := s.rules.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "規則設定保存失敗"})

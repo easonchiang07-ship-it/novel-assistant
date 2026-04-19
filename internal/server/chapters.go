@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -119,10 +118,11 @@ func (s *Server) listChapterFiles() ([]chapterFile, error) {
 		})
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Name < files[j].Name
-	})
-	return files, nil
+	order, err := s.loadChapterOrder()
+	if err != nil {
+		return nil, err
+	}
+	return orderedChapterFiles(files, order), nil
 }
 
 func (s *Server) loadChapterFile(name string) (chapterFile, error) {

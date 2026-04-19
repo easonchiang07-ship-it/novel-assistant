@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/vectorstore"
 	"testing"
 )
 
@@ -95,5 +97,21 @@ func TestRewriteInstructionRejectsUnknownMode(t *testing.T) {
 
 	if _, err := rewriteInstruction("unknown"); err == nil {
 		t.Fatal("expected error for unknown rewrite mode")
+	}
+}
+
+func TestBuildReferenceContextReturnsNilWhenStoreIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		store: &vectorstore.Store{},
+	}
+
+	refs, err := s.buildReferenceContext(context.Background(), "chapter", retrievalOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error with empty store: %v", err)
+	}
+	if refs != nil {
+		t.Fatalf("expected nil refs for empty store, got %#v", refs)
 	}
 }

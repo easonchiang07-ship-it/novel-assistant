@@ -194,6 +194,32 @@ Zhang Lei stood in the rain.`
 	}
 }
 
+func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, "http://127.0.0.1:0")
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performRequest(t, app.URL, "GET", "/api/settings", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get settings failed: %s", string(resp.Body))
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Body, &payload); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+	if got := payload["retrieval_top_k"]; got != float64(4) {
+		t.Fatalf("expected retrieval_top_k=4, got %#v", got)
+	}
+	sources, ok := payload["retrieval_sources"].([]any)
+	if !ok || len(sources) != 3 {
+		t.Fatalf("expected retrieval_sources in response, got %#v", payload["retrieval_sources"])
+	}
+}
+
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	t.Helper()
 

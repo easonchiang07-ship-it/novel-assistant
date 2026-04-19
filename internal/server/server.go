@@ -21,19 +21,20 @@ import (
 )
 
 type Server struct {
-	cfg           *config.Config
-	router        *gin.Engine
-	profiles      *profile.Manager
-	store         *vectorstore.Store
-	project       *projectsettings.Store
-	embedder      *embedder.OllamaEmbedder
-	checker       *checker.Checker
-	rules         *reviewrules.Store
-	history       *reviewhistory.Store
-	relationships *tracker.RelationshipTracker
-	timeline      *tracker.TimelineTracker
-	foreshadow    *tracker.ForeshadowTracker
-	scenePlansMu  sync.RWMutex
+	cfg            *config.Config
+	router         *gin.Engine
+	profiles       *profile.Manager
+	store          *vectorstore.Store
+	project        *projectsettings.Store
+	embedder       *embedder.OllamaEmbedder
+	checker        *checker.Checker
+	rules          *reviewrules.Store
+	history        *reviewhistory.Store
+	relationships  *tracker.RelationshipTracker
+	timeline       *tracker.TimelineTracker
+	foreshadow     *tracker.ForeshadowTracker
+	chapterOrderMu sync.RWMutex
+	scenePlansMu   sync.RWMutex
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -97,6 +98,14 @@ func New(cfg *config.Config) (*Server, error) {
 			}
 			return template.JS(data)
 		},
+		"sourceEnabled": func(sources []string, name string) bool {
+			for _, source := range sources {
+				if source == name {
+					return true
+				}
+			}
+			return false
+		},
 	})
 	s.router.LoadHTMLGlob("web/templates/*.html")
 	s.router.Static("/static", "web/static")
@@ -124,14 +133,18 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
 	r.GET("/api/chapters", s.handleListChapters)
 	r.GET("/api/chapters/:name", s.handleGetChapter)
+	r.GET("/api/settings", s.handleGetSettings)
 
 	r.POST("/ingest", s.handleIngest)
 	r.POST("/api/chapters", s.handleSaveChapter)
+	r.POST("/api/chapters/order", s.handleSaveChapterOrder)
 	r.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
+	r.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
 	r.POST("/api/backups/create", s.handleCreateBackup)
 	r.POST("/api/backups/restore", s.handleRestoreBackup)
 	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
 	r.POST("/api/chapter-report/export", s.handleExportChapterBundle)
+	r.POST("/api/manuscript/export", s.handleExportManuscript)
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
 	r.POST("/api/settings", s.handleSaveSettings)

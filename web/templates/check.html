@@ -44,6 +44,44 @@
         </div>
 
         <div class="card">
+          <h2>RAG 擷取設定</h2>
+          <p class="helper-text">控制哪些知識來源會被納入本次審查的參考上下文。</p>
+
+          <div id="retrieval-summary" class="helper-text" style="margin-bottom:12px;font-weight:600"></div>
+
+          <div class="form-group">
+            <label>啟用來源</label>
+            <div class="checkbox-group">
+              <label class="checkbox-label">
+                <input type="checkbox" name="retrieval-source" value="character" {{if sourceEnabled .RetrievalSources "character"}}checked{{end}}>
+                角色設定
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="retrieval-source" value="world" {{if sourceEnabled .RetrievalSources "world"}}checked{{end}}>
+                世界觀
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="retrieval-source" value="style" {{if sourceEnabled .RetrievalSources "style"}}checked{{end}}>
+                寫作風格
+              </label>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Top-K（最多取幾筆）</label>
+              <input type="number" id="retrieval-topk" min="1" max="20" value="{{.RetrievalTopK}}">
+            </div>
+            <div class="form-group">
+              <label>相似度門檻 <span id="threshold-display">{{printf "%.2f" .RetrievalThreshold}}</span></label>
+              <input type="range" id="retrieval-threshold" min="0" max="1" step="0.01" value="{{.RetrievalThreshold}}" oninput="document.getElementById('threshold-display').textContent=parseFloat(this.value).toFixed(2);updateRetrievalSummary()">
+            </div>
+          </div>
+
+          <button class="btn btn-ghost" type="button" onclick="saveRetrievalDefaults()">設為預設</button>
+        </div>
+
+        <div class="card">
           <h2>審查設定</h2>
           <p class="helper-text">目前規則設定：審查偏好 {{.ReviewBias}} ・ 修稿偏好 {{.RewriteBias}}。可到「規則設定」頁調整。</p>
 
@@ -259,9 +297,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('[name="styles"]').forEach((el) => {
     el.checked = presetStyles.includes(el.value);
   });
+  document.querySelectorAll('[name="retrieval-source"]').forEach((el) => {
+    el.addEventListener('change', updateRetrievalSummary);
+  });
+  document.getElementById('retrieval-topk').addEventListener('input', updateRetrievalSummary);
   if (styleCheck) {
     document.getElementById('style-selector').style.display = styleCheck.checked ? 'block' : 'none';
   }
+  updateRetrievalSummary();
   hydrateFromHistory();
 });
 
@@ -549,6 +592,51 @@ function selectedCharacters() {
   return Array.from(document.querySelectorAll('[name="characters"]:checked')).map(el => el.value);
 }
 
+function getRetrievalOptions() {
+  return {
+    sources: Array.from(document.querySelectorAll('[name="retrieval-source"]:checked')).map(el => el.value),
+    top_k: Math.max(1, Number(document.getElementById('retrieval-topk').value) || 4),
+    threshold: Number(document.getElementById('retrieval-threshold').value) || 0,
+  };
+}
+
+function updateRetrievalSummary() {
+  const opts = getRetrievalOptions();
+  const labels = { character: '角色', world: '世界觀', style: '風格' };
+  const srcStr = opts.sources.length ? opts.sources.map(s => labels[s] || s).join('、') : '（無）';
+  document.getElementById('retrieval-summary').textContent =
+    '來源：' + srcStr + '　Top-K：' + opts.top_k + '　門檻：' + opts.threshold.toFixed(2);
+}
+
+async function saveRetrievalDefaults() {
+  const opts = getRetrievalOptions();
+  try {
+    const current = await fetch('/api/settings')
+      .then(async (r) => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || '讀取現有設定失敗');
+        }
+        return r.json();
+      });
+    const body = Object.assign({}, current, {
+      retrieval_sources: opts.sources,
+      retrieval_top_k: opts.top_k,
+      retrieval_threshold: opts.threshold,
+    });
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '儲存失敗');
+    alert('已設定為預設擷取設定');
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+  }
+}
+
 function populateWritebackDefaults() {
   const summary = resultSummary();
   if (!document.getElementById('timeline-description').value.trim()) {
@@ -592,6 +680,7 @@ async function runCheck() {
         characters,
         checks,
         styles,
+        retrieval: getRetrievalOptions(),
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
         scene_title: currentSceneTitle
@@ -665,6 +754,7 @@ async function runRewrite(mode) {
         mode,
         characters: selectedCharacters(),
         styles: Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value),
+        retrieval: getRetrievalOptions(),
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
         scene_title: currentSceneTitle

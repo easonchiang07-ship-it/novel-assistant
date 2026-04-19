@@ -162,3 +162,33 @@ func TestMergeRetrievalAllowsThresholdOverrideToZero(t *testing.T) {
 		t.Fatalf("expected threshold override to zero, got %#v", got)
 	}
 }
+
+func TestCheckRequestRetrievalOverrideForTask(t *testing.T) {
+	t.Parallel()
+
+	req := checkRequest{
+		Retrieval: retrievalOptions{
+			Sources:   []string{"character"},
+			TopK:      4,
+			Threshold: 0.1,
+		},
+		RetrievalOverrides: map[string]retrievalOptions{
+			"world": {
+				Sources:      []string{"world"},
+				TopK:         2,
+				Threshold:    0,
+				ThresholdSet: true,
+			},
+		},
+	}
+
+	world := req.retrievalOverrideFor("world")
+	if len(world.Sources) != 1 || world.Sources[0] != "world" || world.TopK != 2 || !world.ThresholdSet {
+		t.Fatalf("expected task-specific override, got %#v", world)
+	}
+
+	behavior := req.retrievalOverrideFor("behavior")
+	if len(behavior.Sources) != 1 || behavior.Sources[0] != "character" || behavior.TopK != 4 {
+		t.Fatalf("expected fallback to shared retrieval, got %#v", behavior)
+	}
+}

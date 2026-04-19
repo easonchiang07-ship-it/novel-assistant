@@ -695,6 +695,18 @@ function getRetrievalOptions() {
   };
 }
 
+function buildCheckRetrievalOverrides(checks) {
+  if (!retrievalDirty) {
+    return {};
+  }
+  if (!checks.includes(activeRetrievalTask)) {
+    return {};
+  }
+  return {
+    [activeRetrievalTask]: getRetrievalOptions(),
+  };
+}
+
 function getCurrentRetrievalInputs() {
   return {
     sources: Array.from(document.querySelectorAll('[name="retrieval-source"]:checked')).map(el => el.value),
@@ -749,6 +761,7 @@ async function runCheck() {
   const characters = selectedCharacters();
   const checks = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
   const styles = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
+  const retrievalOverrides = buildCheckRetrievalOverrides(checks);
   const resultBox = document.getElementById('result-box');
   const submitBtn = document.getElementById('submit-btn');
   document.getElementById('rewrite-box').textContent = '尚未執行修稿模式。';
@@ -769,7 +782,7 @@ async function runCheck() {
         characters,
         checks,
         styles,
-        retrieval: getRetrievalOptions(),
+        retrieval_overrides: retrievalOverrides,
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
         scene_title: currentSceneTitle

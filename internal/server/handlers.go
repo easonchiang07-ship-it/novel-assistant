@@ -477,14 +477,15 @@ func (s *Server) handleIngest(c *gin.Context) {
 // ─── check stream ─────────────────────────────────────────────────────────────
 
 type checkRequest struct {
-	Chapter      string           `json:"chapter"`
-	Characters   []string         `json:"characters"`
-	Checks       []string         `json:"checks"` // ["behavior","dialogue","style","world"]
-	Styles       []string         `json:"styles"` // style guide names to apply; empty = all styles
-	Retrieval    retrievalOptions `json:"retrieval"`
-	ChapterFile  string           `json:"chapter_file"`
-	ChapterTitle string           `json:"chapter_title"`
-	SceneTitle   string           `json:"scene_title,omitempty"` // empty = full chapter
+	Chapter            string                      `json:"chapter"`
+	Characters         []string                    `json:"characters"`
+	Checks             []string                    `json:"checks"` // ["behavior","dialogue","style","world"]
+	Styles             []string                    `json:"styles"` // style guide names to apply; empty = all styles
+	Retrieval          retrievalOptions            `json:"retrieval"`
+	RetrievalOverrides map[string]retrievalOptions `json:"retrieval_overrides,omitempty"`
+	ChapterFile        string                      `json:"chapter_file"`
+	ChapterTitle       string                      `json:"chapter_title"`
+	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
 }
 
 type retrievalOptions struct {
@@ -492,6 +493,13 @@ type retrievalOptions struct {
 	TopK         int      `json:"top_k"`
 	Threshold    float64  `json:"threshold"`
 	ThresholdSet bool     `json:"threshold_set,omitempty"`
+}
+
+func (r checkRequest) retrievalOverrideFor(task string) retrievalOptions {
+	if override, ok := r.RetrievalOverrides[task]; ok {
+		return override
+	}
+	return r.Retrieval
 }
 
 func (s *Server) handleCheckStream(c *gin.Context) {
@@ -533,7 +541,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		var err error
 
 		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
-			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("behavior"), req.Retrieval))
+			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior")))
 			if err != nil {
 				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -541,7 +549,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 		}
 		if contains(req.Checks, "dialogue") {
-			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("dialogue"), req.Retrieval))
+			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue")))
 			if err != nil {
 				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -549,7 +557,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 		}
 		if contains(req.Checks, "world") {
-			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("world"), req.Retrieval))
+			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world")))
 			if err != nil {
 				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)

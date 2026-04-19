@@ -51,8 +51,20 @@ Currently, setting up a project requires manually writing formatted `.md` files 
 - Users can edit generated files later if they want to go deeper, but never have to touch them to get started
 - Add an "edit story world" page so users can update their setup without touching raw files
 
+### Style guide sample passages
+
+Every user has their own style. The style guide wizard must make it easy to capture that.
+
+- Add a `sample_passages` field to the style guide format; `profile/manager.go` parses and passes it to generation and review prompts
+- In the wizard's style step, prompt users explicitly:
+  > "Paste 2–3 paragraphs you love — your own writing, or an author whose style you admire (be mindful of copyright). These examples directly shape the rhythm, vocabulary, and sentence structure of generated text."
+- Show a preview of how the sample will be used so users understand the impact
+- During generation and rewrite, inject sample passages as concrete few-shot examples rather than abstract style rules
+
 Why this matters:
 
+- abstract style rules ("short sentences, calm tone") produce inconsistent output; concrete examples let the LLM imitate directly
+- this is the single highest-leverage input a user can provide to improve generation quality on a local model
 - the entire review and generation pipeline depends on these asset files existing and being correctly formatted
 - asking a non-technical user to write `# 角色：小明\n- 個性：...` by hand is a silent dealbreaker
 - this is the most important onboarding step between "installed the tool" and "got useful output"

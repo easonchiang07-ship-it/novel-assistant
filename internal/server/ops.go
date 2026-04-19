@@ -13,6 +13,7 @@ import (
 
 	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/extractor"
+	"novel-assistant/internal/reviewhistory"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,9 +31,15 @@ type manuscriptExportSelection struct {
 	Scenes []string `json:"scenes,omitempty"`
 }
 
+type manuscriptAppendixOptions struct {
+	Reviews bool `json:"reviews"`
+	Tracker bool `json:"tracker"`
+}
+
 type manuscriptExportRequest struct {
 	Selections      []manuscriptExportSelection `json:"selections"`
 	IncludeMetadata bool                        `json:"include_metadata"`
+	Appendix        manuscriptAppendixOptions   `json:"appendix"`
 	Format          string                      `json:"format"`
 }
 
@@ -408,6 +415,166 @@ func (s *Server) buildSceneMetadataComment(chapterName string, scenes []Scene) s
 	return sb.String()
 }
 
+func normalizedSelectionMap(selections []manuscriptExportSelection) map[string]manuscriptExportSelection {
+	selected := make(map[string]manuscriptExportSelection, len(selections))
+	for _, item := range selections {
+		normalized, err := normalizeChapterName(item.Name)
+		if err != nil {
+			continue
+		}
+		item.Name = normalized
+		selected[normalized] = item
+	}
+	return selected
+}
+
+func chapterIncludedForAppendix(selected map[string]manuscriptExportSelection, chapterFile, chapterTitle string) bool {
+	if len(selected) == 0 {
+		return true
+	}
+	if chapterFile != "" {
+		if normalized, err := normalizeChapterName(chapterFile); err == nil {
+			if _, ok := selected[normalized]; ok {
+				return true
+			}
+		}
+	}
+	if chapterTitle != "" {
+		if normalized, err := normalizeChapterName(chapterTitle); err == nil {
+			if _, ok := selected[normalized]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildReviewAppendixLine(entry *reviewhistory.Entry) string {
+	line := historyEntryLabel(entry)
+	if !entry.CreatedAt.IsZero() {
+		line += "・" + entry.CreatedAt.Format("2006-01-02 15:04:05")
+	}
+	if entry.RewriteMode != "" {
+		line += "・模式：" + entry.RewriteMode
+	}
+	if scene := strings.TrimSpace(entry.SceneTitle); scene != "" {
+		line += "・場景：" + scene
+	}
+	return line
+}
+
+func writeAppendixListSection(sb *strings.Builder, title string, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	sb.WriteString("### ")
+	sb.WriteString(title)
+	sb.WriteString("\n\n")
+	for _, line := range lines {
+		sb.WriteString("- ")
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+}
+
+func (s *Server) buildManuscriptAppendix(req manuscriptExportRequest) string {
+	selected := normalizedSelectionMap(req.Selections)
+	sections := make([]string, 0, 2)
+
+	if req.Appendix.Reviews {
+		groups := make(map[string][]string)
+		order := make([]string, 0)
+		for _, entry := range s.history.Recent(0) {
+			if !chapterIncludedForAppendix(selected, entry.ChapterFile, entry.ChapterTitle) {
+				continue
+			}
+			title := strings.TrimSpace(entry.ChapterTitle)
+			if title == "" {
+				switch {
+				case entry.ChapterFile != "":
+					title = chapterTitle(entry.ChapterFile)
+				default:
+					title = "未分類章節"
+				}
+			}
+			if _, ok := groups[title]; !ok {
+				order = append(order, title)
+			}
+			groups[title] = append(groups[title], buildReviewAppendixLine(entry))
+		}
+		if len(order) > 0 {
+			var sb strings.Builder
+			sb.WriteString("## 審查與修稿歷史\n\n")
+			for _, title := range order {
+				sb.WriteString("### ")
+				sb.WriteString(title)
+				sb.WriteString("\n\n")
+				for _, line := range groups[title] {
+					sb.WriteString("- ")
+					sb.WriteString(line)
+					sb.WriteString("\n")
+				}
+				sb.WriteString("\n")
+			}
+			sections = append(sections, strings.TrimSpace(sb.String()))
+		}
+	}
+
+	if req.Appendix.Tracker {
+		var sb strings.Builder
+		sb.WriteString("## Tracker\n\n")
+
+		timelineLines := make([]string, 0)
+		for _, event := range s.timeline.GetSorted() {
+			chapterName := fmt.Sprintf("第%02d章.md", event.Chapter)
+			chapterTitle := chapterTitle(chapterName)
+			if !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
+				continue
+			}
+			timelineLines = append(timelineLines, fmt.Sprintf("%s：%s：%s", chapterTitle, event.Scene, event.Description))
+		}
+		writeAppendixListSection(&sb, "時間軸", timelineLines)
+
+		foreshadowLines := make([]string, 0)
+		for _, item := range s.foreshadow.GetAll() {
+			chapterName := item.PlantedIn
+			if chapterName == "" && item.Chapter > 0 {
+				chapterName = fmt.Sprintf("第%02d章.md", item.Chapter)
+			}
+			chapterTitle := chapterTitle(chapterName)
+			if !chapterIncludedForAppendix(selected, chapterName, chapterTitle) {
+				continue
+			}
+			foreshadowLines = append(foreshadowLines, fmt.Sprintf("%s：%s（%s）", chapterTitle, item.Description, item.Status))
+		}
+		writeAppendixListSection(&sb, "伏筆", foreshadowLines)
+
+		relationshipLines := make([]string, 0)
+		for _, rel := range s.relationships.GetAll() {
+			line := fmt.Sprintf("%s ↔ %s：%s", rel.From, rel.To, rel.Status)
+			if note := strings.TrimSpace(rel.Note); note != "" {
+				line += "・" + note
+			}
+			if trigger := strings.TrimSpace(rel.TriggerEvent); trigger != "" {
+				line += "・事件：" + trigger
+			}
+			relationshipLines = append(relationshipLines, line)
+		}
+		writeAppendixListSection(&sb, "角色關係", relationshipLines)
+
+		trackerSection := strings.TrimSpace(sb.String())
+		if trackerSection != "## Tracker" {
+			sections = append(sections, trackerSection)
+		}
+	}
+
+	if len(sections) == 0 {
+		return ""
+	}
+	return "# 附錄\n\n" + strings.Join(sections, "\n\n") + "\n"
+}
+
 func (s *Server) buildManuscriptMarkdown(req manuscriptExportRequest) (string, error) {
 	files, err := s.listChapterFiles()
 	if err != nil {
@@ -417,15 +584,7 @@ func (s *Server) buildManuscriptMarkdown(req manuscriptExportRequest) (string, e
 		return "", fmt.Errorf("目前沒有章節可匯出")
 	}
 
-	selected := make(map[string]manuscriptExportSelection, len(req.Selections))
-	for _, item := range req.Selections {
-		normalized, err := normalizeChapterName(item.Name)
-		if err != nil {
-			continue
-		}
-		item.Name = normalized
-		selected[normalized] = item
-	}
+	selected := normalizedSelectionMap(req.Selections)
 
 	var sb strings.Builder
 	sb.WriteString("# 小說手稿匯出\n\n")
@@ -475,6 +634,11 @@ func (s *Server) buildManuscriptMarkdown(req manuscriptExportRequest) (string, e
 				sb.WriteString("\n\n")
 			}
 		}
+	}
+
+	if appendix := strings.TrimSpace(s.buildManuscriptAppendix(req)); appendix != "" {
+		sb.WriteString(appendix)
+		sb.WriteString("\n")
 	}
 
 	result := strings.TrimSpace(sb.String())

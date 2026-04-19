@@ -242,6 +242,171 @@ Open.`); err != nil {
 	}
 }
 
+func TestBuildManuscriptMarkdownAppendsReviewsAppendix(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+	s.history.Add(&reviewhistory.Entry{Kind: "review", ChapterFile: "第01章.md", ChapterTitle: "第01章"})
+	s.history.Add(&reviewhistory.Entry{Kind: "rewrite", ChapterFile: "第01章.md", ChapterTitle: "第01章", RewriteMode: "強化張力"})
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Appendix: manuscriptAppendixOptions{Reviews: true},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"# 附錄",
+		"## 審查與修稿歷史",
+		"### 第01章",
+		"第 1 次審查",
+		"第 1 次修稿",
+		"模式：強化張力",
+	} {
+		if !strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected reviews appendix fragment %q, got %q", fragment, manuscript)
+		}
+	}
+}
+
+func TestBuildManuscriptMarkdownAppendsTrackerAppendix(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+	if _, err := s.saveChapterFile("第02章", "內容"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	s.timeline.Add(&tracker.TimelineEvent{Chapter: 1, Scene: "夜港塔", Description: "主角抵達現場"})
+	s.foreshadow.Add(&tracker.Foreshadowing{Chapter: 1, Description: "塔上的異象", PlantedIn: "第01章"})
+	s.relationships.Upsert(&tracker.Relationship{From: "林昊", To: "張雷", Status: "信任", Note: "一起追查夜港塔"})
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Appendix: manuscriptAppendixOptions{Tracker: true},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+
+	for _, fragment := range []string{
+		"# 附錄",
+		"## Tracker",
+		"### 時間軸",
+		"第01章：夜港塔：主角抵達現場",
+		"### 伏筆",
+		"第01章：塔上的異象（未回收）",
+		"### 角色關係",
+		"林昊 ↔ 張雷：信任",
+		"一起追查夜港塔",
+	} {
+		if !strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected tracker appendix fragment %q, got %q", fragment, manuscript)
+		}
+	}
+}
+
+func TestBuildManuscriptMarkdownFiltersAppendixToSelectedChapters(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+	if _, err := s.saveChapterFile("第02章", "內容"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	s.history.Add(&reviewhistory.Entry{Kind: "review", ChapterFile: "第01章.md", ChapterTitle: "第01章"})
+	s.history.Add(&reviewhistory.Entry{Kind: "review", ChapterFile: "第02章.md", ChapterTitle: "第02章"})
+	s.timeline.Add(&tracker.TimelineEvent{Chapter: 1, Scene: "A", Description: "第一章事件"})
+	s.timeline.Add(&tracker.TimelineEvent{Chapter: 2, Scene: "B", Description: "第二章事件"})
+	s.foreshadow.Add(&tracker.Foreshadowing{Chapter: 1, Description: "第一章伏筆", PlantedIn: "第01章"})
+	s.foreshadow.Add(&tracker.Foreshadowing{Chapter: 2, Description: "第二章伏筆", PlantedIn: "第02章"})
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{{Name: "第01章.md"}},
+		Appendix: manuscriptAppendixOptions{
+			Reviews: true,
+			Tracker: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+
+	for _, fragment := range []string{"第01章", "第一章事件", "第一章伏筆"} {
+		if !strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected selected chapter appendix data %q, got %q", fragment, manuscript)
+		}
+	}
+	for _, fragment := range []string{"第02章", "第二章事件", "第二章伏筆"} {
+		if strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected appendix to exclude unselected chapter data %q, got %q", fragment, manuscript)
+		}
+	}
+}
+
+func TestBuildManuscriptMarkdownKeepsRelationshipsUnfilteredInAppendix(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "只出現林昊"); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+	if _, err := s.saveChapterFile("第02章", "只出現張雷"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	s.relationships.Upsert(&tracker.Relationship{From: "林昊", To: "張雷", Status: "信任"})
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{{Name: "第01章.md"}},
+		Appendix:   manuscriptAppendixOptions{Tracker: true},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+	if !strings.Contains(manuscript, "林昊 ↔ 張雷：信任") {
+		t.Fatalf("expected relationships appendix to remain unfiltered, got %q", manuscript)
+	}
+}
+
+func TestBuildManuscriptMarkdownSkipsAppendixHeadingWhenNoAppendixData(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Appendix: manuscriptAppendixOptions{
+			Reviews: true,
+			Tracker: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+	if strings.Contains(manuscript, "# 附錄") {
+		t.Fatalf("expected empty appendix to be omitted, got %q", manuscript)
+	}
+}
+
 func TestHandleExportManuscriptAllowsEmptyBody(t *testing.T) {
 	t.Parallel()
 
@@ -303,11 +468,12 @@ Open.`); err != nil {
 
 func newOpsTestServer(dir string) *Server {
 	return &Server{
-		cfg:        &config.Config{DataDir: dir},
-		profiles:   profile.NewManager(dir),
-		rules:      reviewrules.New(filepath.Join(dir, "review_rules.json")),
-		history:    reviewhistory.New(filepath.Join(dir, "reviews.json")),
-		timeline:   tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
-		foreshadow: tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
+		cfg:           &config.Config{DataDir: dir},
+		profiles:      profile.NewManager(dir),
+		rules:         reviewrules.New(filepath.Join(dir, "review_rules.json")),
+		history:       reviewhistory.New(filepath.Join(dir, "reviews.json")),
+		timeline:      tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
+		foreshadow:    tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
+		relationships: tracker.NewRelationshipTracker(filepath.Join(dir, "relationships.json")),
 	}
 }

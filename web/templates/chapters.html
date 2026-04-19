@@ -20,6 +20,45 @@
     </div>
 
     {{if .Chapters}}
+    <details id="manuscript-export-panel" class="card" style="margin-bottom:12px">
+      <summary class="history-title-row" style="cursor:pointer">
+        <div>
+          <strong>手稿匯出設定</strong>
+          <div class="helper-text">可指定章節、scene 與是否附加場景 metadata。</div>
+        </div>
+      </summary>
+      <div style="margin-top:12px">
+        {{range .Chapters}}
+        {{$chapterName := .Name}}
+        <div class="writeback-card" style="margin-bottom:10px">
+          <label class="checkbox-label">
+            <input type="checkbox" name="manuscript-chapter" value="{{$chapterName}}" data-chapter="{{$chapterName}}" onchange="toggleManuscriptSceneGroup(this)">
+            {{.Title}}
+          </label>
+          {{if .SceneCards}}
+          <div class="checkbox-group" data-scene-group="{{$chapterName}}" style="margin-top:8px;padding-left:18px">
+            {{range .SceneCards}}
+            <label class="checkbox-label">
+              <input type="checkbox" name="manuscript-scene-{{$chapterName}}" value="{{.Title}}" disabled>
+              {{.Title}}
+            </label>
+            {{end}}
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+
+        <label class="checkbox-label">
+          <input type="checkbox" id="manuscript-include-metadata">
+          附加場景 metadata（HTML comment）
+        </label>
+
+        <div style="margin-top:12px">
+          <button class="btn" type="button" onclick="exportManuscriptWithOptions()">匯出手稿</button>
+        </div>
+      </div>
+    </details>
+
     <div class="chapter-overview-list" id="chapter-overview-list">
       {{range .Chapters}}
       <div class="card chapter-overview-card" data-chapter="{{.Name}}" draggable="true">
@@ -196,8 +235,43 @@ async function exportChapterBundle(name) {
 }
 
 async function exportManuscript() {
+  return exportManuscriptWithOptions();
+}
+
+function toggleManuscriptSceneGroup(checkbox) {
+  const chapterName = checkbox.dataset.chapter;
+  const group = document.querySelector(`[data-scene-group="${CSS.escape(chapterName)}"]`);
+  if (!group) return;
+
+  group.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    if (!checkbox.checked) {
+      input.checked = false;
+    }
+    input.disabled = !checkbox.checked;
+  });
+}
+
+function collectManuscriptSelections() {
+  return Array.from(document.querySelectorAll('[name="manuscript-chapter"]:checked')).map((input) => {
+    const chapter = input.value;
+    const scenes = Array.from(
+      document.querySelectorAll(`[name="manuscript-scene-${CSS.escape(chapter)}"]:checked`)
+    ).map((sceneInput) => sceneInput.value);
+
+    return { name: chapter, scenes };
+  });
+}
+
+async function exportManuscriptWithOptions() {
   try {
-    const resp = await fetch('/api/manuscript/export', { method: 'POST' });
+    const resp = await fetch('/api/manuscript/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        selections: collectManuscriptSelections(),
+        include_metadata: document.getElementById('manuscript-include-metadata').checked
+      })
+    });
     if (!resp.ok) {
       const data = await resp.json();
       throw new Error(data.error || '匯出手稿失敗');

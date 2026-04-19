@@ -24,6 +24,16 @@ type chapterReportRequest struct {
 	Name string `json:"name"`
 }
 
+type manuscriptExportSelection struct {
+	Name   string   `json:"name"`
+	Scenes []string `json:"scenes,omitempty"`
+}
+
+type manuscriptExportRequest struct {
+	Selections      []manuscriptExportSelection `json:"selections"`
+	IncludeMetadata bool                        `json:"include_metadata"`
+}
+
 type backupItem struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
@@ -292,7 +302,111 @@ func (s *Server) handleExportChapterBundle(c *gin.Context) {
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
 
-func (s *Server) buildManuscriptMarkdown() (string, error) {
+func filterScenesForExport(scenes []Scene, wanted []string) []Scene {
+	if len(wanted) == 0 {
+		return scenes
+	}
+
+	keep := make(map[string]struct{}, len(wanted))
+	for _, title := range wanted {
+		title = strings.TrimSpace(title)
+		if title != "" {
+			keep[title] = struct{}{}
+		}
+	}
+
+	filtered := make([]Scene, 0, len(scenes))
+	for _, scene := range scenes {
+		if _, ok := keep[scene.Title]; ok {
+			filtered = append(filtered, scene)
+		}
+	}
+	return filtered
+}
+
+func rebuildChapterFromScenes(scenes []Scene) string {
+	if len(scenes) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(scenes))
+	for _, scene := range scenes {
+		parts = append(parts, "## "+scene.Title+"\n"+scene.Content)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func rebuildChapterSelection(content string, scenes []Scene) string {
+	if len(scenes) == 0 {
+		return ""
+	}
+
+	parts := make([]string, 0, len(scenes)+1)
+	if preamble := chapterPreamble(content); preamble != "" {
+		parts = append(parts, preamble)
+	}
+	parts = append(parts, rebuildChapterFromScenes(scenes))
+	return strings.Join(parts, "\n\n")
+}
+
+func (s *Server) buildSceneMetadataComment(chapterName string, scenes []Scene) string {
+	if len(scenes) == 0 {
+		return ""
+	}
+
+	plans, err := s.loadScenePlans(chapterName)
+	if err != nil || len(plans) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<!-- manuscript-metadata\n")
+
+	wroteScene := false
+	for _, scene := range scenes {
+		plan, ok := plans[scene.Title]
+		if !ok {
+			continue
+		}
+
+		hasFields := false
+		var sceneSB strings.Builder
+		sceneSB.WriteString("### ")
+		sceneSB.WriteString(scene.Title)
+		sceneSB.WriteString("\n")
+		if plan.Synopsis != "" {
+			sceneSB.WriteString("- 摘要：" + plan.Synopsis + "\n")
+			hasFields = true
+		}
+		if plan.POV != "" {
+			sceneSB.WriteString("- POV：" + plan.POV + "\n")
+			hasFields = true
+		}
+		if plan.Conflict != "" {
+			sceneSB.WriteString("- 衝突：" + plan.Conflict + "\n")
+			hasFields = true
+		}
+		if plan.Purpose != "" {
+			sceneSB.WriteString("- 目的：" + plan.Purpose + "\n")
+			hasFields = true
+		}
+		if !hasFields {
+			continue
+		}
+		sceneSB.WriteString("\n")
+		sb.WriteString(sceneSB.String())
+		wroteScene = true
+	}
+
+	if !wroteScene {
+		return ""
+	}
+
+	sb.WriteString("-->")
+	return sb.String()
+}
+
+func (s *Server) buildManuscriptMarkdown(req manuscriptExportRequest) (string, error) {
 	files, err := s.listChapterFiles()
 	if err != nil {
 		return "", err
@@ -301,10 +415,25 @@ func (s *Server) buildManuscriptMarkdown() (string, error) {
 		return "", fmt.Errorf("目前沒有章節可匯出")
 	}
 
+	selected := make(map[string]manuscriptExportSelection, len(req.Selections))
+	for _, item := range req.Selections {
+		normalized, err := normalizeChapterName(item.Name)
+		if err != nil {
+			continue
+		}
+		item.Name = normalized
+		selected[normalized] = item
+	}
+
 	var sb strings.Builder
 	sb.WriteString("# 小說手稿匯出\n\n")
 
 	for _, item := range files {
+		selection, selectedThisChapter := selected[item.Name]
+		if len(selected) > 0 && !selectedThisChapter {
+			continue
+		}
+
 		file, err := s.loadChapterFile(item.Name)
 		if err != nil {
 			return "", err
@@ -313,19 +442,54 @@ func (s *Server) buildManuscriptMarkdown() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		content := rebuildChapterWithSceneOrder(file.Content, file.Scenes, sceneOrder)
+
+		content := strings.TrimSpace(file.Content)
+		exportScenes := orderedScenes(file.Scenes, sceneOrder)
+		if len(file.Scenes) > 0 && len(selection.Scenes) > 0 {
+			filteredScenes := filterScenesForExport(exportScenes, selection.Scenes)
+			if len(filteredScenes) != len(selection.Scenes) {
+				return "", fmt.Errorf("找不到指定場景：%s", strings.Join(selection.Scenes, "、"))
+			}
+			exportScenes = filteredScenes
+		}
+		if len(file.Scenes) > 0 && len(selection.Scenes) > 0 {
+			if len(exportScenes) == 0 {
+				continue
+			}
+			content = rebuildChapterSelection(file.Content, exportScenes)
+		} else if len(file.Scenes) > 0 {
+			content = rebuildChapterWithSceneOrder(file.Content, file.Scenes, sceneOrder)
+		}
+
 		sb.WriteString("## ")
 		sb.WriteString(file.Title)
 		sb.WriteString("\n\n")
 		sb.WriteString(strings.TrimSpace(content))
 		sb.WriteString("\n\n")
+
+		if req.IncludeMetadata {
+			if metadata := s.buildSceneMetadataComment(item.Name, exportScenes); metadata != "" {
+				sb.WriteString(metadata)
+				sb.WriteString("\n\n")
+			}
+		}
 	}
 
-	return strings.TrimSpace(sb.String()) + "\n", nil
+	result := strings.TrimSpace(sb.String())
+	if result == "# 小說手稿匯出" {
+		return "", fmt.Errorf("沒有符合條件的章節或場景可匯出")
+	}
+	return result + "\n", nil
 }
 
 func (s *Server) handleExportManuscript(c *gin.Context) {
-	report, err := s.buildManuscriptMarkdown()
+	var req manuscriptExportRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	report, err := s.buildManuscriptMarkdown(req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

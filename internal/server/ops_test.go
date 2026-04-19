@@ -4,6 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +14,10 @@ import (
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestBuildChapterBundleMarkdownIncludesLinkedData(t *testing.T) {
@@ -112,13 +117,7 @@ func TestBuildManuscriptMarkdownUsesSavedChapterAndSceneOrder(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	s := &Server{
-		cfg:        &config.Config{DataDir: dir},
-		profiles:   profile.NewManager(dir),
-		history:    reviewhistory.New(filepath.Join(dir, "reviews.json")),
-		timeline:   tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
-		foreshadow: tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
-	}
+	s := newOpsTestServer(dir)
 
 	if _, err := s.saveChapterFile("第02章", "第二章內容"); err != nil {
 		t.Fatalf("save chapter 2: %v", err)
@@ -139,7 +138,7 @@ Rain.`); err != nil {
 		t.Fatalf("save scene order: %v", err)
 	}
 
-	manuscript, err := s.buildManuscriptMarkdown()
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{})
 	if err != nil {
 		t.Fatalf("build manuscript markdown: %v", err)
 	}
@@ -156,5 +155,159 @@ Rain.`); err != nil {
 	}
 	if strings.Contains(manuscript, "第二章內容\n\n\n\n## 第01章") {
 		t.Fatalf("expected manuscript chapters to be separated by two newlines, got %q", manuscript)
+	}
+}
+
+func TestBuildManuscriptMarkdownFiltersChaptersAndScenes(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第02章", "第二章內容"); err != nil {
+		t.Fatalf("save chapter 2: %v", err)
+	}
+	if _, err := s.saveChapterFile("第01章", `前言
+
+## Scene 1: Opening
+Open.
+
+## Scene 2: Rain
+Rain.`); err != nil {
+		t.Fatalf("save chapter 1: %v", err)
+	}
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{
+			{Name: "第01章.md", Scenes: []string{"Scene 2: Rain"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+	if strings.Contains(manuscript, "## 第02章") {
+		t.Fatalf("expected chapter filter to exclude 第02章, got %q", manuscript)
+	}
+	if strings.Contains(manuscript, "## Scene 1: Opening") {
+		t.Fatalf("expected scene filter to exclude Scene 1, got %q", manuscript)
+	}
+	if !strings.Contains(manuscript, "## Scene 2: Rain") {
+		t.Fatalf("expected selected scene to remain, got %q", manuscript)
+	}
+	if !strings.Contains(manuscript, "前言") {
+		t.Fatalf("expected chapter preamble to be preserved, got %q", manuscript)
+	}
+}
+
+func TestBuildManuscriptMarkdownIncludesMetadataCommentWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", `## Scene 1: Opening
+Open.`); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+	if err := s.saveScenePlan("第01章.md", scenePlan{
+		Title:    "Scene 1: Opening",
+		Synopsis: "主角登場",
+		POV:      "林昊",
+		Conflict: "是否進門",
+		Purpose:  "建立懸念",
+	}); err != nil {
+		t.Fatalf("save scene plan: %v", err)
+	}
+
+	manuscript, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		IncludeMetadata: true,
+		Selections: []manuscriptExportSelection{
+			{Name: "第01章.md", Scenes: []string{"Scene 1: Opening"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build manuscript markdown: %v", err)
+	}
+	for _, fragment := range []string{
+		"<!-- manuscript-metadata",
+		"### Scene 1: Opening",
+		"- 摘要：主角登場",
+		"- POV：林昊",
+		"- 衝突：是否進門",
+		"- 目的：建立懸念",
+	} {
+		if !strings.Contains(manuscript, fragment) {
+			t.Fatalf("expected metadata fragment %q, got %q", fragment, manuscript)
+		}
+	}
+}
+
+func TestHandleExportManuscriptAllowsEmptyBody(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/manuscript/export", http.NoBody)
+
+	s.handleExportManuscript(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected empty body export to pass, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestBuildManuscriptMarkdownRejectsUnknownSelectionOnly(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+	if _, err := s.saveChapterFile("第01章", "內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	_, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{{Name: "不存在.md"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "沒有符合條件") {
+		t.Fatalf("expected filtered export error, got %v", err)
+	}
+}
+
+func TestBuildManuscriptMarkdownRejectsUnknownSceneSelection(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+	if _, err := s.saveChapterFile("第01章", `前言
+
+## Scene 1: Opening
+Open.`); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	_, err := s.buildManuscriptMarkdown(manuscriptExportRequest{
+		Selections: []manuscriptExportSelection{
+			{Name: "第01章.md", Scenes: []string{"Scene 9: Missing"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "找不到指定場景") {
+		t.Fatalf("expected unknown scene selection error, got %v", err)
+	}
+}
+
+func newOpsTestServer(dir string) *Server {
+	return &Server{
+		cfg:        &config.Config{DataDir: dir},
+		profiles:   profile.NewManager(dir),
+		rules:      reviewrules.New(filepath.Join(dir, "review_rules.json")),
+		history:    reviewhistory.New(filepath.Join(dir, "reviews.json")),
+		timeline:   tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),
+		foreshadow: tracker.NewForeshadowTracker(filepath.Join(dir, "foreshadow.json")),
 	}
 }

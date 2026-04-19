@@ -364,54 +364,9 @@ If development continues in sequence, this is the recommended order:
 14. Review feedback collection (after sufficient user base)
 15. Optional local auth and stronger operations tooling
 
-## Monetization Strategy
+## License and Pricing
 
-Novel Assistant follows the **Obsidian model**: the local version is free forever; paid plans unlock generation and power-user features. No manuscript data ever leaves the user's machine regardless of plan.
-
-### Free tier — Review & Revise
-
-Everything a writer needs to review and improve an existing manuscript:
-
-- All review types: behavior, dialogue, world, style, and custom checks
-- Rewrite mode with diff comparison
-- Chapter overview and review history
-- Guided story world setup wizard (characters, worldbuilding, style, structure templates)
-- Scene hierarchy and scene board
-- Chapter version control
-- Glossary and world dictionary
-- Bilingual support (Chinese + English)
-- Writing statistics and daily word count goals
-- Basic Markdown export
-
-### Paid tier — Generate & Produce
-
-Features for writers who want AI to help create content, not just review it:
-
-- AI-assisted novel generation (outline → chapter-by-chapter → consistency loop)
-- Inline paragraph suggestions
-- Brainstorming mode
-- Distraction-free writing mode
-- DOCX and PDF manuscript export
-- Multi-project workspace isolation
-- Auto-update installer package
-
-### Pricing reference
-
-- Free: permanent, full review feature set
-- Monthly: $8–12 USD / month
-- Lifetime: $80 USD one-time (early adopter anchor price)
-
-Lifetime licenses are offered first — they reward early supporters and generate upfront revenue to fund continued development.
-
-### When to introduce paid features
-
-Do not introduce paid plans until the tool has 100–500 real users from outside the developer's network. Charging too early scares away the early adopters whose word-of-mouth is the only growth channel at this stage.
-
-The milestone sequence:
-1. Complete Issues #20–24 so any stranger can install and use the tool within minutes
-2. Accumulate genuine user feedback and public visibility
-3. Introduce the paid tier once free users are actively using the review workflow
-4. Use revenue to fund generation features (Priority 7), which then become the paid tier's main draw
+Novel Assistant is free and open-source software, released under the MIT License. There are no paid tiers, no subscriptions, and no feature gates. All features — present and future — are available to everyone.
 
 ## References
 

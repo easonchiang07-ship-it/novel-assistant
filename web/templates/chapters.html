@@ -48,6 +48,14 @@
         </div>
         {{end}}
 
+        <div class="form-group" style="margin-top:10px">
+          <label>匯出格式</label>
+          <select id="manuscript-format">
+            <option value="markdown">Markdown (.md)</option>
+            <option value="html">HTML (.html) — 適合編輯交付</option>
+          </select>
+        </div>
+
         <label class="checkbox-label">
           <input type="checkbox" id="manuscript-include-metadata">
           附加場景 metadata（HTML comment）
@@ -238,6 +246,10 @@ async function exportManuscript() {
   return exportManuscriptWithOptions();
 }
 
+function manuscriptExportFilename(format) {
+  return format === 'html' ? 'novel_manuscript.html' : 'novel_manuscript.md';
+}
+
 function toggleManuscriptSceneGroup(checkbox) {
   const chapterName = checkbox.dataset.chapter;
   const group = document.querySelector(`[data-scene-group="${CSS.escape(chapterName)}"]`);
@@ -263,13 +275,16 @@ function collectManuscriptSelections() {
 }
 
 async function exportManuscriptWithOptions() {
+  const format = document.getElementById('manuscript-format').value || 'markdown';
+  const filename = manuscriptExportFilename(format);
   try {
     const resp = await fetch('/api/manuscript/export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         selections: collectManuscriptSelections(),
-        include_metadata: document.getElementById('manuscript-include-metadata').checked
+        include_metadata: document.getElementById('manuscript-include-metadata').checked,
+        format
       })
     });
     if (!resp.ok) {
@@ -280,7 +295,7 @@ async function exportManuscriptWithOptions() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'novel_manuscript.md';
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     link.remove();

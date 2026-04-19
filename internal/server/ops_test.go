@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"novel-assistant/internal/config"
-	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 
 	"github.com/gin-gonic/gin"

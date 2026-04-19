@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/exporter"
+	"novel-assistant/internal/extractor"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
@@ -25,6 +26,7 @@ type streamEvent struct {
 	Text      string
 	Sources   []referenceSummary
 	Retrieval any
+	Gaps      *retrievalGaps
 }
 
 type referenceSummary struct {
@@ -41,6 +43,13 @@ type retrievalSummary struct {
 	Sources   []string `json:"sources"`
 	TopK      int      `json:"top_k"`
 	Threshold float64  `json:"threshold"`
+}
+
+type retrievalGaps struct {
+	IndexReady        bool     `json:"index_ready"`
+	MissingCharacters []string `json:"missing_characters"`
+	MissingLocations  []string `json:"missing_locations"`
+	MissingSettings   []string `json:"missing_settings"`
 }
 
 type chanWriter struct {
@@ -224,6 +233,33 @@ func filterReferencesByType(items []vectorProfile, refType string) []vectorProfi
 		}
 	}
 	return filtered
+}
+
+func computeRetrievalGaps(chapter string, knownNames []string, retrieved []vectorProfile) retrievalGaps {
+	signals := extractor.AnalyzeChapter(chapter, knownNames)
+
+	retrievedNames := make(map[string]struct{}, len(retrieved))
+	for _, ref := range retrieved {
+		retrievedNames[ref.Name] = struct{}{}
+	}
+
+	filterMissing := func(items []string) []string {
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			if _, ok := retrievedNames[item]; ok {
+				continue
+			}
+			out = append(out, item)
+		}
+		return out
+	}
+
+	return retrievalGaps{
+		IndexReady:        false,
+		MissingCharacters: filterMissing(signals.KnownCharacters),
+		MissingLocations:  filterMissing(signals.LocationCandidates),
+		MissingSettings:   filterMissing(signals.SettingCandidates),
+	}
 }
 
 func mergeReferenceLists(groups ...[]vectorProfile) []vectorProfile {
@@ -661,8 +697,14 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": activeRetrieval}}
 
 		references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
+		indexReady := s.store != nil && s.store.Len() > 0
 		if len(references) > 0 {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
+			gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), references)
+			gaps.IndexReady = indexReady
+			if len(gaps.MissingCharacters)+len(gaps.MissingLocations)+len(gaps.MissingSettings) > 0 {
+				msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
+			}
 			transcript.WriteString("### 本地參考上下文\n\n")
 			msgChan <- streamEvent{Event: "chunk", Text: "### 本地參考上下文\n\n"}
 			for _, ref := range references {
@@ -674,6 +716,11 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			msgChan <- streamEvent{Event: "chunk", Text: "\n"}
 		} else {
 			msgChan <- streamEvent{Event: "sources", Sources: nil}
+			gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), nil)
+			gaps.IndexReady = indexReady
+			if len(gaps.MissingCharacters)+len(gaps.MissingLocations)+len(gaps.MissingSettings) > 0 {
+				msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
+			}
 		}
 
 		behaviorRefText := joinProfiles(behaviorRefs)
@@ -827,6 +874,10 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 			if msg.Event == "retrieval" {
 				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
+			if msg.Event == "gaps" {
+				c.SSEvent("gaps", msg.Gaps)
 				return true
 			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})

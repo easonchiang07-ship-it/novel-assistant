@@ -79,6 +79,12 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	if !strings.Contains(string(checkResp.Body), "event:retrieval") {
 		t.Fatalf("expected retrieval metadata event in stream, got %s", string(checkResp.Body))
 	}
+	if !strings.Contains(string(checkResp.Body), "event:gaps") {
+		t.Fatalf("expected retrieval gaps event in stream, got %s", string(checkResp.Body))
+	}
+	if !strings.Contains(string(checkResp.Body), "\"index_ready\":true") {
+		t.Fatalf("expected indexed gap payload in stream, got %s", string(checkResp.Body))
+	}
 
 	rewriteResp := performJSONRequest(t, app.URL, "POST", "/rewrite/stream", map[string]any{
 		"chapter":       "林昊站在夜港塔下。",
@@ -104,6 +110,42 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	exportResp := performJSONRequest(t, app.URL, "POST", "/api/history/export", map[string]any{})
 	if exportResp.StatusCode != http.StatusOK || !strings.Contains(string(exportResp.Body), "審查歷史匯出") {
 		t.Fatalf("history export failed: %s", string(exportResp.Body))
+	}
+}
+
+func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	checkResp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter": "林昊走進夜港塔下。影潮契約已經啟動。",
+		"checks":  []string{"behavior"},
+	})
+	if checkResp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(checkResp.Body))
+	}
+	if !strings.Contains(string(checkResp.Body), "event:gaps") {
+		t.Fatalf("expected retrieval gaps event in stream, got %s", string(checkResp.Body))
+	}
+	if !strings.Contains(string(checkResp.Body), "\"index_ready\":false") {
+		t.Fatalf("expected unindexed gap payload in stream, got %s", string(checkResp.Body))
 	}
 }
 

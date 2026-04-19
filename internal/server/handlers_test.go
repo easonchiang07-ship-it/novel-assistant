@@ -192,3 +192,24 @@ func TestCheckRequestRetrievalOverrideForTask(t *testing.T) {
 		t.Fatalf("expected fallback to shared retrieval, got %#v", behavior)
 	}
 }
+
+func TestComputeRetrievalGapsReportsOnlyUnretrievedSignals(t *testing.T) {
+	t.Parallel()
+
+	chapter := "林昊走進夜港塔下。影潮契約已經啟動。"
+	retrieved := []vectorProfile{
+		{Name: "林昊", Type: "character"},
+	}
+
+	gaps := computeRetrievalGaps(chapter, []string{"林昊", "白璃"}, retrieved)
+
+	if len(gaps.MissingCharacters) != 0 {
+		t.Fatalf("expected retrieved known characters to be excluded, got %#v", gaps.MissingCharacters)
+	}
+	if len(gaps.MissingLocations) != 1 || gaps.MissingLocations[0] != "夜港塔下" {
+		t.Fatalf("expected missing location to be reported, got %#v", gaps.MissingLocations)
+	}
+	if len(gaps.MissingSettings) != 1 || gaps.MissingSettings[0] != "影潮契約" {
+		t.Fatalf("expected missing setting to be reported, got %#v", gaps.MissingSettings)
+	}
+}

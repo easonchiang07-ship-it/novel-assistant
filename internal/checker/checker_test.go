@@ -90,6 +90,48 @@ func TestCheckBehaviorStreamUsesPronounGuidance(t *testing.T) {
 	}
 }
 
+func TestCheckBehaviorWithSystemStreamPrependsWorldState(t *testing.T) {
+	t.Parallel()
+
+	var captured genReq
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "mock")
+	var out bytes.Buffer
+	if err := c.CheckBehaviorWithSystemStream(context.Background(), "【當前世界狀態】\n- 林昊：已失去傳家寶劍", "角色設定", "章節內容", &out); err != nil {
+		t.Fatalf("expected stream success, got error: %v", err)
+	}
+	if !strings.Contains(captured.System, "【當前世界狀態】") {
+		t.Fatalf("expected system prefix in request, got %q", captured.System)
+	}
+}
+
+func TestGenerateWorldStateChangesParsesJSONArray(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"response\":\"[{\\\"entity\\\":\\\"林昊\\\",\\\"change_type\\\":\\\"status\\\",\\\"description\\\":\\\"已失去傳家寶劍\\\"}]\",\"done\":true}\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "mock")
+	changes, err := c.GenerateWorldStateChanges(context.Background(), "章節內容")
+	if err != nil {
+		t.Fatalf("expected parse success, got error: %v", err)
+	}
+	if len(changes) != 1 || changes[0].Entity != "林昊" {
+		t.Fatalf("unexpected changes: %#v", changes)
+	}
+}
+
 func TestSplitTextWithOverlapEdgeCases(t *testing.T) {
 	t.Parallel()
 

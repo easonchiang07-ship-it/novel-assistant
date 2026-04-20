@@ -26,6 +26,8 @@ type chapterOverview struct {
 	TimelineCount   int
 	Signals         extractor.Signals
 	SceneCards      []sceneBoardCard
+	SnapshotAt      time.Time
+	SnapshotLines   []string
 }
 
 type sceneBoardCard struct {
@@ -155,6 +157,14 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 				RewriteCount: rewriteCount,
 			})
 		}
+		var snapshotAt time.Time
+		var snapshotLines []string
+		if s.worldstate != nil {
+			if snapshot := s.worldstate.GetByChapterFile(file.Name); snapshot != nil {
+				snapshotAt = snapshot.GeneratedAt
+				snapshotLines = summarizeSnapshot(snapshot)
+			}
+		}
 		overviews = append(overviews, chapterOverview{
 			Name:            file.Name,
 			Title:           file.Title,
@@ -167,6 +177,8 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 			TimelineCount:   timelineCounts[chapterNo],
 			Signals:         signals,
 			SceneCards:      sceneCards,
+			SnapshotAt:      snapshotAt,
+			SnapshotLines:   snapshotLines,
 		})
 	}
 

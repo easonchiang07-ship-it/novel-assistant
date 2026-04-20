@@ -768,6 +768,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		defer close(msgChan)
 
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
+		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		charsToCheck := s.resolveCharacters(req)
 		needsCharacters := len(req.Checks) == 0 || contains(req.Checks, "behavior") || contains(req.Checks, "dialogue")
 		if needsCharacters && len(charsToCheck) == 0 {
@@ -861,7 +862,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				transcript.WriteString("\n\n## 世界觀衝突審查\n\n")
 				msgChan <- streamEvent{Event: "chunk", Text: "\n\n## 世界觀衝突審查\n\n"}
 				worldPrompt := worldText + "\n\n【審查偏好】\n" + reviewBias
-				if err := s.checker.CheckWorldConflictStream(ctx, worldPrompt, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckWorldConflictWithSystemStream(ctx, worldStatePrefix, worldPrompt, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -876,7 +877,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			text := "\n\n## 黃金三章診斷\n\n"
 			transcript.WriteString(text)
 			msgChan <- streamEvent{Event: "chunk", Text: text}
-			if err := s.checker.DiagnoseOpeningStream(ctx, req.Chapter, cw); err != nil {
+			if err := s.checker.DiagnoseOpeningWithSystemStream(ctx, worldStatePrefix, req.Chapter, cw); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("opening diagnosis: %v", err)
 					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
@@ -899,7 +900,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				if behaviorRefText != "" {
 					profileText += "\n\n【補充參考資料】\n" + behaviorRefText
 				}
-				if err := s.checker.CheckBehaviorStream(ctx, profileText, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckBehaviorWithSystemStream(ctx, worldStatePrefix, profileText, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -920,7 +921,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				if dialogueRefText != "" {
 					dialogueStyle += "\n\n【補充參考資料】\n" + dialogueRefText
 				}
-				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckDialogueWithSystemStream(ctx, worldStatePrefix, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -944,7 +945,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			transcript.WriteString(text)
 			msgChan <- streamEvent{Event: "chunk", Text: text}
 			stylePrompt := sg.RawContent + "\n\n【審查偏好】\n" + reviewBias
-			if err := s.checker.CheckStyleStream(ctx, stylePrompt, req.Chapter, cw); err != nil {
+			if err := s.checker.CheckStyleWithSystemStream(ctx, worldStatePrefix, stylePrompt, req.Chapter, cw); err != nil {
 				if ctx.Err() == nil {
 					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 					transcript.WriteString(text)
@@ -1083,6 +1084,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer cancel()
 		defer close(msgChan)
 
+		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
 		traceStarted := time.Now()
 		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
@@ -1119,9 +1121,9 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 
 		var rewriteErr error
 		if req.Mode == "sensory" {
-			rewriteErr = s.checker.EnhanceSensoryStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+			rewriteErr = s.checker.EnhanceSensoryWithSystemStream(ctx, worldStatePrefix, strings.Join(promptParts, "\n\n"), cw)
 		} else {
-			rewriteErr = s.checker.RewriteChapterStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+			rewriteErr = s.checker.RewriteChapterWithSystemStream(ctx, worldStatePrefix, strings.Join(promptParts, "\n\n"), cw)
 		}
 		if rewriteErr != nil {
 			if ctx.Err() == nil {

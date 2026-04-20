@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"novel-assistant/internal/checker"
@@ -22,6 +23,7 @@ import (
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
+	"novel-assistant/internal/worldstate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -146,6 +148,108 @@ func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(string(checkResp.Body), "\"index_ready\":false") {
 		t.Fatalf("expected unindexed gap payload in stream, got %s", string(checkResp.Body))
+	}
+}
+
+func TestCreateWorldstateSnapshotAndList(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"[{\\\"entity\\\":\\\"林昊\\\",\\\"change_type\\\":\\\"status\\\",\\\"description\\\":\\\"已失去傳家寶劍\\\"}]\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第02章.md"), "林昊把傳家寶劍賣了出去。")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	snapshotResp := performRequest(t, app.URL, "POST", "/api/chapters/%E7%AC%AC02%E7%AB%A0.md/snapshot", nil)
+	if snapshotResp.StatusCode != http.StatusOK || !strings.Contains(string(snapshotResp.Body), "已產生章節狀態快照") {
+		t.Fatalf("snapshot endpoint failed: %s", string(snapshotResp.Body))
+	}
+
+	listResp := performRequest(t, app.URL, "GET", "/api/worldstate", nil)
+	if listResp.StatusCode != http.StatusOK {
+		t.Fatalf("worldstate list failed: %s", string(listResp.Body))
+	}
+	if !strings.Contains(string(listResp.Body), "\"chapter_file\":\"第02章.md\"") || !strings.Contains(string(listResp.Body), "已失去傳家寶劍") {
+		t.Fatalf("expected snapshot in list payload, got %s", string(listResp.Body))
+	}
+}
+
+func TestCheckAndRewriteUseLatestWorldstateInSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu      sync.Mutex
+		systems []string
+	)
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			var req struct {
+				System string `json:"system"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode generate request: %v", err)
+			}
+			mu.Lock()
+			systems = append(systems, req.System)
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	s.worldstate.Upsert(&worldstate.Snapshot{
+		ChapterFile:  "第01章.md",
+		ChapterIndex: 1,
+		Changes: []worldstate.Change{
+			{Entity: "林昊", ChangeType: "status", Description: "已失去傳家寶劍"},
+		},
+	})
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	checkResp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter":      "林昊走進夜港塔下。",
+		"checks":       []string{"behavior"},
+		"chapter_file": "第02章.md",
+	})
+	if checkResp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(checkResp.Body))
+	}
+
+	rewriteResp := performJSONRequest(t, app.URL, "POST", "/rewrite/stream", map[string]any{
+		"chapter":      "林昊走進夜港塔下。",
+		"mode":         "conservative",
+		"chapter_file": "第02章.md",
+	})
+	if rewriteResp.StatusCode != http.StatusOK {
+		t.Fatalf("rewrite stream failed: %s", string(rewriteResp.Body))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	joined := strings.Join(systems, "\n---\n")
+	if !strings.Contains(joined, "【當前世界狀態（截至第 1 章）】") || !strings.Contains(joined, "已失去傳家寶劍") {
+		t.Fatalf("expected world state in generate system prompts, got %s", joined)
 	}
 }
 
@@ -329,6 +433,7 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		relationships: tracker.NewRelationshipTracker(filepath.Join(dataDir, "relationships.json")),
 		timeline:      tracker.NewTimelineTracker(filepath.Join(dataDir, "timeline.json")),
 		foreshadow:    tracker.NewForeshadowTracker(filepath.Join(dataDir, "foreshadow.json")),
+		worldstate:    worldstate.New(filepath.Join(dataDir, "worldstate.json")),
 	}
 	if err := s.profiles.Load(); err != nil {
 		t.Fatalf("load profiles: %v", err)

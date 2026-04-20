@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"novel-assistant/internal/worldstate"
 	"strings"
 )
 
@@ -44,10 +45,14 @@ type EmotionPoint struct {
 }
 
 func (c *Checker) CheckBehaviorStream(ctx context.Context, profile, chapter string, w io.Writer) error {
+	return c.CheckBehaviorWithSystemStream(ctx, "", profile, chapter, w)
+}
+
+func (c *Checker) CheckBehaviorWithSystemStream(ctx context.Context, systemPrefix, profile, chapter string, w io.Writer) error {
 	if len([]rune(chapter)) > behaviorChunkRuneLimit {
-		return c.checkBehaviorChunkedStream(ctx, profile, chapter, w)
+		return c.checkBehaviorChunkedWithSystemStream(ctx, systemPrefix, profile, chapter, w)
 	}
-	return c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", behaviorPrompt(profile, chapter, "", ""), w)
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。"), behaviorPrompt(profile, chapter, "", ""), w)
 }
 
 func behaviorPrompt(profile, chapter, chunkLabel, summary string) string {
@@ -85,20 +90,7 @@ func behaviorPrompt(profile, chapter, chunkLabel, summary string) string {
 }
 
 func (c *Checker) checkBehaviorChunkedStream(ctx context.Context, profile, chapter string, w io.Writer) error {
-	chunks := splitTextWithOverlap(chapter, behaviorChunkRuneLimit, behaviorChunkOverlap)
-	summary := summarizeBehaviorProfile(profile)
-	results := make([]string, 0, len(chunks))
-	for i, chunk := range chunks {
-		_, _ = fmt.Fprintf(w, "\n正在分析第 %d / %d 段…\n", i+1, len(chunks))
-		var buf strings.Builder
-		label := fmt.Sprintf("這是第 %d / %d 段，請以角色設定與本段內容為主，必要時利用重疊區理解前後文。", i+1, len(chunks))
-		if err := c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", behaviorPrompt(profile, chunk, label, summary), &buf); err != nil {
-			return err
-		}
-		results = append(results, buf.String())
-	}
-	_, err := io.WriteString(w, mergeChunkedBehaviorResponses(results))
-	return err
+	return c.checkBehaviorChunkedWithSystemStream(ctx, "", profile, chapter, w)
 }
 
 func summarizeBehaviorProfile(profile string) string {
@@ -173,92 +165,68 @@ func mergeChunkedBehaviorResponses(items []string) string {
 }
 
 func (c *Checker) CheckStyleStream(ctx context.Context, styleProfile, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
-【寫作風格設定】
-%s
+	return c.CheckStyleWithSystemStream(ctx, "", styleProfile, chapter, w)
+}
 
-【待審章節】
-%s
+func (c *Checker) checkBehaviorChunkedWithSystemStream(ctx context.Context, systemPrefix, profile, chapter string, w io.Writer) error {
+	chunks := splitTextWithOverlap(chapter, behaviorChunkRuneLimit, behaviorChunkOverlap)
+	summary := summarizeBehaviorProfile(profile)
+	results := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		_, _ = fmt.Fprintf(w, "\n正在分析第 %d / %d 段…\n", i+1, len(chunks))
+		var buf strings.Builder
+		label := fmt.Sprintf("這是第 %d / %d 段，請以角色設定與本段內容為主，必要時利用重疊區理解前後文。", i+1, len(chunks))
+		if err := c.stream(ctx, withSystemPrefix(systemPrefix, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。"), behaviorPrompt(profile, chunk, label, summary), &buf); err != nil {
+			return err
+		}
+		results = append(results, buf.String())
+	}
+	_, err := io.WriteString(w, mergeChunkedBehaviorResponses(results))
+	return err
+}
 
-請依序分析：
-1. **風格一致性**：章節的寫作風格是否符合設定？（符合 / 不符合）
-2. **具體問題**：列出不符合風格設定的段落或句子，說明哪裡違和
-3. **修改建議**：針對問題段落，提供符合風格的改寫方向或範例
-`, styleProfile, chapter)
-	return c.stream(ctx, "你是專業文學編輯，專責分析文章寫作風格的一致性。請用繁體中文回答。", prompt, w)
+func (c *Checker) CheckStyleWithSystemStream(ctx context.Context, systemPrefix, styleProfile, chapter string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是專業文學編輯，專責分析文章寫作風格的一致性。請用繁體中文回答。"), stylePrompt(styleProfile, chapter), w)
 }
 
 func (c *Checker) CheckWorldConflictStream(ctx context.Context, worldProfile, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
-【世界觀與規則設定】
-%s
+	return c.CheckWorldConflictWithSystemStream(ctx, "", worldProfile, chapter, w)
+}
 
-【待審章節】
-%s
-
-請依序分析：
-1. **世界觀一致性**：章節是否違反既有世界規則、時間線、地點設定、能力限制或勢力關係？（符合 / 不符合）
-2. **具體問題**：若有衝突，列出衝突段落並說明與哪條設定矛盾
-3. **修正建議**：提供最小修改方案，盡量保留原場景張力
-`, worldProfile, chapter)
-	return c.stream(ctx, "你是專責小說世界觀審核的編輯，擅長抓出規則、時間線、地點與能力設定的矛盾。請用繁體中文回答。", prompt, w)
+func (c *Checker) CheckWorldConflictWithSystemStream(ctx context.Context, systemPrefix, worldProfile, chapter string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是專責小說世界觀審核的編輯，擅長抓出規則、時間線、地點與能力設定的矛盾。請用繁體中文回答。"), worldConflictPrompt(worldProfile, chapter), w)
 }
 
 func (c *Checker) CheckDialogueStream(ctx context.Context, name, personality, speechStyle, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
-【角色說話風格】
-姓名：%s
-個性：%s
-說話風格：%s
+	return c.CheckDialogueWithSystemStream(ctx, "", name, personality, speechStyle, chapter, w)
+}
 
-【待審章節對白】
-%s
-
-請分析：
-1. **語氣一致性**：對白是否符合角色風格？
-2. **具體問題**：列出不符合風格的對白行
-3. **修改建議**：提供符合角色風格的改寫版本
-`, name, personality, speechStyle, chapter)
-	return c.stream(ctx, "你是專業對白編輯，分析角色說話風格一致性。請用繁體中文回答。", prompt, w)
+func (c *Checker) CheckDialogueWithSystemStream(ctx context.Context, systemPrefix, name, personality, speechStyle, chapter string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是專業對白編輯，分析角色說話風格一致性。請用繁體中文回答。"), dialoguePrompt(name, personality, speechStyle, chapter), w)
 }
 
 func (c *Checker) RewriteChapterStream(ctx context.Context, prompt string, w io.Writer) error {
 	return c.stream(ctx, "你是專業小說編輯，專責修稿。請直接輸出修訂後的章節內容，必要時可在最前面補一小段修訂說明。請用繁體中文回答。", prompt, w)
 }
 
+func (c *Checker) RewriteChapterWithSystemStream(ctx context.Context, systemPrefix, prompt string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是專業小說編輯，專責修稿。請直接輸出修訂後的章節內容，必要時可在最前面補一小段修訂說明。請用繁體中文回答。"), prompt, w)
+}
+
 func (c *Checker) EnhanceSensoryStream(ctx context.Context, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
-【待強化章節】
-%s
+	return c.EnhanceSensoryWithSystemStream(ctx, "", chapter, w)
+}
 
-請針對以下面向強化此章節的感官描寫：
-1. **視覺**：光線、色彩、空間感、動態細節
-2. **聽覺**：環境音、聲音質感、靜默對比
-3. **嗅覺**：場景氣味、記憶聯想
-4. **觸覺**：材質、溫度、身體感受
-5. **味覺**（如適用）
-
-規則：不改變情節與對白；感官描寫須符合場景氛圍；直接輸出修訂後的完整章節內容。
-`, chapter)
-	return c.stream(ctx, "你是專業文學編輯，擅長將平淡場景改寫為富有感官層次的文學散文。請用繁體中文回答。", prompt, w)
+func (c *Checker) EnhanceSensoryWithSystemStream(ctx context.Context, systemPrefix, chapter string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是專業文學編輯，擅長將平淡場景改寫為富有感官層次的文學散文。請用繁體中文回答。"), sensoryPrompt(chapter), w)
 }
 
 func (c *Checker) DiagnoseOpeningStream(ctx context.Context, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
-【待診斷章節】
-%s
+	return c.DiagnoseOpeningWithSystemStream(ctx, "", chapter, w)
+}
 
-請模擬普通網路讀者（非文學評論家）閱讀此章節的體驗，從以下五個維度評分並給出建議：
-
-1. **懸念鉤子（Hook）**（1-10分）：開頭是否有讓讀者想繼續讀的疑問或張力？
-2. **主角魅力**（1-10分）：主角是否在短時間內展現出鮮明特質或讓人代入的處境？
-3. **世界觀吸引力**（1-10分）：設定是否讓讀者感到新奇或有探索欲？
-4. **節奏感**（1-10分）：前幾段的閱讀節奏是否流暢、不拖沓？
-5. **留存意願**（1-10分）：讀完此章後，讀者會想看下一章嗎？
-
-輸出格式：每項給出分數＋一到兩句說明；最後給出「總體建議」2-3條可立即執行的修改方向。
-`, chapter)
-	return c.stream(ctx, "你是資深網文平台編輯，擅長從普通讀者視角評估小說開頭的吸引力。請用繁體中文回答。", prompt, w)
+func (c *Checker) DiagnoseOpeningWithSystemStream(ctx context.Context, systemPrefix, chapter string, w io.Writer) error {
+	return c.stream(ctx, withSystemPrefix(systemPrefix, "你是資深網文平台編輯，擅長從普通讀者視角評估小說開頭的吸引力。請用繁體中文回答。"), openingPrompt(chapter), w)
 }
 
 func (c *Checker) AnalyzeEmotionCurve(ctx context.Context, chapter string) ([]EmotionPoint, error) {
@@ -312,6 +280,124 @@ func (c *Checker) ChatWithCharacterStream(ctx context.Context, characterProfile,
 規則：只說角色會說的話；保持設定中的語氣與個性；不要使用角色沒有的知識；請用繁體中文回答。`, characterProfile)
 
 	return c.stream(ctx, system, prompt, w)
+}
+
+func (c *Checker) GenerateWorldStateChanges(ctx context.Context, chapter string) ([]worldstate.Change, error) {
+	prompt := fmt.Sprintf(`
+分析以下章節內容，列出本章造成的「世界狀態變更」。
+只列出客觀事實變更（角色死亡、獲得/失去道具、地點移動、關係改變、狀態改變），不要列劇情摘要。
+輸出嚴格 JSON 陣列，不要有任何額外說明文字：
+[
+  {"entity":"...","change_type":"...","description":"..."}
+]
+
+章節內容：
+%s
+`, chapter)
+
+	var buf strings.Builder
+	if err := c.stream(ctx, "你是小說世界狀態分析器，只輸出 JSON，不輸出任何額外文字。請用繁體中文描述 description。", prompt, &buf); err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(buf.String())
+	start := strings.Index(raw, "[")
+	end := strings.LastIndex(raw, "]")
+	if start < 0 || end <= start {
+		return nil, fmt.Errorf("無法解析世界狀態快照回應")
+	}
+	var changes []worldstate.Change
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &changes); err != nil {
+		return nil, fmt.Errorf("JSON 解析失敗：%w", err)
+	}
+	return changes, nil
+}
+
+func withSystemPrefix(prefix, base string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return base
+	}
+	return prefix + "\n\n" + base
+}
+
+func stylePrompt(styleProfile, chapter string) string {
+	return fmt.Sprintf(`
+【寫作風格設定】
+%s
+
+【待審章節】
+%s
+
+請依序分析：
+1. **風格一致性**：章節的寫作風格是否符合設定？（符合 / 不符合）
+2. **具體問題**：列出不符合風格設定的段落或句子，說明哪裡違和
+3. **修改建議**：針對問題段落，提供符合風格的改寫方向或範例
+`, styleProfile, chapter)
+}
+
+func worldConflictPrompt(worldProfile, chapter string) string {
+	return fmt.Sprintf(`
+【世界觀與規則設定】
+%s
+
+【待審章節】
+%s
+
+請依序分析：
+1. **世界觀一致性**：章節是否違反既有世界規則、時間線、地點設定、能力限制或勢力關係？（符合 / 不符合）
+2. **具體問題**：若有衝突，列出衝突段落並說明與哪條設定矛盾
+3. **修正建議**：提供最小修改方案，盡量保留原場景張力
+`, worldProfile, chapter)
+}
+
+func dialoguePrompt(name, personality, speechStyle, chapter string) string {
+	return fmt.Sprintf(`
+【角色說話風格】
+姓名：%s
+個性：%s
+說話風格：%s
+
+【待審章節對白】
+%s
+
+請分析：
+1. **語氣一致性**：對白是否符合角色風格？
+2. **具體問題**：列出不符合風格的對白行
+3. **修改建議**：提供符合角色風格的改寫版本
+`, name, personality, speechStyle, chapter)
+}
+
+func sensoryPrompt(chapter string) string {
+	return fmt.Sprintf(`
+【待強化章節】
+%s
+
+請針對以下面向強化此章節的感官描寫：
+1. **視覺**：光線、色彩、空間感、動態細節
+2. **聽覺**：環境音、聲音質感、靜默對比
+3. **嗅覺**：場景氣味、記憶聯想
+4. **觸覺**：材質、溫度、身體感受
+5. **味覺**（如適用）
+
+規則：不改變情節與對白；感官描寫須符合場景氛圍；直接輸出修訂後的完整章節內容。
+`, chapter)
+}
+
+func openingPrompt(chapter string) string {
+	return fmt.Sprintf(`
+【待診斷章節】
+%s
+
+請模擬普通網路讀者（非文學評論家）閱讀此章節的體驗，從以下五個維度評分並給出建議：
+
+1. **懸念鉤子（Hook）**（1-10分）：開頭是否有讓讀者想繼續讀的疑問或張力？
+2. **主角魅力**（1-10分）：主角是否在短時間內展現出鮮明特質或讓人代入的處境？
+3. **世界觀吸引力**（1-10分）：設定是否讓讀者感到新奇或有探索欲？
+4. **節奏感**（1-10分）：前幾段的閱讀節奏是否流暢、不拖沓？
+5. **留存意願**（1-10分）：讀完此章後，讀者會想看下一章嗎？
+
+輸出格式：每項給出分數＋一到兩句說明；最後給出「總體建議」2-3條可立即執行的修改方向。
+`, chapter)
 }
 
 func (c *Checker) stream(ctx context.Context, system, prompt string, w io.Writer) error {

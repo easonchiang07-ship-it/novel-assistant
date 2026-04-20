@@ -16,6 +16,7 @@ import (
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
 	"novel-assistant/internal/workspace"
+	"novel-assistant/internal/worldstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,7 @@ type projectState struct {
 	relationships *tracker.RelationshipTracker
 	timeline      *tracker.TimelineTracker
 	foreshadow    *tracker.ForeshadowTracker
+	worldstate    *worldstate.Store
 }
 
 type Server struct {
@@ -54,6 +56,7 @@ type Server struct {
 	relationships  *tracker.RelationshipTracker
 	timeline       *tracker.TimelineTracker
 	foreshadow     *tracker.ForeshadowTracker
+	worldstate     *worldstate.Store
 	chapterOrderMu sync.RWMutex
 	scenePlansMu   sync.RWMutex
 }
@@ -154,9 +157,11 @@ func (s *Server) setupRoutes() {
 	protected.GET("/api/chapters", s.handleListChapters)
 	protected.GET("/api/chapters/:name", s.handleGetChapter)
 	protected.GET("/api/settings", s.handleGetSettings)
+	protected.GET("/api/worldstate", s.handleListWorldstate)
 
 	protected.POST("/ingest", s.handleIngest)
 	protected.POST("/api/chapters", s.handleSaveChapter)
+	protected.POST("/api/chapters/:name/snapshot", s.handleCreateWorldstateSnapshot)
 	protected.POST("/api/chapters/order", s.handleSaveChapterOrder)
 	protected.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
 	protected.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
@@ -233,6 +238,11 @@ func (s *Server) loadProjectState(name string) (*projectState, error) {
 		log.Printf("foreshadow load: %v", err)
 	}
 
+	st.worldstate = worldstate.New(filepath.Join(dataDir, "worldstate.json"))
+	if err := st.worldstate.Load(); err != nil {
+		log.Printf("worldstate load: %v", err)
+	}
+
 	return st, nil
 }
 
@@ -244,7 +254,7 @@ func (s *Server) currentState() *projectState {
 		return st
 	}
 	if s.profiles == nil && s.store == nil && s.project == nil && s.rules == nil && s.history == nil &&
-		s.relationships == nil && s.timeline == nil && s.foreshadow == nil {
+		s.relationships == nil && s.timeline == nil && s.foreshadow == nil && s.worldstate == nil {
 		return nil
 	}
 	dataDir := s.cfg.DataDir
@@ -261,6 +271,7 @@ func (s *Server) currentState() *projectState {
 		relationships: s.relationships,
 		timeline:      s.timeline,
 		foreshadow:    s.foreshadow,
+		worldstate:    s.worldstate,
 	}
 }
 
@@ -276,6 +287,7 @@ func (s *Server) setProjectState(st *projectState) {
 	s.relationships = st.relationships
 	s.timeline = st.timeline
 	s.foreshadow = st.foreshadow
+	s.worldstate = st.worldstate
 	s.cfg.DataDir = st.dataDir
 }
 

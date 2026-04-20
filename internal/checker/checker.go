@@ -89,6 +89,7 @@ func (c *Checker) checkBehaviorChunkedStream(ctx context.Context, profile, chapt
 	summary := summarizeBehaviorProfile(profile)
 	results := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
+		_, _ = fmt.Fprintf(w, "\n正在分析第 %d / %d 段…\n", i+1, len(chunks))
 		var buf strings.Builder
 		label := fmt.Sprintf("這是第 %d / %d 段，請以角色設定與本段內容為主，必要時利用重疊區理解前後文。", i+1, len(chunks))
 		if err := c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", behaviorPrompt(profile, chunk, label, summary), &buf); err != nil {

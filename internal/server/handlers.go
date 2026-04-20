@@ -515,8 +515,13 @@ func inferCharacterPronouns(char *profile.Character) []string {
 	if text == "" {
 		return nil
 	}
-	hasHe := strings.Contains(text, "男性") || strings.Contains(text, "男生") || strings.Contains(text, "男孩") || strings.Contains(text, "少年") || strings.Contains(text, "他")
-	hasShe := strings.Contains(text, "女性") || strings.Contains(text, "女生") || strings.Contains(text, "女孩") || strings.Contains(text, "少女") || strings.Contains(text, "她")
+	// Explicit gender keywords take priority. Pronoun occurrence in profile text
+	// is only used as a fallback when no explicit keyword is found, to avoid false
+	// positives when the profile mentions another character's pronouns.
+	hasHeKeyword := strings.Contains(text, "男性") || strings.Contains(text, "男生") || strings.Contains(text, "男孩") || strings.Contains(text, "少年")
+	hasSheKeyword := strings.Contains(text, "女性") || strings.Contains(text, "女生") || strings.Contains(text, "女孩") || strings.Contains(text, "少女")
+	hasHe := hasHeKeyword || (!hasSheKeyword && strings.Contains(text, "他"))
+	hasShe := hasSheKeyword || (!hasHeKeyword && strings.Contains(text, "她"))
 
 	out := make([]string, 0, 2)
 	if hasHe {

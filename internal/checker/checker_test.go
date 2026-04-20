@@ -90,6 +90,29 @@ func TestCheckBehaviorStreamUsesPronounGuidance(t *testing.T) {
 	}
 }
 
+func TestSplitTextWithOverlapEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	if got := splitTextWithOverlap("", 100, 10); len(got) != 0 {
+		t.Fatalf("expected nil for empty text, got %v", got)
+	}
+	exactText := strings.Repeat("a", 100)
+	if got := splitTextWithOverlap(exactText, 100, 10); len(got) != 1 || got[0] != exactText {
+		t.Fatalf("expected single chunk for text == limit, got %v", got)
+	}
+	if got := splitTextWithOverlap("hello", 100, 200); len(got) != 1 {
+		t.Fatalf("expected single chunk when overlap >= limit, got %v", got)
+	}
+	twoChunkText := strings.Repeat("字", 150)
+	chunks := splitTextWithOverlap(twoChunkText, 100, 20)
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+	}
+	if len([]rune(chunks[0])) != 100 {
+		t.Fatalf("expected first chunk to be exactly limit, got %d runes", len([]rune(chunks[0])))
+	}
+}
+
 func TestCheckBehaviorStreamChunksLongTextAndMergesResponses(t *testing.T) {
 	t.Parallel()
 

@@ -448,6 +448,7 @@ func (s *Server) resolveCharacters(req checkRequest) []*profile.Character {
 	names := req.Characters
 	if len(names) == 0 {
 		names = checker.ExtractNames(req.Chapter, s.profiles.AllNames())
+		names = mergeCharacterNames(names, pronounCharacterCandidates(req.Chapter, s.profiles.Characters)...)
 	}
 	if len(names) == 0 {
 		names = s.profiles.AllNames()
@@ -460,6 +461,77 @@ func (s *Server) resolveCharacters(req checkRequest) []*profile.Character {
 		}
 	}
 	return chars
+}
+
+func mergeCharacterNames(base []string, extra ...string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	merged := make([]string, 0, len(base)+len(extra))
+	for _, name := range append(append([]string(nil), base...), extra...) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged
+}
+
+func pronounCharacterCandidates(chapter string, chars []*profile.Character) []string {
+	chapter = strings.TrimSpace(chapter)
+	if chapter == "" || len(chars) == 0 {
+		return nil
+	}
+	wantsHe := strings.Contains(chapter, "他")
+	wantsShe := strings.Contains(chapter, "她")
+	if !wantsHe && !wantsShe {
+		return nil
+	}
+
+	out := make([]string, 0)
+	for _, char := range chars {
+		if char == nil || strings.TrimSpace(char.Name) == "" {
+			continue
+		}
+		pronouns := inferCharacterPronouns(char)
+		if wantsHe && contains(pronouns, "他") {
+			out = append(out, char.Name)
+			continue
+		}
+		if wantsShe && contains(pronouns, "她") {
+			out = append(out, char.Name)
+		}
+	}
+	return out
+}
+
+func inferCharacterPronouns(char *profile.Character) []string {
+	if char == nil {
+		return nil
+	}
+	text := strings.TrimSpace(char.RawContent)
+	if text == "" {
+		return nil
+	}
+	// Explicit gender keywords take priority. Pronoun occurrence in profile text
+	// is only used as a fallback when no explicit keyword is found, to avoid false
+	// positives when the profile mentions another character's pronouns.
+	hasHeKeyword := strings.Contains(text, "男性") || strings.Contains(text, "男生") || strings.Contains(text, "男孩") || strings.Contains(text, "少年")
+	hasSheKeyword := strings.Contains(text, "女性") || strings.Contains(text, "女生") || strings.Contains(text, "女孩") || strings.Contains(text, "少女")
+	hasHe := hasHeKeyword || (!hasSheKeyword && strings.Contains(text, "他"))
+	hasShe := hasSheKeyword || (!hasHeKeyword && strings.Contains(text, "她"))
+
+	out := make([]string, 0, 2)
+	if hasHe {
+		out = append(out, "他")
+	}
+	if hasShe {
+		out = append(out, "她")
+	}
+	return out
 }
 
 // ─── pages ───────────────────────────────────────────────────────────────────

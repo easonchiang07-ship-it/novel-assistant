@@ -175,6 +175,8 @@ func (s *Server) setupRoutes() {
 	protected.POST("/api/manuscript/export", s.handleExportManuscript)
 	protected.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	protected.POST("/api/history/export", s.handleExportHistory)
+	protected.POST("/api/styles/analyze", s.handleAnalyzeStyle)
+	protected.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
 	protected.POST("/api/settings", s.handleSaveSettings)
 	protected.POST("/api/projects", s.handleCreateProject)
 	protected.POST("/api/projects/:name/switch", s.handleSwitchProject)

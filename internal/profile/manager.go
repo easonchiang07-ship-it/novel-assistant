@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,6 +69,7 @@ func (m *Manager) Load() error {
 				}
 				sg := parseStyleGuide(string(content))
 				sg.FilePath = path
+				sg.Analysis = loadStyleAnalysis(path)
 				m.Styles = append(m.Styles, sg)
 			}
 		}
@@ -156,6 +158,25 @@ func parseStyleGuide(content string) *StyleGuide {
 		}
 	}
 	return sg
+}
+
+func loadStyleAnalysis(stylePath string) *StyleAnalysis {
+	data, err := os.ReadFile(styleAnalysisPath(stylePath))
+	if err != nil {
+		return nil
+	}
+
+	var analysis StyleAnalysis
+	if err := json.Unmarshal(data, &analysis); err != nil {
+		return nil
+	}
+	return &analysis
+}
+
+func styleAnalysisPath(stylePath string) string {
+	dir := filepath.Dir(stylePath)
+	name := strings.TrimSuffix(filepath.Base(stylePath), filepath.Ext(stylePath))
+	return filepath.Join(dir, ".analysis", name+".json")
 }
 
 func (m *Manager) FindByName(name string) *Character {

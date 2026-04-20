@@ -2,10 +2,18 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/vectorstore"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestParsePositiveChapter(t *testing.T) {
@@ -191,6 +199,88 @@ func TestCheckRequestRetrievalOverrideForTask(t *testing.T) {
 	if len(behavior.Sources) != 1 || behavior.Sources[0] != "character" || behavior.TopK != 4 {
 		t.Fatalf("expected fallback to shared retrieval, got %#v", behavior)
 	}
+}
+
+func TestStylePresetInstructionReturnsConstraintText(t *testing.T) {
+	t.Parallel()
+
+	text, err := stylePresetInstruction("cold_hard")
+	if err != nil {
+		t.Fatalf("expected preset to resolve, got error: %v", err)
+	}
+	if !strings.Contains(text, "冷硬派") {
+		t.Fatalf("expected preset text to mention cold_hard theme, got %q", text)
+	}
+}
+
+func TestStylePresetInstructionRejectsUnknownPreset(t *testing.T) {
+	t.Parallel()
+
+	if _, err := stylePresetInstruction("unknown"); err == nil {
+		t.Fatal("expected unknown preset error")
+	}
+}
+
+func TestSaveStyleAnalysisWritesSidecarJSON(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stylePath := filepath.Join(dir, "style", "主線敘事.md")
+	if err := os.MkdirAll(filepath.Dir(stylePath), 0755); err != nil {
+		t.Fatalf("mkdir style dir: %v", err)
+	}
+	if err := os.WriteFile(stylePath, []byte("# 風格：主線敘事"), 0644); err != nil {
+		t.Fatalf("write style file: %v", err)
+	}
+
+	s := &Server{}
+	analysis := profile.StyleAnalysis{
+		DialogueRatio:  "低",
+		SensoryFreq:    "中",
+		AvgSentenceLen: "短促",
+		Tone:           "冷靜",
+		Summary:        "節制克制",
+	}
+	if err := s.saveStyleAnalysis(stylePath, analysis); err != nil {
+		t.Fatalf("save style analysis: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "style", ".analysis", "主線敘事.json"))
+	if err != nil {
+		t.Fatalf("read analysis file: %v", err)
+	}
+	var got profile.StyleAnalysis
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("decode analysis file: %v", err)
+	}
+	if got != analysis {
+		t.Fatalf("unexpected saved analysis: got %#v want %#v", got, analysis)
+	}
+}
+
+func TestHandleApplyStyleAnalysisReturnsNotFoundForMissingStyle(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		profiles: &profile.Manager{},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/styles/%E4%B8%8D%E5%AD%98%E5%9C%A8/analysis", strings.NewReader(`{"dialogue_ratio":"高"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.router = ginTestRouter(s)
+	s.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing style, got %d", w.Code)
+	}
+}
+
+func ginTestRouter(s *Server) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
+	return r
 }
 
 func TestComputeRetrievalGapsReportsOnlyUnretrievedSignals(t *testing.T) {

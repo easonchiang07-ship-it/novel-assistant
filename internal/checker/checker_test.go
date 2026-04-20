@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"novel-assistant/internal/profile"
 	"strings"
 	"testing"
 )
@@ -178,5 +180,49 @@ func TestCheckBehaviorStreamChunksLongTextAndMergesResponses(t *testing.T) {
 	}
 	if strings.Count(out.String(), "1. 行為一致性：符合") != 1 {
 		t.Fatalf("expected merged output to dedupe repeated lines, got %q", out.String())
+	}
+}
+
+func TestAnalyzeStyleParsesJSONResponse(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"response\":\"{\\\"dialogue_ratio\\\":\\\"高\\\",\\\"sensory_freq\\\":\\\"中\\\",\\\"avg_sentence_len\\\":\\\"綿長\\\",\\\"tone\\\":\\\"詩意\\\",\\\"summary\\\":\\\"意象濃厚，句子拉長\\\"}\",\"done\":true}\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "mock")
+	got, err := c.AnalyzeStyle(context.Background(), "一段文字")
+	if err != nil {
+		t.Fatalf("expected analyze style success, got error: %v", err)
+	}
+
+	want := &profile.StyleAnalysis{
+		DialogueRatio:  "高",
+		SensoryFreq:    "中",
+		AvgSentenceLen: "綿長",
+		Tone:           "詩意",
+		Summary:        "意象濃厚，句子拉長",
+	}
+	if *got != *want {
+		t.Fatalf("unexpected analysis: got %#v want %#v", got, want)
+	}
+}
+
+func TestAnalyzeStyleRejectsMalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"response\":\"not-json\",\"done\":true}\n"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "mock")
+	if _, err := c.AnalyzeStyle(context.Background(), "一段文字"); err == nil {
+		t.Fatal("expected malformed JSON error")
+	} else if !errors.Is(err, ErrStyleParseFailure) {
+		t.Fatalf("expected ErrStyleParseFailure, got %v", err)
 	}
 }

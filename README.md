@@ -123,6 +123,7 @@ This starts:
 - `ollama-init`: a one-shot setup container that pulls required models if they are missing
 
 The compose file expects a local `.env` file and mounts `./data` for persistence.
+The `app` container waits for Ollama's health check to pass before starting, so your first reindex is less likely to fail on a cold boot.
 On the first startup, `ollama-init` waits for Ollama and then automatically pulls `llama3.2` and `nomic-embed-text`. Later runs skip the pull when those models already exist in the shared Ollama volume.
 
 ### Common Development Commands

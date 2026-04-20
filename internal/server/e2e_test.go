@@ -527,7 +527,6 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		store:         vectorstore.New(filepath.Join(dataDir, "store.json")),
 		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
 		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
-		consistency:   consistency.New(cfg.OllamaURL, cfg.LLMModel),
 		rules:         reviewrules.New(filepath.Join(dataDir, "review_rules.json")),
 		history:       reviewhistory.New(filepath.Join(dataDir, "reviews.json")),
 		relationships: tracker.NewRelationshipTracker(filepath.Join(dataDir, "relationships.json")),
@@ -535,6 +534,7 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		foreshadow:    tracker.NewForeshadowTracker(filepath.Join(dataDir, "foreshadow.json")),
 		worldstate:    worldstate.New(filepath.Join(dataDir, "worldstate.json")),
 	}
+	s.consistency = consistency.New(s.checker)
 	if err := s.profiles.Load(); err != nil {
 		t.Fatalf("load profiles: %v", err)
 	}

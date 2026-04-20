@@ -312,6 +312,10 @@ func (c *Checker) GenerateWorldStateChanges(ctx context.Context, chapter string)
 	return changes, nil
 }
 
+func (c *Checker) RawStream(ctx context.Context, system, prompt string, w io.Writer) error {
+	return c.stream(ctx, system, prompt, w)
+}
+
 func withSystemPrefix(prefix, base string) string {
 	prefix = strings.TrimSpace(prefix)
 	if prefix == "" {

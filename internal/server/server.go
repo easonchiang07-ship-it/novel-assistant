@@ -74,10 +74,10 @@ func New(cfg *config.Config) (*Server, error) {
 		globalDataDir: cfg.DataDir,
 		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
 		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
-		consistency:   consistency.New(cfg.OllamaURL, cfg.LLMModel),
 		auth:          newAuthManager(cfg),
 		diagnostics:   newRetrievalDiagnostics(),
 	}
+	s.consistency = consistency.New(s.checker)
 	if s.globalDataDir == "" {
 		s.globalDataDir = "data"
 	}
@@ -399,5 +399,5 @@ func (s *Server) applyProjectSettings() {
 	}
 	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
 	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
-	s.consistency = consistency.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+	s.consistency = consistency.New(s.checker)
 }

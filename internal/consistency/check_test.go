@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"novel-assistant/internal/checker"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestCheckParsesJSONArray(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "mock")
+	c := New(checker.New(srv.URL, "mock"))
 	conflicts, err := c.Check(context.Background(), "主角拔出傳家寶劍", "第3章：傳家寶劍已賣出")
 	if err != nil {
 		t.Fatalf("expected parse success, got error: %v", err)
@@ -35,7 +36,7 @@ func TestCheckReturnsEmptyList(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "mock")
+	c := New(checker.New(srv.URL, "mock"))
 	conflicts, err := c.Check(context.Background(), "主角走進夜港塔", "第1章：主角抵達港口")
 	if err != nil {
 		t.Fatalf("expected empty parse success, got error: %v", err)

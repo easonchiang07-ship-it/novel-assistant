@@ -585,7 +585,6 @@ func (s *Server) handleDiagnosticsPage(c *gin.Context) {
 
 	c.HTML(http.StatusOK, "diagnostics.html", gin.H{
 		"Title":            "Retrieval 診斷",
-		"VectorCounts":     vectorCounts,
 		"VectorCount":      totalVectors,
 		"CharacterVectors": vectorCounts["character"],
 		"WorldVectors":     vectorCounts["world"],

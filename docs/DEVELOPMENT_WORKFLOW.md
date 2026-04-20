@@ -77,6 +77,10 @@ go build ./...
 
 If the change affects UI flows, also do a manual smoke test for the changed page.
 
+## Release Documentation Rule
+
+If a PR is part of a public release, or it changes a user-visible workflow that will need refreshed screenshots, check [docs/RELEASE_ASSET_CHECKLIST.md](docs/RELEASE_ASSET_CHECKLIST.md) before the release is finalized.
+
 ## Review Notes for Agents
 
 When Codex, Claude, or another coding agent works on an issue:

@@ -259,6 +259,10 @@ data/
 
 請見 [CHANGELOG.md](CHANGELOG.md)。
 
+## Release Checklist
+
+若要整理公開 release、更新 screenshots 或刷新 repo 資產，請依照 [docs/RELEASE_ASSET_CHECKLIST.md](docs/RELEASE_ASSET_CHECKLIST.md) 執行。
+
 ## 規劃文件
 
 - [docs/ROADMAP.md](docs/ROADMAP.md)

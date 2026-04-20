@@ -113,8 +113,11 @@ cp .env.example .env
 ### Docker Compose
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+`.env` 會控制 compose 流程使用的 Ollama URL、預設模型名稱與對外開放的連接埠。
 
 這會啟動：
 

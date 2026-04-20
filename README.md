@@ -113,8 +113,11 @@ Supported variables:
 ### Docker Compose
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+The `.env` file controls the Ollama URL, default model names, and exposed app port for the compose setup.
 
 This starts:
 

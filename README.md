@@ -92,6 +92,7 @@ go run ./cmd
 ```
 
 Open `http://localhost:8080`.
+Before your first review request, make sure Ollama already has `llama3.2` and `nomic-embed-text` available, for example with `ollama pull llama3.2` and `ollama pull nomic-embed-text`.
 
 ### Environment Configuration
 

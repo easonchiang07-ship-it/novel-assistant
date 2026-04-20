@@ -92,6 +92,7 @@ go run ./cmd
 ```
 
 啟動後開啟 `http://localhost:8080`。
+第一次送出審查前，請先確認 Ollama 已有 `llama3.2` 與 `nomic-embed-text`，例如先執行 `ollama pull llama3.2` 和 `ollama pull nomic-embed-text`。
 
 ### 環境變數設定
 

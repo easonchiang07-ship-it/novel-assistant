@@ -1039,3 +1039,54 @@ func reconstructChapterForSceneEdit(t *testing.T, fullContent string, scenes []S
 
 	return strings.Join(parts, "\n\n")
 }
+
+func TestBuildReferenceContextExcludesFutureChapters(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{1, 0, 0}})
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	// Past chapter: index 2 — should be included when reviewing chapter 3
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第02章.md"), "# 第02章\n林昊初次見到城主。")
+	// Future chapter: index 5 — must be excluded when reviewing chapter 3
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第05章.md"), "# 第05章\n林昊離開了城市。")
+	// Character — not filtered by chapter index
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter":      "林昊在第三章站著。",
+		"chapter_file": "第03章.md",
+		"checks":       []string{"behavior"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+
+	// Sources event should include chapter 第02章.md but not 第05章.md
+	if strings.Contains(body, "第05章") {
+		t.Fatalf("future chapter 第05章 must not appear in retrieval sources, got: %s", body)
+	}
+	if !strings.Contains(body, "第02章") {
+		t.Fatalf("past chapter 第02章 should appear in retrieval sources, got: %s", body)
+	}
+}

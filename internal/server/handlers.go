@@ -52,10 +52,11 @@ type referenceSummary struct {
 }
 
 type retrievalSummary struct {
-	Task      string   `json:"task"`
-	Sources   []string `json:"sources"`
-	TopK      int      `json:"top_k"`
-	Threshold float64  `json:"threshold"`
+	Task          string   `json:"task"`
+	Sources       []string `json:"sources"`
+	TopK          int      `json:"top_k"`
+	Threshold     float64  `json:"threshold"`
+	BeforeChapter int      `json:"before_chapter,omitempty"`
 }
 
 type retrievalGaps struct {
@@ -224,15 +225,19 @@ func mergeRetrieval(preset reviewrules.RetrievalPreset, override retrievalOption
 	if override.ThresholdSet {
 		result.Threshold = override.Threshold
 	}
+	if override.BeforeChapter > 0 {
+		result.BeforeChapter = override.BeforeChapter
+	}
 	return result
 }
 
-func summarizeRetrieval(task string, opts retrievalOptions) retrievalSummary {
+func summarizeRetrieval(task string, opts retrievalOptions, beforeChapter int) retrievalSummary {
 	return retrievalSummary{
-		Task:      task,
-		Sources:   append([]string(nil), opts.Sources...),
-		TopK:      opts.TopK,
-		Threshold: opts.Threshold,
+		Task:          task,
+		Sources:       append([]string(nil), opts.Sources...),
+		TopK:          opts.TopK,
+		Threshold:     opts.Threshold,
+		BeforeChapter: beforeChapter,
 	}
 }
 
@@ -406,6 +411,16 @@ func (s *Server) resolveStyles(req checkRequest) ([]*profile.StyleGuide, error) 
 	return styles, nil
 }
 
+// resolveBeforeChapter returns the chapter index upper bound for timeline-bounded retrieval.
+// If opts.BeforeChapter is set explicitly it takes precedence; otherwise the index is derived
+// from chapterFile so that only chapters written before the current one are retrieved.
+func resolveBeforeChapter(chapterFile string, opts retrievalOptions) int {
+	if opts.BeforeChapter > 0 {
+		return opts.BeforeChapter
+	}
+	return extractChapterIndex(chapterFile)
+}
+
 func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile string, opts retrievalOptions) ([]vectorProfile, error) {
 	if s.store.Len() == 0 {
 		return nil, nil
@@ -430,7 +445,8 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile
 		threshold = rules.RetrievalThreshold
 	}
 
-	docs := s.store.QueryFilteredScored(queryVec, topK, sources, threshold)
+	beforeChapter := resolveBeforeChapter(chapterFile, opts)
+	docs := s.store.QueryFilteredBeforeChapter(queryVec, topK, sources, threshold, beforeChapter)
 	results := make([]vectorProfile, 0, len(docs))
 	for _, doc := range docs {
 		if doc.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && doc.ChapterFile == chapterFile {
@@ -886,10 +902,11 @@ type checkRequest struct {
 }
 
 type retrievalOptions struct {
-	Sources      []string `json:"sources"`
-	TopK         int      `json:"top_k"`
-	Threshold    float64  `json:"threshold"`
-	ThresholdSet bool     `json:"threshold_set,omitempty"`
+	Sources       []string `json:"sources"`
+	TopK          int      `json:"top_k"`
+	Threshold     float64  `json:"threshold"`
+	ThresholdSet  bool     `json:"threshold_set,omitempty"`
+	BeforeChapter int      `json:"before_chapter,omitempty"`
 }
 
 func (r checkRequest) retrievalOverrideFor(task string) retrievalOptions {
@@ -973,7 +990,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
 			behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
-			activeRetrieval["behavior"] = summarizeRetrieval("behavior", behaviorOpts)
+			activeRetrieval["behavior"] = summarizeRetrieval("behavior", behaviorOpts, resolveBeforeChapter(req.ChapterFile, behaviorOpts))
 			traceStarted := time.Now()
 			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
 			s.recordRetrievalTrace("check", activeRetrieval["behavior"], req.ChapterTitle, req.ChapterFile, behaviorRefs, err, time.Since(traceStarted))
@@ -985,7 +1002,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		}
 		if contains(req.Checks, "dialogue") {
 			dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
-			activeRetrieval["dialogue"] = summarizeRetrieval("dialogue", dialogueOpts)
+			activeRetrieval["dialogue"] = summarizeRetrieval("dialogue", dialogueOpts, resolveBeforeChapter(req.ChapterFile, dialogueOpts))
 			traceStarted := time.Now()
 			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
 			s.recordRetrievalTrace("check", activeRetrieval["dialogue"], req.ChapterTitle, req.ChapterFile, dialogueRefs, err, time.Since(traceStarted))
@@ -997,7 +1014,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		}
 		if contains(req.Checks, "world") {
 			worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
-			activeRetrieval["world"] = summarizeRetrieval("world", worldOpts)
+			activeRetrieval["world"] = summarizeRetrieval("world", worldOpts, resolveBeforeChapter(req.ChapterFile, worldOpts))
 			traceStarted := time.Now()
 			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
 			s.recordRetrievalTrace("check", activeRetrieval["world"], req.ChapterTitle, req.ChapterFile, worldRefs, err, time.Since(traceStarted))
@@ -1277,7 +1294,8 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer close(msgChan)
 
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
-		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
+		rewriteOpts := mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval)
+		activeRetrieval := summarizeRetrieval("rewrite", rewriteOpts, resolveBeforeChapter(req.ChapterFile, rewriteOpts))
 		traceStarted := time.Now()
 		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
 			Sources:      append([]string(nil), activeRetrieval.Sources...),

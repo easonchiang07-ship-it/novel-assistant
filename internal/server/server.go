@@ -133,6 +133,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/history/:id", s.handleGetHistoryEntry)
 	r.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
 	r.GET("/api/backups", s.handleListBackups)
+	r.GET("/api/backups/:name/preview", s.handleGetBackupPreview)
 	r.GET("/api/projects", s.handleListProjects)
 	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
 	r.GET("/api/chapters", s.handleListChapters)

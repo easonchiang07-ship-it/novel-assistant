@@ -3,11 +3,13 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,12 +46,99 @@ type manuscriptExportRequest struct {
 }
 
 type backupItem struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	Name      string        `json:"name"`
+	CreatedAt time.Time     `json:"created_at"`
+	Preview   backupPreview `json:"preview"`
+}
+
+type backupPreview struct {
+	Name           string    `json:"name"`
+	CreatedAt      time.Time `json:"created_at"`
+	ChapterCount   int       `json:"chapter_count"`
+	CharacterCount int       `json:"character_count"`
+	WorldCount     int       `json:"world_count"`
+	StyleCount     int       `json:"style_count"`
+	JSONFileCount  int       `json:"json_file_count"`
+	TotalFileCount int       `json:"total_file_count"`
+	ChapterSamples []string  `json:"chapter_samples"`
 }
 
 func (s *Server) backupDir() string {
 	return filepath.Join(s.cfg.DataDir, "backups")
+}
+
+func backupManifestPath(dir string) string {
+	return filepath.Join(dir, ".backup_manifest.json")
+}
+
+func loadBackupPreview(dir string, fallbackName string, fallbackTime time.Time) (backupPreview, error) {
+	data, err := os.ReadFile(backupManifestPath(dir))
+	if err == nil {
+		var preview backupPreview
+		if err := json.Unmarshal(data, &preview); err == nil {
+			if preview.Name == "" {
+				preview.Name = fallbackName
+			}
+			if preview.CreatedAt.IsZero() {
+				preview.CreatedAt = fallbackTime
+			}
+			return preview, nil
+		}
+	}
+	return buildBackupPreview(dir, fallbackName, fallbackTime)
+}
+
+func buildBackupPreview(dir string, name string, createdAt time.Time) (backupPreview, error) {
+	preview := backupPreview{Name: name, CreatedAt: createdAt}
+	chapterSamples := make([]string, 0, 3)
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if rel == ".backup_manifest.json" {
+			return nil
+		}
+
+		preview.TotalFileCount++
+		switch {
+		case strings.HasPrefix(rel, "chapters"+string(filepath.Separator)) && strings.HasSuffix(strings.ToLower(d.Name()), ".md"):
+			preview.ChapterCount++
+			if len(chapterSamples) < 3 {
+				chapterSamples = append(chapterSamples, d.Name())
+			}
+		case strings.HasPrefix(rel, "characters"+string(filepath.Separator)) && strings.HasSuffix(strings.ToLower(d.Name()), ".md"):
+			preview.CharacterCount++
+		case strings.HasPrefix(rel, "worldbuilding"+string(filepath.Separator)) && strings.HasSuffix(strings.ToLower(d.Name()), ".md"):
+			preview.WorldCount++
+		case strings.HasPrefix(rel, "style"+string(filepath.Separator)) && strings.HasSuffix(strings.ToLower(d.Name()), ".md"):
+			preview.StyleCount++
+		case strings.HasSuffix(strings.ToLower(d.Name()), ".json"):
+			preview.JSONFileCount++
+		}
+		return nil
+	})
+	if err != nil {
+		return backupPreview{}, err
+	}
+	sort.Strings(chapterSamples)
+	preview.ChapterSamples = chapterSamples
+	return preview, nil
+}
+
+func writeBackupPreview(dir string, preview backupPreview) error {
+	data, err := json.MarshalIndent(preview, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(backupManifestPath(dir), data, 0644)
 }
 
 func listBackupItems(dir string) ([]backupItem, error) {
@@ -69,8 +158,15 @@ func listBackupItems(dir string) ([]backupItem, error) {
 		if err != nil {
 			continue
 		}
-		items = append(items, backupItem{Name: entry.Name(), CreatedAt: info.ModTime()})
+		preview, err := loadBackupPreview(filepath.Join(dir, entry.Name()), entry.Name(), info.ModTime())
+		if err != nil {
+			continue
+		}
+		items = append(items, backupItem{Name: entry.Name(), CreatedAt: info.ModTime(), Preview: preview})
 	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
 	return items, nil
 }
 
@@ -116,8 +212,67 @@ func copySnapshotTree(srcDir, dstDir string) error {
 	})
 }
 
-func (s *Server) createBackupSnapshot() (backupItem, error) {
-	name := "backup_" + time.Now().Format("20060102_150405")
+// cleanDataDirForRestore removes all managed files (.md, .json, .gitkeep)
+// from dataDir before a restore so that files absent from the snapshot are
+// not left behind (true point-in-time restore, not an overlay).
+func cleanDataDirForRestore(dataDir string) error {
+	return filepath.WalkDir(dataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dataDir {
+			return nil
+		}
+		rel, err := filepath.Rel(dataDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "backups" || strings.HasPrefix(rel, "backups"+string(filepath.Separator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(d.Name())
+		if ext == ".md" || ext == ".json" || d.Name() == ".gitkeep" {
+			return os.Remove(path)
+		}
+		return nil
+	})
+}
+
+func pruneOldBackups(dir string, retain int, protected map[string]struct{}) ([]string, error) {
+	if retain < 1 {
+		return nil, nil
+	}
+	items, err := listBackupItems(dir)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) <= retain {
+		return nil, nil
+	}
+
+	removed := make([]string, 0, len(items)-retain)
+	for _, item := range items[retain:] {
+		if _, ok := protected[item.Name]; ok {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, item.Name)); err != nil {
+			return removed, err
+		}
+		removed = append(removed, item.Name)
+	}
+	return removed, nil
+}
+
+// writeSnapshot creates a snapshot directory and manifest without pruning.
+func (s *Server) writeSnapshot(prefix string) (backupItem, error) {
+	name := prefix + "_" + time.Now().Format("20060102_150405")
+	createdAt := time.Now()
 	target := filepath.Join(s.backupDir(), name)
 	if err := os.MkdirAll(target, 0755); err != nil {
 		return backupItem{}, err
@@ -125,7 +280,39 @@ func (s *Server) createBackupSnapshot() (backupItem, error) {
 	if err := copySnapshotTree(s.cfg.DataDir, target); err != nil {
 		return backupItem{}, err
 	}
-	return backupItem{Name: name, CreatedAt: time.Now()}, nil
+	preview, err := buildBackupPreview(target, name, createdAt)
+	if err != nil {
+		return backupItem{}, err
+	}
+	if err := writeBackupPreview(target, preview); err != nil {
+		return backupItem{}, err
+	}
+	return backupItem{Name: name, CreatedAt: createdAt, Preview: preview}, nil
+}
+
+func (s *Server) createBackupSnapshotWithPrefix(prefix string) (backupItem, []string, error) {
+	return s.createBackupSnapshotWithPrefixProtected(prefix, nil)
+}
+
+func (s *Server) createBackupSnapshotWithPrefixProtected(prefix string, protected map[string]struct{}) (backupItem, []string, error) {
+	item, err := s.writeSnapshot(prefix)
+	if err != nil {
+		return backupItem{}, nil, err
+	}
+	retention := 10
+	if s.project != nil {
+		retention = s.project.Get().BackupRetention
+	}
+	removed, err := pruneOldBackups(s.backupDir(), retention, protected)
+	if err != nil {
+		return backupItem{}, removed, err
+	}
+	return item, removed, nil
+}
+
+func (s *Server) createBackupSnapshot() (backupItem, error) {
+	item, _, err := s.createBackupSnapshotWithPrefix("backup")
+	return item, err
 }
 
 func (s *Server) handleListBackups(c *gin.Context) {
@@ -137,13 +324,37 @@ func (s *Server) handleListBackups(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": items})
 }
 
-func (s *Server) handleCreateBackup(c *gin.Context) {
-	item, err := s.createBackupSnapshot()
+func (s *Server) handleGetBackupPreview(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少備份名稱"})
+		return
+	}
+	src := filepath.Join(s.backupDir(), name)
+	info, err := os.Stat(src)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "找不到指定備份"})
+		return
+	}
+	preview, err := loadBackupPreview(src, name, info.ModTime())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "item": item, "message": "備份已建立"})
+	c.JSON(http.StatusOK, gin.H{"item": backupItem{Name: name, CreatedAt: info.ModTime(), Preview: preview}})
+}
+
+func (s *Server) handleCreateBackup(c *gin.Context) {
+	item, removed, err := s.createBackupSnapshotWithPrefix("backup")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	message := "備份已建立"
+	if len(removed) > 0 {
+		message += fmt.Sprintf("，並清理 %d 份舊備份", len(removed))
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "item": item, "removed": removed, "message": message})
 }
 
 func (s *Server) handleRestoreBackup(c *gin.Context) {
@@ -164,6 +375,16 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 		return
 	}
 
+	safetySnapshot, err := s.writeSnapshot("pre_restore")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "建立還原前安全備份失敗：" + err.Error()})
+		return
+	}
+
+	if err := cleanDataDirForRestore(s.cfg.DataDir); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "清除現有資料失敗：" + err.Error()})
+		return
+	}
 	if err := copySnapshotTree(src, s.cfg.DataDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -178,8 +399,25 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 	_ = s.relationships.Load()
 	_ = s.timeline.Load()
 	_ = s.foreshadow.Load()
+	if s.project != nil {
+		_ = s.project.Load()
+		s.applyProjectSettings()
+	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "備份已還原，建議重新索引"})
+	retention := 10
+	if s.project != nil {
+		retention = s.project.Get().BackupRetention
+	}
+	protected := map[string]struct{}{name: {}, safetySnapshot.Name: {}}
+	removed, _ := pruneOldBackups(s.backupDir(), retention, protected)
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":              true,
+		"message":         fmt.Sprintf("已還原備份 %s，並先建立安全備份 %s。建議重新索引。", name, safetySnapshot.Name),
+		"restored":        name,
+		"safety_snapshot": safetySnapshot,
+		"removed":         removed,
+	})
 }
 
 func addZipFile(zw *zip.Writer, path, name string) error {

@@ -318,6 +318,7 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	gin.SetMode(gin.TestMode)
 	s := &Server{
 		cfg:           cfg,
+		auth:          newAuthManager(cfg),
 		project:       projectsettings.New(filepath.Join(dataDir, "project_settings.json"), projectsettings.Settings{OllamaURL: cfg.OllamaURL, LLMModel: cfg.LLMModel, EmbedModel: cfg.EmbedModel, Port: cfg.Port, DataDir: cfg.DataDir}),
 		profiles:      profile.NewManager(dataDir),
 		store:         vectorstore.New(filepath.Join(dataDir, "store.json")),

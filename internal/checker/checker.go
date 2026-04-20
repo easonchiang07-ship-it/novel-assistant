@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+const (
+	behaviorChunkRuneLimit = 12000
+	behaviorChunkOverlap   = 1200
+)
+
 type Checker struct {
 	baseURL string
 	model   string
@@ -39,8 +44,27 @@ type EmotionPoint struct {
 }
 
 func (c *Checker) CheckBehaviorStream(ctx context.Context, profile, chapter string, w io.Writer) error {
-	prompt := fmt.Sprintf(`
+	if len([]rune(chapter)) > behaviorChunkRuneLimit {
+		return c.checkBehaviorChunkedStream(ctx, profile, chapter, w)
+	}
+	return c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", behaviorPrompt(profile, chapter, "", ""), w)
+}
+
+func behaviorPrompt(profile, chapter, chunkLabel, summary string) string {
+	var extra strings.Builder
+	if chunkLabel != "" {
+		extra.WriteString("\n【長文分段審查】\n")
+		extra.WriteString(chunkLabel)
+		extra.WriteString("\n")
+	}
+	if summary != "" {
+		extra.WriteString("\n【角色摘要】\n")
+		extra.WriteString(summary)
+		extra.WriteString("\n")
+	}
+	return fmt.Sprintf(`
 【角色設定】
+%s
 %s
 
 【待審章節】
@@ -53,8 +77,98 @@ func (c *Checker) CheckBehaviorStream(ctx context.Context, profile, chapter stri
    - 需要哪些觸發事件？
    - 角色內心掙扎為何？
    - 建議幾個章節完成轉變？
-`, profile, chapter)
-	return c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", prompt, w)
+
+判讀規則：
+- 除了角色姓名，也要把章節中的「他 / 她」視為可能指向此角色的代名詞，請根據上下文一起判讀
+- 若代名詞指向不明，請明確指出不確定性，不要武斷歸因
+`, profile, extra.String(), chapter)
+}
+
+func (c *Checker) checkBehaviorChunkedStream(ctx context.Context, profile, chapter string, w io.Writer) error {
+	chunks := splitTextWithOverlap(chapter, behaviorChunkRuneLimit, behaviorChunkOverlap)
+	summary := summarizeBehaviorProfile(profile)
+	results := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		var buf strings.Builder
+		label := fmt.Sprintf("這是第 %d / %d 段，請以角色設定與本段內容為主，必要時利用重疊區理解前後文。", i+1, len(chunks))
+		if err := c.stream(ctx, "你是嚴謹的小說編輯，專責角色一致性審查。請用繁體中文回答。", behaviorPrompt(profile, chunk, label, summary), &buf); err != nil {
+			return err
+		}
+		results = append(results, buf.String())
+	}
+	_, err := io.WriteString(w, mergeChunkedBehaviorResponses(results))
+	return err
+}
+
+func summarizeBehaviorProfile(profile string) string {
+	lines := strings.Split(profile, "\n")
+	parts := make([]string, 0, 4)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts = append(parts, line)
+		if len(parts) == 4 {
+			break
+		}
+	}
+	return strings.Join(parts, "；")
+}
+
+func splitTextWithOverlap(text string, limit, overlap int) []string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) == 0 {
+		return nil
+	}
+	if limit <= 0 || len(runes) <= limit {
+		return []string{string(runes)}
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= limit {
+		overlap = limit / 4
+	}
+
+	var chunks []string
+	for start := 0; start < len(runes); {
+		end := start + limit
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunks = append(chunks, string(runes[start:end]))
+		if end == len(runes) {
+			break
+		}
+		start = end - overlap
+		if start < 0 {
+			start = 0
+		}
+	}
+	return chunks
+}
+
+func mergeChunkedBehaviorResponses(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	seen := make(map[string]struct{})
+	lines := make([]string, 0)
+	for _, item := range items {
+		for _, line := range strings.Split(item, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (c *Checker) CheckStyleStream(ctx context.Context, styleProfile, chapter string, w io.Writer) error {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -71,6 +72,34 @@ func TestProtectedModeRejectsAPIWithoutSession(t *testing.T) {
 	}
 }
 
+func TestProtectedModeRejectsWrongPassword(t *testing.T) {
+	t.Parallel()
+
+	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
+	s.cfg.AuthMode = "password"
+	s.cfg.AuthPassword = "secret-pass"
+	s.auth = newAuthManager(s.cfg)
+	s.router = setupAuthTestRouter(s)
+
+	form := url.Values{
+		"password": {"wrong-pass"},
+		"next":     {"/settings"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+
+	s.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for wrong password, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "密碼錯誤") {
+		t.Fatalf("expected error message in body, got %q", rec.Body.String())
+	}
+}
+
 func TestProtectedModeLoginAndLogoutFlow(t *testing.T) {
 	t.Parallel()
 
@@ -132,6 +161,7 @@ func TestProtectedModeLoginAndLogoutFlow(t *testing.T) {
 
 func setupAuthTestRouter(s *Server) *gin.Engine {
 	s.router = gin.New()
+	s.router.SetHTMLTemplate(template.Must(template.New("login.html").Parse(`{{define "login.html"}}{{.Error}}{{end}}`)))
 	s.setupRoutes()
 	return s.router
 }

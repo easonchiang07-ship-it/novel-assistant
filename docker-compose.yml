@@ -9,7 +9,8 @@ services:
     volumes:
       - ./data:/app/data
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
 
   ollama:
     image: ollama/ollama:latest
@@ -18,12 +19,19 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   ollama-init:
     image: ollama/ollama:latest
     container_name: novel-assistant-ollama-init
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
     volumes:

@@ -123,6 +123,7 @@ docker compose up --build
 - `ollama-init`：一次性初始化容器，會在缺少模型時自動 pull
 
 `docker-compose.yml` 會讀取本地 `.env`，並將 `./data` 掛載成持久化資料目錄。
+`app` 會先等待 Ollama health check 通過才啟動，因此第一次冷啟動後直接重新索引時，比較不容易因為 Ollama 尚未就緒而失敗。
 第一次啟動時，`ollama-init` 會先等待 Ollama 可用，再自動下載 `llama3.2` 與 `nomic-embed-text`。之後若共享的 Ollama volume 已經有這些模型，就會直接略過。
 
 ### 常用開發指令

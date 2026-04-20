@@ -11,6 +11,10 @@ import (
 )
 
 func (s *Server) handleCreateWorldstateSnapshot(c *gin.Context) {
+	if s.worldstate == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "世界狀態快照功能尚未初始化"})
+		return
+	}
 	file, err := s.loadChapterFile(c.Param("name"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -32,6 +36,10 @@ func (s *Server) handleCreateWorldstateSnapshot(c *gin.Context) {
 		ChapterIndex: chapterNumberFromName(file.Name),
 		Changes:      changes,
 	}
+	if snapshot.ChapterIndex <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無法從章節檔名解析章節順序"})
+		return
+	}
 	s.worldstate.Upsert(snapshot)
 	if err := s.worldstate.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -47,6 +55,10 @@ func (s *Server) handleCreateWorldstateSnapshot(c *gin.Context) {
 }
 
 func (s *Server) handleListWorldstate(c *gin.Context) {
+	if s.worldstate == nil {
+		c.JSON(http.StatusOK, gin.H{"items": []*worldstate.Snapshot{}})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"items": s.worldstate.GetAll()})
 }
 
@@ -66,15 +78,8 @@ func (s *Server) worldStateSystemPrefix(chapterFile string) string {
 
 	lines := make([]string, 0, len(snapshot.Changes))
 	for _, change := range snapshot.Changes {
-		description := strings.TrimSpace(change.Description)
-		entity := strings.TrimSpace(change.Entity)
-		switch {
-		case entity != "" && description != "":
-			lines = append(lines, fmt.Sprintf("- %s：%s", entity, description))
-		case description != "":
-			lines = append(lines, "- "+description)
-		case entity != "":
-			lines = append(lines, "- "+entity)
+		if line := formatChangeLine(change, "- "); line != "" {
+			lines = append(lines, line)
 		}
 	}
 	if len(lines) == 0 {
@@ -90,16 +95,24 @@ func summarizeSnapshot(snapshot *worldstate.Snapshot) []string {
 	}
 	lines := make([]string, 0, len(snapshot.Changes))
 	for _, change := range snapshot.Changes {
-		description := strings.TrimSpace(change.Description)
-		entity := strings.TrimSpace(change.Entity)
-		switch {
-		case entity != "" && description != "":
-			lines = append(lines, fmt.Sprintf("%s：%s", entity, description))
-		case description != "":
-			lines = append(lines, description)
-		case entity != "":
-			lines = append(lines, entity)
+		if line := formatChangeLine(change, ""); line != "" {
+			lines = append(lines, line)
 		}
 	}
 	return lines
+}
+
+func formatChangeLine(change worldstate.Change, prefix string) string {
+	description := strings.TrimSpace(change.Description)
+	entity := strings.TrimSpace(change.Entity)
+	switch {
+	case entity != "" && description != "":
+		return fmt.Sprintf("%s%s：%s", prefix, entity, description)
+	case description != "":
+		return prefix + description
+	case entity != "":
+		return prefix + entity
+	default:
+		return ""
+	}
 }

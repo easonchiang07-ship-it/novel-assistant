@@ -3,7 +3,6 @@ package worldstate
 import (
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestStoreGetLatestBefore(t *testing.T) {
@@ -15,7 +14,6 @@ func TestStoreGetLatestBefore(t *testing.T) {
 		ChapterIndex: 1,
 		Changes:      []Change{{Entity: "林昊", ChangeType: "status", Description: "開始追查夜港塔"}},
 	})
-	time.Sleep(time.Millisecond)
 	store.Upsert(&Snapshot{
 		ChapterFile:  "第03章.md",
 		ChapterIndex: 3,

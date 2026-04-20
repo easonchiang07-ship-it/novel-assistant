@@ -23,6 +23,11 @@
       <button type="button" onclick="promptCreateProject()" style="font-size:0.8em">＋新增</button>
     </div>
     <button class="btn-reindex" onclick="reindex()">重新索引</button>
+    {{if authEnabled}}
+    <form method="post" action="/logout" style="margin-top:10px">
+      <button class="btn-reindex" type="submit">登出</button>
+    </form>
+    {{end}}
   </div>
 </div>
 <script src="/static/workspace.js"></script>

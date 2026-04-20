@@ -1,0 +1,37 @@
+{{define "login.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登入 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="main-content" style="max-width:560px;margin:48px auto;padding-bottom:48px">
+  <div class="card">
+    <div class="page-header" style="margin-bottom:20px">
+      <h1>登入小說助手</h1>
+      <p>目前已啟用本機保護模式，請輸入存取密碼。</p>
+    </div>
+
+    {{if .Error}}
+    <div class="card" style="background:#3a1320;border-color:#7f1d1d;color:#fecaca;padding:16px;margin-bottom:18px">
+      {{.Error}}
+    </div>
+    {{end}}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <div class="form-group">
+        <label for="password">密碼</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" autofocus>
+      </div>
+      <div class="helper-text" style="margin-bottom:18px">若你是在區網共享使用，建議搭配反向代理與 HTTPS。</div>
+      <button class="btn" type="submit">登入</button>
+    </form>
+  </div>
+</main>
+</body>
+</html>
+{{end}}

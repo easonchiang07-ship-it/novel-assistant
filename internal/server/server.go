@@ -40,6 +40,7 @@ type Server struct {
 	cfg            *config.Config
 	globalDataDir  string
 	router         *gin.Engine
+	auth           *authManager
 	stateMu        sync.RWMutex
 	state          *projectState
 	profiles       *profile.Manager
@@ -67,6 +68,7 @@ func New(cfg *config.Config) (*Server, error) {
 		globalDataDir: cfg.DataDir,
 		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
 		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
+		auth:          newAuthManager(cfg),
 	}
 	if s.globalDataDir == "" {
 		s.globalDataDir = "data"
@@ -108,6 +110,9 @@ func New(cfg *config.Config) (*Server, error) {
 			}
 			return false
 		},
+		"authEnabled": func() bool {
+			return s.auth != nil && s.auth.Enabled()
+		},
 	})
 	s.router.LoadHTMLGlob("web/templates/*.html")
 	s.router.Static("/static", "web/static")
@@ -119,62 +124,69 @@ func New(cfg *config.Config) (*Server, error) {
 func (s *Server) setupRoutes() {
 	r := s.router
 
-	r.GET("/", s.handleIndex)
-	r.GET("/chapters", s.handleChaptersPage)
-	r.GET("/characters", s.handleCharacters)
-	r.GET("/history", s.handleHistoryPage)
-	r.GET("/settings", s.handleSettingsPage)
-	r.GET("/styles", s.handleStylesPage)
-	r.GET("/check", s.handleCheckPage)
-	r.GET("/chat", s.handleChatPage)
-	r.GET("/relationships", s.handleRelationshipsPage)
-	r.GET("/timeline", s.handleTimelinePage)
-	r.GET("/foreshadow", s.handleForeshadowPage)
-	r.GET("/api/history/:id", s.handleGetHistoryEntry)
-	r.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
-	r.GET("/api/backups", s.handleListBackups)
-	r.GET("/api/backups/:name/preview", s.handleGetBackupPreview)
-	r.GET("/api/projects", s.handleListProjects)
-	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
-	r.GET("/api/chapters", s.handleListChapters)
-	r.GET("/api/chapters/:name", s.handleGetChapter)
-	r.GET("/api/settings", s.handleGetSettings)
+	r.GET("/login", s.handleLoginPage)
+	r.POST("/login", s.handleLogin)
+	r.POST("/logout", s.handleLogout)
 
-	r.POST("/ingest", s.handleIngest)
-	r.POST("/api/chapters", s.handleSaveChapter)
-	r.POST("/api/chapters/order", s.handleSaveChapterOrder)
-	r.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
-	r.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
-	r.POST("/api/backups/create", s.handleCreateBackup)
-	r.POST("/api/backups/restore", s.handleRestoreBackup)
-	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
-	r.POST("/api/chapter-report/export", s.handleExportChapterBundle)
-	r.POST("/api/manuscript/export", s.handleExportManuscript)
-	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
-	r.POST("/api/history/export", s.handleExportHistory)
-	r.POST("/api/settings", s.handleSaveSettings)
-	r.POST("/api/projects", s.handleCreateProject)
-	r.POST("/api/projects/:name/switch", s.handleSwitchProject)
-	r.POST("/api/emotion-curve", s.handleEmotionCurve)
-	r.POST("/check/stream", s.handleCheckStream)
-	r.POST("/chat/stream", s.handleChatStream)
-	r.POST("/rewrite/stream", s.handleRewriteStream)
-	r.POST("/api/templates/apply", s.handleApplyTemplate)
-	r.POST("/api/writeback/timeline", s.handleWritebackTimeline)
-	r.POST("/api/writeback/foreshadow", s.handleWritebackForeshadow)
-	r.POST("/api/writeback/relationship", s.handleWritebackRelationship)
+	protected := r.Group("/")
+	protected.Use(s.requireAuth())
 
-	r.POST("/relationships", s.handleAddRelationship)
-	r.POST("/relationships/delete", s.handleDeleteRelationship)
+	protected.GET("/", s.handleIndex)
+	protected.GET("/chapters", s.handleChaptersPage)
+	protected.GET("/characters", s.handleCharacters)
+	protected.GET("/history", s.handleHistoryPage)
+	protected.GET("/settings", s.handleSettingsPage)
+	protected.GET("/styles", s.handleStylesPage)
+	protected.GET("/check", s.handleCheckPage)
+	protected.GET("/chat", s.handleChatPage)
+	protected.GET("/relationships", s.handleRelationshipsPage)
+	protected.GET("/timeline", s.handleTimelinePage)
+	protected.GET("/foreshadow", s.handleForeshadowPage)
+	protected.GET("/api/history/:id", s.handleGetHistoryEntry)
+	protected.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
+	protected.GET("/api/backups", s.handleListBackups)
+	protected.GET("/api/backups/:name/preview", s.handleGetBackupPreview)
+	protected.GET("/api/projects", s.handleListProjects)
+	protected.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
+	protected.GET("/api/chapters", s.handleListChapters)
+	protected.GET("/api/chapters/:name", s.handleGetChapter)
+	protected.GET("/api/settings", s.handleGetSettings)
 
-	r.POST("/timeline", s.handleAddTimelineEvent)
-	r.POST("/timeline/delete", s.handleDeleteTimelineEvent)
+	protected.POST("/ingest", s.handleIngest)
+	protected.POST("/api/chapters", s.handleSaveChapter)
+	protected.POST("/api/chapters/order", s.handleSaveChapterOrder)
+	protected.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
+	protected.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
+	protected.POST("/api/backups/create", s.handleCreateBackup)
+	protected.POST("/api/backups/restore", s.handleRestoreBackup)
+	protected.POST("/api/candidates/create", s.handleCreateCandidateDraft)
+	protected.POST("/api/chapter-report/export", s.handleExportChapterBundle)
+	protected.POST("/api/manuscript/export", s.handleExportManuscript)
+	protected.POST("/api/history/delete", s.handleDeleteHistoryEntry)
+	protected.POST("/api/history/export", s.handleExportHistory)
+	protected.POST("/api/settings", s.handleSaveSettings)
+	protected.POST("/api/projects", s.handleCreateProject)
+	protected.POST("/api/projects/:name/switch", s.handleSwitchProject)
+	protected.POST("/api/emotion-curve", s.handleEmotionCurve)
+	protected.POST("/check/stream", s.handleCheckStream)
+	protected.POST("/chat/stream", s.handleChatStream)
+	protected.POST("/rewrite/stream", s.handleRewriteStream)
+	protected.POST("/api/templates/apply", s.handleApplyTemplate)
+	protected.POST("/api/writeback/timeline", s.handleWritebackTimeline)
+	protected.POST("/api/writeback/foreshadow", s.handleWritebackForeshadow)
+	protected.POST("/api/writeback/relationship", s.handleWritebackRelationship)
 
-	r.POST("/foreshadow", s.handleAddForeshadow)
-	r.POST("/foreshadow/resolve", s.handleResolveForeshadow)
-	r.POST("/foreshadow/delete", s.handleDeleteForeshadow)
+	protected.POST("/relationships", s.handleAddRelationship)
+	protected.POST("/relationships/delete", s.handleDeleteRelationship)
 
-	r.POST("/export", s.handleExport)
+	protected.POST("/timeline", s.handleAddTimelineEvent)
+	protected.POST("/timeline/delete", s.handleDeleteTimelineEvent)
+
+	protected.POST("/foreshadow", s.handleAddForeshadow)
+	protected.POST("/foreshadow/resolve", s.handleResolveForeshadow)
+	protected.POST("/foreshadow/delete", s.handleDeleteForeshadow)
+
+	protected.POST("/export", s.handleExport)
 }
 
 func (s *Server) loadProjectState(name string) (*projectState, error) {

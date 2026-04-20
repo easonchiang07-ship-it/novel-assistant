@@ -2,6 +2,7 @@ package server
 
 import (
 	"novel-assistant/internal/config"
+	"novel-assistant/internal/vectorstore"
 	"testing"
 )
 
@@ -143,5 +144,91 @@ func TestSaveAndLoadChapterFile(t *testing.T) {
 	}
 	if loaded.Content != "林昊推門而入。" {
 		t.Fatalf("unexpected loaded content: %s", loaded.Content)
+	}
+}
+
+func TestChunkChapterUsesSceneMarkers(t *testing.T) {
+	t.Parallel()
+
+	content := "## Scene 1: Opening\nLin Hao stepped in.\n\n## Scene 2: Rain\nZhang Lei waited."
+	chunks := chunkChapter("第03章.md", content)
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+	}
+	assertChunk(t, chunks[0], vectorstore.Document{
+		ID:           "chapter_第03章.md_scene_1",
+		Type:         "chapter",
+		Content:      "Lin Hao stepped in.",
+		ChapterFile:  "第03章.md",
+		ChapterIndex: 3,
+		SceneIndex:   1,
+		ChunkType:    "scene",
+	})
+	assertChunk(t, chunks[1], vectorstore.Document{
+		ID:           "chapter_第03章.md_scene_2",
+		Type:         "chapter",
+		Content:      "Zhang Lei waited.",
+		ChapterFile:  "第03章.md",
+		ChapterIndex: 3,
+		SceneIndex:   2,
+		ChunkType:    "scene",
+	})
+}
+
+func TestChunkChapterFallsBackToParagraphs(t *testing.T) {
+	t.Parallel()
+
+	content := "第一段。\n\n第二段。\n\n\n\n第三段。"
+	chunks := chunkChapter("第08章.md", content)
+	if len(chunks) != 3 {
+		t.Fatalf("expected 3 paragraph chunks, got %d", len(chunks))
+	}
+	assertChunk(t, chunks[0], vectorstore.Document{
+		ID:           "chapter_第08章.md_para_1",
+		Type:         "chapter",
+		Content:      "第一段。",
+		ChapterFile:  "第08章.md",
+		ChapterIndex: 8,
+		SceneIndex:   1,
+		ChunkType:    "paragraph",
+	})
+	assertChunk(t, chunks[2], vectorstore.Document{
+		ID:           "chapter_第08章.md_para_3",
+		Type:         "chapter",
+		Content:      "第三段。",
+		ChapterFile:  "第08章.md",
+		ChapterIndex: 8,
+		SceneIndex:   3,
+		ChunkType:    "paragraph",
+	})
+}
+
+func TestChunkChapterReturnsEmptySliceForBlankContent(t *testing.T) {
+	t.Parallel()
+
+	chunks := chunkChapter("第01章.md", " \n\t ")
+	if len(chunks) != 0 {
+		t.Fatalf("expected no chunks, got %#v", chunks)
+	}
+}
+
+func TestExtractChapterIndexFromFilename(t *testing.T) {
+	t.Parallel()
+
+	if got := extractChapterIndex("第03章.md"); got != 3 {
+		t.Fatalf("expected 3, got %d", got)
+	}
+	if got := extractChapterIndex("prologue.md"); got != 0 {
+		t.Fatalf("expected fallback 0, got %d", got)
+	}
+	if got := extractChapterIndex("番外.md"); got != 0 {
+		t.Fatalf("expected fallback 0, got %d", got)
+	}
+}
+
+func assertChunk(t *testing.T, got, want vectorstore.Document) {
+	t.Helper()
+	if got.ID != want.ID || got.Type != want.Type || got.Content != want.Content || got.ChapterFile != want.ChapterFile || got.ChapterIndex != want.ChapterIndex || got.SceneIndex != want.SceneIndex || got.ChunkType != want.ChunkType {
+		t.Fatalf("unexpected chunk: got %#v want %#v", got, want)
 	}
 }

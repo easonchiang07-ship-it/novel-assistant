@@ -1,6 +1,9 @@
 package vectorstore
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestQueryFilteredScoredSupportsThresholdAndTypeFilters(t *testing.T) {
 	t.Parallel()
@@ -52,5 +55,37 @@ func TestQueryFilteredScoredRespectsTopK(t *testing.T) {
 	}
 	if results[0].Score < results[1].Score {
 		t.Fatalf("expected scores sorted descending, got %#v", results)
+	}
+}
+
+func TestDocumentMetadataSurvivesSaveLoad(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "store.json")
+	store := New(path)
+	store.Upsert(Document{
+		ID:           "chapter_第03章.md_scene_1",
+		Type:         "chapter",
+		Content:      "雨落下來。",
+		Embedding:    []float64{0.1, 0.2},
+		ChapterFile:  "第03章.md",
+		ChapterIndex: 3,
+		SceneIndex:   1,
+		ChunkType:    "scene",
+	})
+	if err := store.Save(); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	loaded := New(path)
+	if err := loaded.Load(); err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	items := loaded.QueryFilteredScored([]float64{0.1, 0.2}, 1, []string{"chapter"}, 0)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 document, got %d", len(items))
+	}
+	if items[0].ChapterFile != "第03章.md" || items[0].ChapterIndex != 3 || items[0].SceneIndex != 1 || items[0].ChunkType != "scene" {
+		t.Fatalf("unexpected metadata after reload: %#v", items[0].Document)
 	}
 }

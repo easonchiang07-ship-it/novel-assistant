@@ -116,6 +116,87 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	}
 }
 
+func TestIngestStoresMultipleChapterChunks(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第01章.md"), "## Scene 1: Opening\nA\n\n## Scene 2: Rain\nB")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Fatalf("read store: %v", err)
+	}
+	if strings.Count(string(raw), "\"type\": \"chapter\"") <= 1 {
+		t.Fatalf("expected multiple chapter documents in store.json, got %s", string(raw))
+	}
+}
+
+func TestCheckStreamSourcesExposeChunkMetadata(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第02章.md"), "## Scene 1: Rain Dock\n林昊在雨夜碼頭停下腳步。")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter": "林昊再次想起雨夜碼頭的腳步聲。",
+		"checks":  []string{"behavior"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(resp.Body))
+	}
+
+	items := decodeSSEItems(t, string(resp.Body))
+	if len(items) == 0 {
+		t.Fatalf("expected sources payload in stream, got %s", string(resp.Body))
+	}
+	found := false
+	for _, item := range items {
+		if item.ChapterFile == "第02章.md" && item.ChapterIndex == 2 && item.SceneIndex == 1 && item.ChunkType == "scene" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected chunk metadata in sources payload, got %#v", items)
+	}
+}
+
 func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -182,8 +263,26 @@ func TestCreateWorldstateSnapshotAndList(t *testing.T) {
 	if listResp.StatusCode != http.StatusOK {
 		t.Fatalf("worldstate list failed: %s", string(listResp.Body))
 	}
-	if !strings.Contains(string(listResp.Body), "\"chapter_file\":\"第02章.md\"") || !strings.Contains(string(listResp.Body), "已失去傳家寶劍") {
-		t.Fatalf("expected snapshot in list payload, got %s", string(listResp.Body))
+
+	var payload struct {
+		Items []struct {
+			ChapterFile string `json:"chapter_file"`
+			Changes     []struct {
+				Description string `json:"description"`
+			} `json:"changes"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(listResp.Body, &payload); err != nil {
+		t.Fatalf("decode worldstate list: %v", err)
+	}
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 snapshot in list payload, got %#v", payload.Items)
+	}
+	if payload.Items[0].ChapterFile != "第02章.md" {
+		t.Fatalf("expected chapter_file 第02章.md, got %#v", payload.Items[0])
+	}
+	if len(payload.Items[0].Changes) != 1 || payload.Items[0].Changes[0].Description != "已失去傳家寶劍" {
+		t.Fatalf("expected snapshot change in list payload, got %#v", payload.Items[0].Changes)
 	}
 }
 
@@ -663,6 +762,13 @@ type httpResult struct {
 	Body       []byte
 }
 
+type sourceEventItem struct {
+	ChapterFile  string `json:"chapter_file"`
+	ChapterIndex int    `json:"chapter_index"`
+	SceneIndex   int    `json:"scene_index"`
+	ChunkType    string `json:"chunk_type"`
+}
+
 func performJSONRequest(t *testing.T, baseURL, method, path string, payload any) httpResult {
 	t.Helper()
 
@@ -707,6 +813,39 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func decodeSSEItems(t *testing.T, body string) []sourceEventItem {
+	t.Helper()
+
+	type sourceEvent struct {
+		Items []sourceEventItem `json:"items"`
+	}
+
+	blocks := strings.Split(body, "\n\n")
+	for _, block := range blocks {
+		lines := strings.Split(block, "\n")
+		if len(lines) < 2 || strings.TrimSpace(lines[0]) != "event:sources" {
+			continue
+		}
+		var payloadLines []string
+		for _, line := range lines[1:] {
+			if strings.HasPrefix(line, "data:") {
+				payloadLines = append(payloadLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			}
+		}
+		if len(payloadLines) == 0 {
+			continue
+		}
+
+		var payload sourceEvent
+		if err := json.Unmarshal([]byte(strings.Join(payloadLines, "\n")), &payload); err != nil {
+			t.Fatalf("decode SSE sources payload: %v body=%s", err, body)
+		}
+		return payload.Items
+	}
+
+	return nil
 }
 
 func reconstructChapterForSceneEdit(t *testing.T, fullContent string, scenes []Scene, sceneTitle, editedContent string) string {

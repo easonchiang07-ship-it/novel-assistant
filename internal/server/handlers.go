@@ -43,6 +43,10 @@ type referenceSummary struct {
 	Score        float64 `json:"score"`
 	MatchReason  string  `json:"match_reason"`
 	ChapterMatch string  `json:"chapter_match"`
+	ChapterFile  string  `json:"chapter_file,omitempty"`
+	ChapterIndex int     `json:"chapter_index,omitempty"`
+	SceneIndex   int     `json:"scene_index,omitempty"`
+	ChunkType    string  `json:"chunk_type,omitempty"`
 }
 
 type retrievalSummary struct {
@@ -169,6 +173,10 @@ type vectorProfile struct {
 	Score        float64
 	MatchReason  string
 	ChapterMatch string
+	ChapterFile  string
+	ChapterIndex int
+	SceneIndex   int
+	ChunkType    string
 }
 
 func excerptText(content string) string {
@@ -264,6 +272,10 @@ func summarizeReferences(items []vectorProfile) []referenceSummary {
 			Score:        item.Score,
 			MatchReason:  item.MatchReason,
 			ChapterMatch: item.ChapterMatch,
+			ChapterFile:  item.ChapterFile,
+			ChapterIndex: item.ChapterIndex,
+			SceneIndex:   item.SceneIndex,
+			ChunkType:    item.ChunkType,
 		})
 	}
 	return summaries
@@ -399,7 +411,7 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile
 	docs := s.store.QueryFilteredScored(queryVec, topK, sources, threshold)
 	results := make([]vectorProfile, 0, len(docs))
 	for _, doc := range docs {
-		if doc.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && doc.ID == "chapter_"+chapterFile {
+		if doc.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && doc.ChapterFile == chapterFile {
 			continue
 		}
 		name := strings.TrimPrefix(doc.ID, "char_")
@@ -414,6 +426,10 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile
 			Score:        doc.Score,
 			MatchReason:  reason,
 			ChapterMatch: snippet,
+			ChapterFile:  doc.ChapterFile,
+			ChapterIndex: doc.ChapterIndex,
+			SceneIndex:   doc.SceneIndex,
+			ChunkType:    doc.ChunkType,
 		})
 	}
 	return results, nil

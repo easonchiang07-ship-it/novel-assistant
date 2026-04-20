@@ -41,3 +41,25 @@ func TestStylesTemplateRenderStyleAnalysisAvoidsInnerHTMLInterpolation(t *testin
 		t.Fatal("expected style analysis rendering to use textContent")
 	}
 }
+
+func TestCheckTemplateRendersSourceLocationLabel(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("../../web/templates/check.html")
+	if err != nil {
+		t.Fatalf("read check template: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "function formatSourceLocation(item)") {
+		t.Fatal("expected check template to define source location formatter")
+	}
+	if !strings.Contains(text, "第 ' + item.chapter_index + ' 章") {
+		t.Fatal("expected source formatter to mention chapter index labels")
+	}
+	if !strings.Contains(text, "Scene ' + item.scene_index") {
+		t.Fatal("expected source formatter to mention scene labels")
+	}
+	if !strings.Contains(text, "段落 ' + item.scene_index") {
+		t.Fatal("expected source formatter to mention paragraph labels")
+	}
+}

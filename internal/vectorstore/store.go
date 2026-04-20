@@ -9,10 +9,14 @@ import (
 )
 
 type Document struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"` // "character" | "world" | "style" | "chapter"
-	Content   string    `json:"content"`
-	Embedding []float64 `json:"embedding"`
+	ID           string    `json:"id"`
+	Type         string    `json:"type"` // "character" | "world" | "style" | "chapter"
+	Content      string    `json:"content"`
+	Embedding    []float64 `json:"embedding"`
+	ChapterFile  string    `json:"chapter_file,omitempty"`
+	ChapterIndex int       `json:"chapter_index,omitempty"`
+	SceneIndex   int       `json:"scene_index,omitempty"`
+	ChunkType    string    `json:"chunk_type,omitempty"`
 }
 
 type Store struct {

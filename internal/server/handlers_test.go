@@ -327,3 +327,30 @@ func TestResolveCharactersIncludesPronounCandidates(t *testing.T) {
 		t.Fatalf("unexpected resolved characters: %#v", chars)
 	}
 }
+
+func TestSummarizeReferencesIncludesChunkMetadata(t *testing.T) {
+	t.Parallel()
+
+	items := []vectorProfile{
+		{
+			Name:         "第02章_scene_1",
+			Type:         "chapter",
+			Content:      "林昊推門走進雨夜碼頭。",
+			Score:        0.91,
+			MatchReason:  "章節直接提到此參考名稱",
+			ChapterMatch: "…雨夜碼頭…",
+			ChapterFile:  "第02章.md",
+			ChapterIndex: 2,
+			SceneIndex:   1,
+			ChunkType:    "scene",
+		},
+	}
+
+	got := summarizeReferences(items)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 summary, got %#v", got)
+	}
+	if got[0].ChapterFile != "第02章.md" || got[0].ChapterIndex != 2 || got[0].SceneIndex != 1 || got[0].ChunkType != "scene" {
+		t.Fatalf("expected chunk metadata in summary, got %#v", got[0])
+	}
+}

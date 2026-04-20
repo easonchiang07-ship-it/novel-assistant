@@ -367,17 +367,15 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
 		}
-		vec, err := s.embedder.Embed(ctx, string(content))
-		if err != nil {
-			return fmt.Errorf("embed chapter %s: %w", file.Name(), err)
+		for _, chunk := range chunkChapter(file.Name(), string(content)) {
+			vec, err := s.embedder.Embed(ctx, chunk.Content)
+			if err != nil {
+				return fmt.Errorf("embed chapter chunk %s: %w", chunk.ID, err)
+			}
+			chunk.Embedding = vec
+			st.store.Upsert(chunk)
+			log.Printf("indexed chapter chunk: %s", chunk.ID)
 		}
-		st.store.Upsert(vectorstore.Document{
-			ID:        "chapter_" + file.Name(),
-			Type:      "chapter",
-			Content:   string(content),
-			Embedding: vec,
-		})
-		log.Printf("indexed chapter: %s", file.Name())
 	}
 
 	return st.store.Save()

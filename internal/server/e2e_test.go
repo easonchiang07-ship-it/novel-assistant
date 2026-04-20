@@ -116,6 +116,80 @@ func TestE2EChapterReviewRewriteWritebackAndHistoryExport(t *testing.T) {
 	}
 }
 
+func TestIngestStoresMultipleChapterChunks(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第01章.md"), "## Scene 1: Opening\nA\n\n## Scene 2: Rain\nB")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Fatalf("read store: %v", err)
+	}
+	if strings.Count(string(raw), "\"type\": \"chapter\"") <= 1 {
+		t.Fatalf("expected multiple chapter documents in store.json, got %s", string(raw))
+	}
+}
+
+func TestCheckStreamSourcesExposeChunkMetadata(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第02章.md"), "## Scene 1: Rain Dock\n林昊在雨夜碼頭停下腳步。")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter": "林昊再次想起雨夜碼頭的腳步聲。",
+		"checks":  []string{"behavior"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+	if !strings.Contains(body, "\"chapter_file\":\"第02章.md\"") ||
+		!strings.Contains(body, "\"chapter_index\":2") ||
+		!strings.Contains(body, "\"scene_index\":1") ||
+		!strings.Contains(body, "\"chunk_type\":\"scene\"") {
+		t.Fatalf("expected chunk metadata in sources payload, got %s", body)
+	}
+}
+
 func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
 	t.Parallel()
 

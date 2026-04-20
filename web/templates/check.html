@@ -678,15 +678,30 @@ function renderSources(items) {
     return;
   }
 
+  function formatSourceLocation(item) {
+    if (!item || item.type !== 'chapter') return '';
+    if (Number(item.chapter_index || 0) > 0) {
+      if (item.chunk_type === 'scene' && Number(item.scene_index || 0) > 0) {
+        return '第 ' + item.chapter_index + ' 章・Scene ' + item.scene_index;
+      }
+      if (item.chunk_type === 'paragraph' && Number(item.scene_index || 0) > 0) {
+        return '第 ' + item.chapter_index + ' 章・段落 ' + item.scene_index;
+      }
+      return '第 ' + item.chapter_index + ' 章';
+    }
+    return item.chapter_file || '';
+  }
+
   box.innerHTML = items.map(item => `
     <div class="source-card">
       <div class="source-meta">
-        <span class="source-type">${item.type}</span>
-        <strong>${item.name}</strong>
+        <span class="source-type">${escapeHTML(item.type)}</span>
+        <strong>${escapeHTML(item.name)}</strong>
       </div>
-      <div class="helper-text">相似度 ${(Number(item.score || 0) * 100).toFixed(1)}% ・ ${item.match_reason || '由向量相似度命中'}</div>
-      ${item.chapter_match ? `<div class="source-match">章節片段：${item.chapter_match}</div>` : ''}
-      <div class="source-excerpt">${item.excerpt || ''}</div>
+      <div class="helper-text">相似度 ${(Number(item.score || 0) * 100).toFixed(1)}% ・ ${escapeHTML(item.match_reason || '由向量相似度命中')}</div>
+      ${formatSourceLocation(item) ? `<div class="helper-text">${escapeHTML(formatSourceLocation(item))}</div>` : ''}
+      ${item.chapter_match ? `<div class="source-match">章節片段：${escapeHTML(item.chapter_match)}</div>` : ''}
+      <div class="source-excerpt">${escapeHTML(item.excerpt || '')}</div>
     </div>
   `).join('');
 }

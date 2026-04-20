@@ -3,9 +3,11 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"novel-assistant/internal/vectorstore"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,7 @@ type Scene struct {
 
 // sceneHeaderRe matches lines of the form "## Scene 1" or "## Scene 2: The Rain".
 var sceneHeaderRe = regexp.MustCompile(`(?m)^(## Scene \d+(?::\s*.+)?)$`)
+var chapterIndexRe = regexp.MustCompile(`第\s*(\d+)\s*章`)
 
 // parseScenes splits chapter content into scenes when scene markers are present.
 // Returns nil when no markers are found (caller treats content as a single implicit scene).
@@ -48,6 +51,65 @@ func parseScenes(content string) []Scene {
 		})
 	}
 	return scenes
+}
+
+func extractChapterIndex(name string) int {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	matches := chapterIndexRe.FindStringSubmatch(base)
+	if len(matches) != 2 {
+		return 0
+	}
+	value, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func chunkChapter(name string, content string) []vectorstore.Document {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil
+	}
+
+	chapterIndex := extractChapterIndex(name)
+	scenes := parseScenes(content)
+	if len(scenes) > 0 {
+		chunks := make([]vectorstore.Document, 0, len(scenes))
+		for _, scene := range scenes {
+			chunks = append(chunks, vectorstore.Document{
+				ID:           fmt.Sprintf("chapter_%s_scene_%d", name, scene.Index),
+				Type:         "chapter",
+				Content:      scene.Content,
+				ChapterFile:  name,
+				ChapterIndex: chapterIndex,
+				SceneIndex:   scene.Index,
+				ChunkType:    "scene",
+			})
+		}
+		return chunks
+	}
+
+	parts := strings.Split(content, "\n\n")
+	chunks := make([]vectorstore.Document, 0, len(parts))
+	paragraphIndex := 0
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		paragraphIndex++
+		chunks = append(chunks, vectorstore.Document{
+			ID:           fmt.Sprintf("chapter_%s_para_%d", name, paragraphIndex),
+			Type:         "chapter",
+			Content:      part,
+			ChapterFile:  name,
+			ChapterIndex: chapterIndex,
+			SceneIndex:   paragraphIndex,
+			ChunkType:    "paragraph",
+		})
+	}
+	return chunks
 }
 
 // sceneByTitle returns the first scene whose Title matches, or nil.

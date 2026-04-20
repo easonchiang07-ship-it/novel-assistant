@@ -15,6 +15,7 @@ import (
 	"novel-assistant/internal/tracker"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -573,6 +574,29 @@ func (s *Server) handleTimelinePage(c *gin.Context) {
 	})
 }
 
+func (s *Server) handleDiagnosticsPage(c *gin.Context) {
+	lastReindex, traces, latencyRows := s.diagnostics.snapshot()
+	vectorCounts := map[string]int{}
+	totalVectors := 0
+	if s.store != nil {
+		vectorCounts = s.store.CountsByType()
+		totalVectors = s.store.Len()
+	}
+
+	c.HTML(http.StatusOK, "diagnostics.html", gin.H{
+		"Title":            "Retrieval 診斷",
+		"VectorCount":      totalVectors,
+		"CharacterVectors": vectorCounts["character"],
+		"WorldVectors":     vectorCounts["world"],
+		"StyleVectors":     vectorCounts["style"],
+		"ChapterVectors":   vectorCounts["chapter"],
+		"LastReindex":      lastReindex,
+		"RecentTraces":     traces,
+		"LatencyRows":      latencyRows,
+		"IndexReady":       totalVectors > 0,
+	})
+}
+
 func (s *Server) handleForeshadowPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "foreshadow.html", gin.H{
 		"Title":       "伏筆追蹤",
@@ -584,10 +608,34 @@ func (s *Server) handleForeshadowPage(c *gin.Context) {
 
 func (s *Server) handleIngest(c *gin.Context) {
 	ctx := c.Request.Context()
-	if err := s.Ingest(ctx); err != nil {
+	startedAt := time.Now()
+	err := s.Ingest(ctx)
+	finishedAt := time.Now()
+	status := reindexStatus{
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: finishedAt.Sub(startedAt).Milliseconds(),
+		Success:    err == nil,
+		Characters: len(s.profiles.Characters),
+		Worlds:     len(s.profiles.Worlds),
+		Styles:     len(s.profiles.Styles),
+		VectorCount: func() int {
+			if s.store == nil {
+				return 0
+			}
+			return s.store.Len()
+		}(),
+	}
+	if chapters, listErr := s.listChapterFiles(); listErr == nil {
+		status.Chapters = len(chapters)
+	}
+	if err != nil {
+		status.Error = err.Error()
+		s.diagnostics.recordReindex(status)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.diagnostics.recordReindex(status)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "索引完成",
 		"characters": len(s.profiles.Characters),
@@ -666,7 +714,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
 			behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
 			activeRetrieval["behavior"] = summarizeRetrieval("behavior", behaviorOpts)
+			traceStarted := time.Now()
 			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["behavior"], req.ChapterTitle, req.ChapterFile, behaviorRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -676,7 +726,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if contains(req.Checks, "dialogue") {
 			dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 			activeRetrieval["dialogue"] = summarizeRetrieval("dialogue", dialogueOpts)
+			traceStarted := time.Now()
 			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["dialogue"], req.ChapterTitle, req.ChapterFile, dialogueRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -686,7 +738,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if contains(req.Checks, "world") {
 			worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
 			activeRetrieval["world"] = summarizeRetrieval("world", worldOpts)
+			traceStarted := time.Now()
 			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["world"], req.ChapterTitle, req.ChapterFile, worldRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -958,12 +1012,14 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer close(msgChan)
 
 		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
+		traceStarted := time.Now()
 		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
 			Sources:      append([]string(nil), activeRetrieval.Sources...),
 			TopK:         activeRetrieval.TopK,
 			Threshold:    activeRetrieval.Threshold,
 			ThresholdSet: true,
 		})
+		s.recordRetrievalTrace("rewrite", activeRetrieval, req.ChapterTitle, req.ChapterFile, references, refErr, time.Since(traceStarted))
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": gin.H{"rewrite": activeRetrieval}}}
 		if refErr != nil {

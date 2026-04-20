@@ -41,6 +41,7 @@ type Server struct {
 	globalDataDir  string
 	router         *gin.Engine
 	auth           *authManager
+	diagnostics    *retrievalDiagnostics
 	stateMu        sync.RWMutex
 	state          *projectState
 	profiles       *profile.Manager
@@ -69,6 +70,7 @@ func New(cfg *config.Config) (*Server, error) {
 		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
 		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
 		auth:          newAuthManager(cfg),
+		diagnostics:   newRetrievalDiagnostics(),
 	}
 	if s.globalDataDir == "" {
 		s.globalDataDir = "data"
@@ -138,6 +140,7 @@ func (s *Server) setupRoutes() {
 	protected.GET("/settings", s.handleSettingsPage)
 	protected.GET("/styles", s.handleStylesPage)
 	protected.GET("/check", s.handleCheckPage)
+	protected.GET("/diagnostics", s.handleDiagnosticsPage)
 	protected.GET("/chat", s.handleChatPage)
 	protected.GET("/relationships", s.handleRelationshipsPage)
 	protected.GET("/timeline", s.handleTimelinePage)

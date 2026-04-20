@@ -1,0 +1,157 @@
+{{define "diagnostics.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Retrieval 診斷 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>Retrieval 診斷</h1>
+      <p>集中查看 index 健康度、最近 reindex 狀態、retrieval trace 與延遲概況。</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-num">{{.VectorCount}}</div>
+        <div class="stat-label">總向量數</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.CharacterVectors}}</div>
+        <div class="stat-label">角色向量</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.WorldVectors}}</div>
+        <div class="stat-label">世界觀向量</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.StyleVectors}}</div>
+        <div class="stat-label">風格向量</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{.ChapterVectors}}</div>
+        <div class="stat-label">章節向量</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">{{len .RecentTraces}}</div>
+        <div class="stat-label">近期 trace</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>Index 健康度</h2>
+        <div class="helper-text">{{if .IndexReady}}目前已建立索引，可直接檢查 retrieval quality。{{else}}目前索引為空，請先重新索引後再觀察 trace。{{end}}</div>
+        <table style="margin-top:16px">
+          <thead>
+            <tr><th>類型</th><th>數量</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>角色</td><td>{{.CharacterVectors}}</td></tr>
+            <tr><td>世界觀</td><td>{{.WorldVectors}}</td></tr>
+            <tr><td>風格</td><td>{{.StyleVectors}}</td></tr>
+            <tr><td>章節</td><td>{{.ChapterVectors}}</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>最近一次 Reindex</h2>
+        {{if .LastReindex.FinishedAt.IsZero}}
+        <div class="helper-text">本次啟動後尚未執行重新索引。</div>
+        {{else}}
+        <div class="helper-text">完成時間：{{.LastReindex.FinishedAt.Format "2006-01-02 15:04:05"}}，耗時 {{.LastReindex.DurationMs}} ms</div>
+        <table style="margin-top:16px">
+          <tbody>
+            <tr><td>結果</td><td>{{if .LastReindex.Success}}成功{{else}}失敗{{end}}</td></tr>
+            <tr><td>角色</td><td>{{.LastReindex.Characters}}</td></tr>
+            <tr><td>世界觀</td><td>{{.LastReindex.Worlds}}</td></tr>
+            <tr><td>風格</td><td>{{.LastReindex.Styles}}</td></tr>
+            <tr><td>章節</td><td>{{.LastReindex.Chapters}}</td></tr>
+            <tr><td>向量總數</td><td>{{.LastReindex.VectorCount}}</td></tr>
+          </tbody>
+        </table>
+        {{if .LastReindex.Error}}
+        <div class="helper-text" style="margin-top:12px;color:#fca5a5">錯誤：{{.LastReindex.Error}}</div>
+        {{end}}
+        {{end}}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Latency Summary</h2>
+      {{if .LatencyRows}}
+      <table>
+        <thead>
+          <tr>
+            <th>流程</th>
+            <th>次數</th>
+            <th>成功</th>
+            <th>失敗</th>
+            <th>平均</th>
+            <th>最小</th>
+            <th>最大</th>
+            <th>最近一次</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .LatencyRows}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td>{{.Count}}</td>
+            <td>{{.SuccessCount}}</td>
+            <td>{{.FailureCount}}</td>
+            <td>{{.AvgMs}} ms</td>
+            <td>{{.MinMs}} ms</td>
+            <td>{{.MaxMs}} ms</td>
+            <td>{{.LastMs}} ms</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="helper-text">尚未有 retrieval latency 資料，先執行一次審查或修稿。</div>
+      {{end}}
+    </div>
+
+    <div class="card">
+      <h2>Recent Retrieval Traces</h2>
+      {{if .RecentTraces}}
+      {{range .RecentTraces}}
+      <div style="padding:14px 0;border-bottom:1px solid #2d2540">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <strong>{{.Flow}} / {{.Task}}</strong>
+          <span class="helper-text">{{.RecordedAt.Format "2006-01-02 15:04:05"}} ・ {{.LatencyMs}} ms</span>
+        </div>
+        <div class="helper-text" style="margin-top:6px">
+          章節：{{if .ChapterName}}{{.ChapterName}}{{else}}未命名章節{{end}} {{if .ChapterFile}}（{{.ChapterFile}}）{{end}}<br>
+          Index：{{if .IndexReady}}ready{{else}}empty{{end}} ・ 結果數：{{.ResultCount}} ・ 來源：{{if .Config.Sources}}{{range $i, $s := .Config.Sources}}{{if $i}}、{{end}}{{$s}}{{end}}{{else}}（無）{{end}} ・ Top-K：{{.Config.TopK}} ・ 門檻：{{printf "%.2f" .Config.Threshold}}
+        </div>
+        {{if .Error}}
+        <div class="helper-text" style="margin-top:8px;color:#fca5a5">錯誤：{{.Error}}</div>
+        {{end}}
+        {{if .Sources}}
+        <div style="margin-top:10px">
+          {{range .Sources}}
+          <div class="helper-text" style="margin-bottom:4px">[{{.Type}}] {{.Name}} ・ 分數 {{printf "%.3f" .Score}} ・ {{.MatchReason}}</div>
+          {{end}}
+        </div>
+        {{else}}
+        <div class="helper-text" style="margin-top:8px">本次沒有可顯示的 retrieval source。</div>
+        {{end}}
+      </div>
+      {{end}}
+      {{else}}
+      <div class="helper-text">尚未累積 retrieval trace，先執行一次審查或修稿。</div>
+      {{end}}
+    </div>
+  </main>
+</div>
+</body>
+</html>
+{{end}}

@@ -19,5 +19,38 @@ services:
     volumes:
       - ollama-data:/root/.ollama
 
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: novel-assistant-ollama-init
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: "no"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        echo "Waiting for Ollama to become ready..."
+        until ollama list >/dev/null 2>&1; do
+          sleep 2
+        done
+
+        ensure_model() {
+          model="$1"
+          if ollama list | awk 'NR > 1 { print $1 }' | grep -Fxq "$model"; then
+            echo "Model $model already exists, skipping pull."
+            return 0
+          fi
+          echo "Pulling model $model..."
+          ollama pull "$model"
+        }
+
+        ensure_model "llama3.2"
+        ensure_model "nomic-embed-text"
+
 volumes:
   ollama-data:

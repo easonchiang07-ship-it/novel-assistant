@@ -81,14 +81,8 @@ flowchart TD
 ### 環境需求
 
 - Go `1.21+`
-- 本地執行中的 [Ollama](https://ollama.com/)
-
-### 安裝模型
-
-```bash
-ollama pull llama3.2
-ollama pull nomic-embed-text
-```
+- 若要用 `go run ./cmd`，需要本地執行中的 [Ollama](https://ollama.com/)
+- 若要用容器流程，需安裝 Docker 與 Docker Compose
 
 ### 啟動專案
 
@@ -125,8 +119,10 @@ docker compose up --build
 
 - `app`：Go 網頁伺服器
 - `ollama`：本地 Ollama 容器
+- `ollama-init`：一次性初始化容器，會在缺少模型時自動 pull
 
 `docker-compose.yml` 會讀取本地 `.env`，並將 `./data` 掛載成持久化資料目錄。
+第一次啟動時，`ollama-init` 會先等待 Ollama 可用，再自動下載 `llama3.2` 與 `nomic-embed-text`。之後若共享的 Ollama volume 已經有這些模型，就會直接略過。
 
 ### 常用開發指令
 
@@ -228,7 +224,7 @@ data/
 - VSCode 顯示紅字，但 `go test` 和 `go build` 都正常：
   請直接用 VSCode 開 `novel-assistant` 資料夾，不要開外層 `gopl.io` workspace。
 - Docker 可以啟動，但審查送出失敗：
-  請確認 Ollama 容器已正常啟動，且所需模型已先 pull。
+  請確認 Ollama 容器已正常啟動；第一次啟動時也要等 `ollama-init` 完成必要模型下載。
 - `寫作風格` 沒有可選項目：
   請確認 `data/style/` 內已有 `.md` 檔案，並重新索引。
 - 審查一送出就失敗：

@@ -81,10 +81,11 @@ func (s *Server) runPipelineReview(
 	behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
 	dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 	worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
+	beforeChapter := resolveBeforeChapter(req.ChapterFile, behaviorOpts)
 	activeRetrieval := map[string]retrievalSummary{
-		"behavior": summarizeRetrieval("behavior", behaviorOpts),
-		"dialogue": summarizeRetrieval("dialogue", dialogueOpts),
-		"world":    summarizeRetrieval("world", worldOpts),
+		"behavior": summarizeRetrieval("behavior", behaviorOpts, beforeChapter),
+		"dialogue": summarizeRetrieval("dialogue", dialogueOpts, beforeChapter),
+		"world":    summarizeRetrieval("world", worldOpts, beforeChapter),
 	}
 
 	behaviorRefs, err := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)

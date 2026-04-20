@@ -81,14 +81,8 @@ flowchart TD
 ### 環境需求
 
 - Go `1.21+`
-- 本地執行中的 [Ollama](https://ollama.com/)
-
-### 安裝模型
-
-```bash
-ollama pull llama3.2
-ollama pull nomic-embed-text
-```
+- 若要用 `go run ./cmd`，需要本地執行中的 [Ollama](https://ollama.com/)
+- 若要用容器流程，需安裝 Docker 與 Docker Compose
 
 ### 啟動專案
 
@@ -98,6 +92,7 @@ go run ./cmd
 ```
 
 啟動後開啟 `http://localhost:8080`。
+第一次送出審查前，請先確認 Ollama 已有 `llama3.2` 與 `nomic-embed-text`，例如先執行 `ollama pull llama3.2` 和 `ollama pull nomic-embed-text`。
 
 ### 環境變數設定
 
@@ -118,15 +113,21 @@ cp .env.example .env
 ### Docker Compose
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+`.env` 會控制 compose 流程使用的 Ollama URL、預設模型名稱與對外開放的連接埠。
 
 這會啟動：
 
 - `app`：Go 網頁伺服器
 - `ollama`：本地 Ollama 容器
+- `ollama-init`：一次性初始化容器，會在缺少模型時自動 pull
 
 `docker-compose.yml` 會讀取本地 `.env`，並將 `./data` 掛載成持久化資料目錄。
+`app` 會先等待 Ollama health check 通過才啟動，因此第一次冷啟動後直接重新索引時，比較不容易因為 Ollama 尚未就緒而失敗。
+第一次啟動時，`ollama-init` 會先等待 Ollama 可用，再自動下載 `llama3.2` 與 `nomic-embed-text`。之後若共享的 Ollama volume 已經有這些模型，就會直接略過。
 
 ### 常用開發指令
 
@@ -195,7 +196,7 @@ data/
 
 1. 在 `data/` 下維護角色、世界觀與風格設定
 2. 點擊 `重新索引` 建立本地知識庫
-3. 在 `章節總覽` 查看字數、審查次數、候選角色 / 設定訊號
+3. 在 `章節總覽` 查看字數、審查次數、候選角色 / 設定訊號，以及預設放在 `data/chapters/` 裡可直接試跑的範例章節
 4. 在審查頁檢查或修稿單一章節
 5. 在 `審查歷史` 看 diff、回填編輯器，決定是否另存新版本
 6. 匯出單章完整報告，或把變化補記到關係圖、時間軸與伏筆追蹤
@@ -228,7 +229,7 @@ data/
 - VSCode 顯示紅字，但 `go test` 和 `go build` 都正常：
   請直接用 VSCode 開 `novel-assistant` 資料夾，不要開外層 `gopl.io` workspace。
 - Docker 可以啟動，但審查送出失敗：
-  請確認 Ollama 容器已正常啟動，且所需模型已先 pull。
+  請確認 Ollama 容器已正常啟動；第一次啟動時也要等 `ollama-init` 完成必要模型下載。
 - `寫作風格` 沒有可選項目：
   請確認 `data/style/` 內已有 `.md` 檔案，並重新索引。
 - 審查一送出就失敗：
@@ -258,6 +259,10 @@ data/
 ## 變更紀錄
 
 請見 [CHANGELOG.md](CHANGELOG.md)。
+
+## Release Checklist
+
+若要整理公開 release、更新 screenshots 或刷新 repo 資產，請依照 [docs/RELEASE_ASSET_CHECKLIST.md](docs/RELEASE_ASSET_CHECKLIST.md) 執行。
 
 ## 規劃文件
 

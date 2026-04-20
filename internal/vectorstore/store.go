@@ -77,6 +77,17 @@ func (s *Store) Len() int {
 	return len(s.docs)
 }
 
+func (s *Store) CountsByType() map[string]int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	counts := make(map[string]int)
+	for _, doc := range s.docs {
+		counts[doc.Type]++
+	}
+	return counts
+}
+
 func (s *Store) Query(queryVec []float64, topK int, docType string) []Document {
 	scored := s.QueryScored(queryVec, topK, docType)
 	out := make([]Document, 0, len(scored))

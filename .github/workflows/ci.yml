@@ -7,6 +7,41 @@ on:
   pull_request:
 
 jobs:
+  pr-size:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          labels=$(gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} --json labels --jq '.labels[].name')
+          if echo "$labels" | grep -q 'large-pr'; then
+            echo "large-pr label present, skipping size check."
+            exit 0
+          fi
+          lines=$(gh pr diff ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} | grep -cE '^[+-]' || true)
+          echo "Changed lines: $lines"
+          if [ "$lines" -gt 700 ]; then
+            echo "PR too large ($lines lines, limit 700). Add 'large-pr' label to exempt, or split into smaller PRs."
+            exit 1
+          fi
+
+      - name: Check branch name
+        run: |
+          branch="${{ github.head_ref }}"
+          if ! echo "$branch" | grep -qE '^(feat|fix|refactor|chore)/'; then
+            echo "Branch name must start with feat/, fix/, refactor/, or chore/"
+            exit 1
+          fi
+
   test:
     runs-on: ubuntu-latest
     steps:

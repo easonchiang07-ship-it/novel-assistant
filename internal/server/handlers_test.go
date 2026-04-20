@@ -282,3 +282,48 @@ func ginTestRouter(s *Server) *gin.Engine {
 	r.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
 	return r
 }
+
+func TestComputeRetrievalGapsReportsOnlyUnretrievedSignals(t *testing.T) {
+	t.Parallel()
+
+	chapter := "林昊走進夜港塔下。影潮契約已經啟動。"
+	retrieved := []vectorProfile{
+		{Name: "林昊", Type: "character"},
+	}
+
+	gaps := computeRetrievalGaps(chapter, []string{"林昊", "白璃"}, retrieved)
+
+	if len(gaps.MissingCharacters) != 0 {
+		t.Fatalf("expected retrieved known characters to be excluded, got %#v", gaps.MissingCharacters)
+	}
+	if len(gaps.MissingLocations) != 1 || gaps.MissingLocations[0] != "夜港塔下" {
+		t.Fatalf("expected missing location to be reported, got %#v", gaps.MissingLocations)
+	}
+	if len(gaps.MissingSettings) != 1 || gaps.MissingSettings[0] != "影潮契約" {
+		t.Fatalf("expected missing setting to be reported, got %#v", gaps.MissingSettings)
+	}
+}
+
+func TestResolveCharactersIncludesPronounCandidates(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		profiles: &profile.Manager{
+			Characters: []*profile.Character{
+				{Name: "林昊", RawContent: "# 角色：林昊\n- 個性：冷靜\n- 性別：男性"},
+				{Name: "白璃", RawContent: "# 角色：白璃\n- 個性：果斷\n- 性別：女性"},
+			},
+		},
+	}
+
+	chars := s.resolveCharacters(checkRequest{
+		Chapter: "林昊看著她，沒有立刻回答。",
+		Checks:  []string{"behavior"},
+	})
+	if len(chars) != 2 {
+		t.Fatalf("expected explicit and pronoun candidates, got %#v", chars)
+	}
+	if chars[0].Name != "林昊" || chars[1].Name != "白璃" {
+		t.Fatalf("unexpected resolved characters: %#v", chars)
+	}
+}

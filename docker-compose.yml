@@ -9,7 +9,8 @@ services:
     volumes:
       - ./data:/app/data
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
 
   ollama:
     image: ollama/ollama:latest
@@ -18,6 +19,53 @@ services:
       - "11434:11434"
     volumes:
       - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: novel-assistant-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: "no"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        echo "Waiting for Ollama to become ready..."
+        attempts=0
+        max_attempts=60
+        until ollama list >/dev/null 2>&1; do
+          attempts=$((attempts + 1))
+          if [ "$attempts" -ge "$max_attempts" ]; then
+            echo "Ollama did not become ready in time."
+            exit 1
+          fi
+          sleep 2
+        done
+
+        ensure_model() {
+          model="$1"
+          if ollama list | awk 'NR > 1 { print $1 }' | grep -Fq "${model}:"; then
+            echo "Model $model already exists, skipping pull."
+            return 0
+          fi
+          echo "Pulling model $model..."
+          ollama pull "$model"
+        }
+
+        ensure_model "llama3.2"
+        ensure_model "nomic-embed-text"
 
 volumes:
   ollama-data:

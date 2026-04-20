@@ -35,6 +35,10 @@
           <label for="project-port">服務 Port</label>
           <input type="text" id="project-port" value="{{.Project.Port}}">
         </div>
+        <div class="form-group">
+          <label for="backup-retention">備份保留數量</label>
+          <input type="number" id="backup-retention" min="1" max="100" value="{{.Project.BackupRetention}}">
+        </div>
         <div class="helper-text">修改 Ollama URL 或模型後會立即影響後續審查；若修改 Port，需重啟服務才會生效。</div>
       </div>
 
@@ -43,13 +47,14 @@
         <button class="btn btn-ghost" type="button" onclick="createBackup()">建立資料備份</button>
         <div class="form-group" style="margin-top:16px">
           <label for="backup-select">可還原備份</label>
-          <select id="backup-select">
+          <select id="backup-select" onchange="renderBackupPreview()">
             <option value="">選擇備份...</option>
             {{range .Backups}}
             <option value="{{.Name}}">{{.Name}}（{{.CreatedAt.Format "2006-01-02 15:04:05"}}）</option>
             {{end}}
           </select>
         </div>
+        <div id="backup-preview" class="helper-text" style="margin-top:12px">選取備份後，這裡會顯示章節數、角色數與快照摘要。</div>
         <button class="btn btn-danger" type="button" onclick="restoreBackup()">還原選取備份</button>
         <div id="backup-status" class="helper-text">每次備份都會將目前 `data/` 內的 Markdown / JSON 資料快照到 `data/backups/`。</div>
       </div>
@@ -152,6 +157,7 @@ const retrievalSources = {{ jsonJS .Settings.RetrievalSources }};
 const retrievalTopK = {{ jsonJS .Settings.RetrievalTopK }};
 const retrievalThreshold = {{ jsonJS .Settings.RetrievalThreshold }};
 const retrievalPresets = {{ jsonJS .Settings.Presets }} || {};
+const backupItems = {{ jsonJS .Backups }} || [];
 const presetTasks = [
   { key: 'behavior', label: '行為一致性' },
   { key: 'dialogue', label: '對白風格' },
@@ -174,6 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('global-retrieval-threshold').addEventListener('input', updateGlobalThresholdDisplay);
   updateGlobalThresholdDisplay();
   renderPresetEditors();
+  renderBackupPreview();
 });
 
 function updateGlobalThresholdDisplay() {
@@ -248,6 +255,26 @@ function collectRetrievalPresets() {
   return out;
 }
 
+function selectedBackupItem() {
+  const name = document.getElementById('backup-select').value;
+  return backupItems.find((item) => item.name === name) || null;
+}
+
+function backupPreviewText(item) {
+  if (!item || !item.preview) {
+    return '選取備份後，這裡會顯示章節數、角色數與快照摘要。';
+  }
+  const preview = item.preview;
+  const samples = Array.isArray(preview.chapter_samples) && preview.chapter_samples.length
+    ? ` 章節樣本：${preview.chapter_samples.join('、')}`
+    : '';
+  return `建立時間：${new Date(preview.created_at).toLocaleString()}，章節 ${preview.chapter_count}、角色 ${preview.character_count}、世界觀 ${preview.world_count}、風格 ${preview.style_count}、JSON 狀態 ${preview.json_file_count}、總檔案 ${preview.total_file_count}。${samples}`;
+}
+
+function renderBackupPreview() {
+  document.getElementById('backup-preview').textContent = backupPreviewText(selectedBackupItem());
+}
+
 async function saveSettings() {
   const status = document.getElementById('settings-status');
   status.textContent = '保存中...';
@@ -269,7 +296,8 @@ async function saveSettings() {
         ollama_url: document.getElementById('ollama-url').value.trim(),
         llm_model: document.getElementById('llm-model').value.trim(),
         embed_model: document.getElementById('embed-model').value.trim(),
-        port: document.getElementById('project-port').value.trim()
+        port: document.getElementById('project-port').value.trim(),
+        backup_retention: Math.max(1, Number(document.getElementById('backup-retention').value) || 1)
       })
     });
     const data = await resp.json();
@@ -303,7 +331,11 @@ async function restoreBackup() {
     alert('請先選擇要還原的備份');
     return;
   }
-  if (!confirm('要還原這份備份嗎？目前 data/ 內容會被覆蓋。')) return;
+  const item = selectedBackupItem();
+  const warning = item
+    ? `要還原 ${name} 嗎？\n\n這份快照包含 ${item.preview.chapter_count} 個章節、${item.preview.character_count} 個角色與 ${item.preview.total_file_count} 個檔案。\n還原前系統會先自動建立一份安全備份。`
+    : '要還原這份備份嗎？目前 data/ 內容會被覆蓋，且系統會先建立安全備份。';
+  if (!confirm(warning)) return;
 
   const status = document.getElementById('backup-status');
   status.textContent = '還原備份中...';

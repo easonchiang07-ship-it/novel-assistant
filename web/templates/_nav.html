@@ -8,6 +8,7 @@
       <li><a href="/characters"   {{if eq .Title "角色管理"}}class="active"{{end}}>角色管理</a></li>
       <li><a href="/styles"       {{if eq .Title "風格管理"}}class="active"{{end}}>風格管理</a></li>
       <li><a href="/check"        {{if eq .Title "一致性審查"}}class="active"{{end}}>一致性審查</a></li>
+      <li><a href="/diagnostics"  {{if eq .Title "Retrieval 診斷"}}class="active"{{end}}>Retrieval 診斷</a></li>
       <li><a href="/history"      {{if eq .Title "審查歷史"}}class="active"{{end}}>審查歷史</a></li>
       <li><a href="/settings"     {{if eq .Title "規則設定"}}class="active"{{end}}>規則設定</a></li>
       <li><a href="/relationships"{{if eq .Title "關係圖"}}class="active"{{end}}>關係圖</a></li>
@@ -17,9 +18,20 @@
     </ul>
   </nav>
   <div class="sidebar-footer">
+    <div id="project-switcher" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:0.85em;color:#888">專案：</span>
+      <select id="project-select" onchange="switchProject(this.value)" style="font-size:0.85em;flex:1;min-width:0"></select>
+      <button type="button" onclick="promptCreateProject()" style="font-size:0.8em">＋新增</button>
+    </div>
     <button class="btn-reindex" onclick="reindex()">重新索引</button>
+    {{if authEnabled}}
+    <form method="post" action="/logout" style="margin-top:10px">
+      <button class="btn-reindex" type="submit">登出</button>
+    </form>
+    {{end}}
   </div>
 </div>
+<script src="/static/workspace.js"></script>
 <script>
 function reindex() {
   fetch('/ingest', {method:'POST'})

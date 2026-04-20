@@ -9,7 +9,9 @@ import (
 	"log"
 	"net/http"
 	"novel-assistant/internal/checker"
+	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/exporter"
+	"novel-assistant/internal/extractor"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
@@ -18,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +32,8 @@ type streamEvent struct {
 	Text      string
 	Sources   []referenceSummary
 	Retrieval any
+	Gaps      *retrievalGaps
+	Conflicts []consistency.Conflict
 }
 
 type referenceSummary struct {
@@ -45,6 +50,13 @@ type retrievalSummary struct {
 	Sources   []string `json:"sources"`
 	TopK      int      `json:"top_k"`
 	Threshold float64  `json:"threshold"`
+}
+
+type retrievalGaps struct {
+	IndexReady        bool     `json:"index_ready"`
+	MissingCharacters []string `json:"missing_characters"`
+	MissingLocations  []string `json:"missing_locations"`
+	MissingSettings   []string `json:"missing_settings"`
 }
 
 type chanWriter struct {
@@ -194,6 +206,36 @@ func summarizeRetrieval(task string, opts retrievalOptions) retrievalSummary {
 	}
 }
 
+func buildConsistencyWorldContext(references []vectorProfile) string {
+	if len(references) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, ref := range references {
+		line := fmt.Sprintf("[%s] %s：%s", ref.Type, ref.Name, excerptText(ref.Content))
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Server) runConsistencyPrecheck(ctx context.Context, chapter, worldContext string, transcript *strings.Builder, msgChan chan<- streamEvent) {
+	if s.consistency == nil || strings.TrimSpace(worldContext) == "" {
+		return
+	}
+	conflicts, err := s.consistency.Check(ctx, chapter, worldContext)
+	if err != nil {
+		text := fmt.Sprintf("\n> 一致性預檢失敗，改為直接生成：%s\n", err.Error())
+		if transcript != nil {
+			transcript.WriteString(text)
+		}
+		msgChan <- streamEvent{Event: "chunk", Text: text}
+		return
+	}
+	if len(conflicts) > 0 {
+		msgChan <- streamEvent{Event: "conflict", Conflicts: conflicts}
+	}
+}
+
 func historyRetrievalConfig(opts retrievalSummary) reviewhistory.RetrievalConfig {
 	return reviewhistory.RetrievalConfig{
 		Sources:   append([]string(nil), opts.Sources...),
@@ -243,6 +285,33 @@ func filterReferencesByType(items []vectorProfile, refType string) []vectorProfi
 		}
 	}
 	return filtered
+}
+
+func computeRetrievalGaps(chapter string, knownNames []string, retrieved []vectorProfile) retrievalGaps {
+	signals := extractor.AnalyzeChapter(chapter, knownNames)
+
+	retrievedNames := make(map[string]struct{}, len(retrieved))
+	for _, ref := range retrieved {
+		retrievedNames[ref.Name] = struct{}{}
+	}
+
+	filterMissing := func(items []string) []string {
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			if _, ok := retrievedNames[item]; ok {
+				continue
+			}
+			out = append(out, item)
+		}
+		return out
+	}
+
+	return retrievalGaps{
+		IndexReady:        false,
+		MissingCharacters: filterMissing(signals.KnownCharacters),
+		MissingLocations:  filterMissing(signals.LocationCandidates),
+		MissingSettings:   filterMissing(signals.SettingCandidates),
+	}
 }
 
 func mergeReferenceLists(groups ...[]vectorProfile) []vectorProfile {
@@ -430,6 +499,7 @@ func (s *Server) resolveCharacters(req checkRequest) []*profile.Character {
 	names := req.Characters
 	if len(names) == 0 {
 		names = checker.ExtractNames(req.Chapter, s.profiles.AllNames())
+		names = mergeCharacterNames(names, pronounCharacterCandidates(req.Chapter, s.profiles.Characters)...)
 	}
 	if len(names) == 0 {
 		names = s.profiles.AllNames()
@@ -442,6 +512,77 @@ func (s *Server) resolveCharacters(req checkRequest) []*profile.Character {
 		}
 	}
 	return chars
+}
+
+func mergeCharacterNames(base []string, extra ...string) []string {
+	seen := make(map[string]struct{}, len(base)+len(extra))
+	merged := make([]string, 0, len(base)+len(extra))
+	for _, name := range append(append([]string(nil), base...), extra...) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged
+}
+
+func pronounCharacterCandidates(chapter string, chars []*profile.Character) []string {
+	chapter = strings.TrimSpace(chapter)
+	if chapter == "" || len(chars) == 0 {
+		return nil
+	}
+	wantsHe := strings.Contains(chapter, "他")
+	wantsShe := strings.Contains(chapter, "她")
+	if !wantsHe && !wantsShe {
+		return nil
+	}
+
+	out := make([]string, 0)
+	for _, char := range chars {
+		if char == nil || strings.TrimSpace(char.Name) == "" {
+			continue
+		}
+		pronouns := inferCharacterPronouns(char)
+		if wantsHe && contains(pronouns, "他") {
+			out = append(out, char.Name)
+			continue
+		}
+		if wantsShe && contains(pronouns, "她") {
+			out = append(out, char.Name)
+		}
+	}
+	return out
+}
+
+func inferCharacterPronouns(char *profile.Character) []string {
+	if char == nil {
+		return nil
+	}
+	text := strings.TrimSpace(char.RawContent)
+	if text == "" {
+		return nil
+	}
+	// Explicit gender keywords take priority. Pronoun occurrence in profile text
+	// is only used as a fallback when no explicit keyword is found, to avoid false
+	// positives when the profile mentions another character's pronouns.
+	hasHeKeyword := strings.Contains(text, "男性") || strings.Contains(text, "男生") || strings.Contains(text, "男孩") || strings.Contains(text, "少年")
+	hasSheKeyword := strings.Contains(text, "女性") || strings.Contains(text, "女生") || strings.Contains(text, "女孩") || strings.Contains(text, "少女")
+	hasHe := hasHeKeyword || (!hasSheKeyword && strings.Contains(text, "他"))
+	hasShe := hasSheKeyword || (!hasHeKeyword && strings.Contains(text, "她"))
+
+	out := make([]string, 0, 2)
+	if hasHe {
+		out = append(out, "他")
+	}
+	if hasShe {
+		out = append(out, "她")
+	}
+	return out
 }
 
 // ─── pages ───────────────────────────────────────────────────────────────────
@@ -622,6 +763,29 @@ func (s *Server) handleTimelinePage(c *gin.Context) {
 	})
 }
 
+func (s *Server) handleDiagnosticsPage(c *gin.Context) {
+	lastReindex, traces, latencyRows := s.diagnostics.snapshot()
+	vectorCounts := map[string]int{}
+	totalVectors := 0
+	if s.store != nil {
+		vectorCounts = s.store.CountsByType()
+		totalVectors = s.store.Len()
+	}
+
+	c.HTML(http.StatusOK, "diagnostics.html", gin.H{
+		"Title":            "Retrieval 診斷",
+		"VectorCount":      totalVectors,
+		"CharacterVectors": vectorCounts["character"],
+		"WorldVectors":     vectorCounts["world"],
+		"StyleVectors":     vectorCounts["style"],
+		"ChapterVectors":   vectorCounts["chapter"],
+		"LastReindex":      lastReindex,
+		"RecentTraces":     traces,
+		"LatencyRows":      latencyRows,
+		"IndexReady":       totalVectors > 0,
+	})
+}
+
 func (s *Server) handleForeshadowPage(c *gin.Context) {
 	c.HTML(http.StatusOK, "foreshadow.html", gin.H{
 		"Title":       "伏筆追蹤",
@@ -633,10 +797,34 @@ func (s *Server) handleForeshadowPage(c *gin.Context) {
 
 func (s *Server) handleIngest(c *gin.Context) {
 	ctx := c.Request.Context()
-	if err := s.Ingest(ctx); err != nil {
+	startedAt := time.Now()
+	err := s.Ingest(ctx)
+	finishedAt := time.Now()
+	status := reindexStatus{
+		StartedAt:  startedAt,
+		FinishedAt: finishedAt,
+		DurationMs: finishedAt.Sub(startedAt).Milliseconds(),
+		Success:    err == nil,
+		Characters: len(s.profiles.Characters),
+		Worlds:     len(s.profiles.Worlds),
+		Styles:     len(s.profiles.Styles),
+		VectorCount: func() int {
+			if s.store == nil {
+				return 0
+			}
+			return s.store.Len()
+		}(),
+	}
+	if chapters, listErr := s.listChapterFiles(); listErr == nil {
+		status.Chapters = len(chapters)
+	}
+	if err != nil {
+		status.Error = err.Error()
+		s.diagnostics.recordReindex(status)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	s.diagnostics.recordReindex(status)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "索引完成",
 		"characters": len(s.profiles.Characters),
@@ -697,6 +885,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		defer close(msgChan)
 
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
+		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		charsToCheck := s.resolveCharacters(req)
 		needsCharacters := len(req.Checks) == 0 || contains(req.Checks, "behavior") || contains(req.Checks, "dialogue")
 		if needsCharacters && len(charsToCheck) == 0 {
@@ -715,7 +904,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if len(req.Checks) == 0 || contains(req.Checks, "behavior") {
 			behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
 			activeRetrieval["behavior"] = summarizeRetrieval("behavior", behaviorOpts)
+			traceStarted := time.Now()
 			behaviorRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["behavior"], req.ChapterTitle, req.ChapterFile, behaviorRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -725,7 +916,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if contains(req.Checks, "dialogue") {
 			dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 			activeRetrieval["dialogue"] = summarizeRetrieval("dialogue", dialogueOpts)
+			traceStarted := time.Now()
 			dialogueRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["dialogue"], req.ChapterTitle, req.ChapterFile, dialogueRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -735,7 +928,9 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		if contains(req.Checks, "world") {
 			worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
 			activeRetrieval["world"] = summarizeRetrieval("world", worldOpts)
+			traceStarted := time.Now()
 			worldRefs, err = s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
+			s.recordRetrievalTrace("check", activeRetrieval["world"], req.ChapterTitle, req.ChapterFile, worldRefs, err, time.Since(traceStarted))
 			if err != nil {
 				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
 				transcript.WriteString(text)
@@ -746,8 +941,16 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": activeRetrieval}}
 
 		references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
+		indexReady := s.store != nil && s.store.Len() > 0
+		worldContext := buildConsistencyWorldContext(references)
 		if len(references) > 0 {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
+			gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), references)
+			gaps.IndexReady = indexReady
+			if len(gaps.MissingCharacters)+len(gaps.MissingLocations)+len(gaps.MissingSettings) > 0 {
+				msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
+			}
+			s.runConsistencyPrecheck(ctx, req.Chapter, worldContext, &transcript, msgChan)
 			transcript.WriteString("### 本地參考上下文\n\n")
 			msgChan <- streamEvent{Event: "chunk", Text: "### 本地參考上下文\n\n"}
 			for _, ref := range references {
@@ -759,6 +962,11 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			msgChan <- streamEvent{Event: "chunk", Text: "\n"}
 		} else {
 			msgChan <- streamEvent{Event: "sources", Sources: nil}
+			gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), nil)
+			gaps.IndexReady = indexReady
+			if len(gaps.MissingCharacters)+len(gaps.MissingLocations)+len(gaps.MissingSettings) > 0 {
+				msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
+			}
 		}
 
 		behaviorRefText := joinProfiles(behaviorRefs)
@@ -773,7 +981,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				transcript.WriteString("\n\n## 世界觀衝突審查\n\n")
 				msgChan <- streamEvent{Event: "chunk", Text: "\n\n## 世界觀衝突審查\n\n"}
 				worldPrompt := worldText + "\n\n【審查偏好】\n" + reviewBias
-				if err := s.checker.CheckWorldConflictStream(ctx, worldPrompt, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckWorldConflictWithSystemStream(ctx, worldStatePrefix, worldPrompt, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -788,7 +996,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			text := "\n\n## 黃金三章診斷\n\n"
 			transcript.WriteString(text)
 			msgChan <- streamEvent{Event: "chunk", Text: text}
-			if err := s.checker.DiagnoseOpeningStream(ctx, req.Chapter, cw); err != nil {
+			if err := s.checker.DiagnoseOpeningWithSystemStream(ctx, worldStatePrefix, req.Chapter, cw); err != nil {
 				if ctx.Err() == nil {
 					log.Printf("opening diagnosis: %v", err)
 					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
@@ -811,7 +1019,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				if behaviorRefText != "" {
 					profileText += "\n\n【補充參考資料】\n" + behaviorRefText
 				}
-				if err := s.checker.CheckBehaviorStream(ctx, profileText, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckBehaviorWithSystemStream(ctx, worldStatePrefix, profileText, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -832,7 +1040,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				if dialogueRefText != "" {
 					dialogueStyle += "\n\n【補充參考資料】\n" + dialogueRefText
 				}
-				if err := s.checker.CheckDialogueStream(ctx, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
+				if err := s.checker.CheckDialogueWithSystemStream(ctx, worldStatePrefix, char.Name, char.Personality, dialogueStyle, req.Chapter, cw); err != nil {
 					if ctx.Err() == nil {
 						text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 						transcript.WriteString(text)
@@ -856,7 +1064,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			transcript.WriteString(text)
 			msgChan <- streamEvent{Event: "chunk", Text: text}
 			stylePrompt := sg.RawContent + "\n\n【審查偏好】\n" + reviewBias
-			if err := s.checker.CheckStyleStream(ctx, stylePrompt, req.Chapter, cw); err != nil {
+			if err := s.checker.CheckStyleWithSystemStream(ctx, worldStatePrefix, stylePrompt, req.Chapter, cw); err != nil {
 				if ctx.Err() == nil {
 					text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 					transcript.WriteString(text)
@@ -912,6 +1120,14 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 			if msg.Event == "retrieval" {
 				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
+			if msg.Event == "gaps" {
+				c.SSEvent("gaps", msg.Gaps)
+				return true
+			}
+			if msg.Event == "conflict" {
+				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
 				return true
 			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})
@@ -997,13 +1213,16 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		defer cancel()
 		defer close(msgChan)
 
+		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		activeRetrieval := summarizeRetrieval("rewrite", mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval))
+		traceStarted := time.Now()
 		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
 			Sources:      append([]string(nil), activeRetrieval.Sources...),
 			TopK:         activeRetrieval.TopK,
 			Threshold:    activeRetrieval.Threshold,
 			ThresholdSet: true,
 		})
+		s.recordRetrievalTrace("rewrite", activeRetrieval, req.ChapterTitle, req.ChapterFile, references, refErr, time.Since(traceStarted))
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": gin.H{"rewrite": activeRetrieval}}}
 		if refErr != nil {
@@ -1013,6 +1232,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		} else {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
 		}
+		s.runConsistencyPrecheck(ctx, req.Chapter, buildConsistencyWorldContext(references), &transcript, msgChan)
 
 		var promptParts []string
 		promptParts = append(promptParts, instruction)
@@ -1034,9 +1254,9 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 
 		var rewriteErr error
 		if req.Mode == "sensory" {
-			rewriteErr = s.checker.EnhanceSensoryStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+			rewriteErr = s.checker.EnhanceSensoryWithSystemStream(ctx, worldStatePrefix, strings.Join(promptParts, "\n\n"), cw)
 		} else {
-			rewriteErr = s.checker.RewriteChapterStream(ctx, strings.Join(promptParts, "\n\n"), cw)
+			rewriteErr = s.checker.RewriteChapterWithSystemStream(ctx, worldStatePrefix, strings.Join(promptParts, "\n\n"), cw)
 		}
 		if rewriteErr != nil {
 			if ctx.Err() == nil {
@@ -1094,6 +1314,10 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 			}
 			if msg.Event == "retrieval" {
 				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
+			if msg.Event == "conflict" {
+				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
 				return true
 			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})

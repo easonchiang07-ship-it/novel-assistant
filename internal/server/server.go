@@ -8,6 +8,7 @@ import (
 	"log"
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
+	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/projectsettings"
@@ -15,6 +16,8 @@ import (
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
+	"novel-assistant/internal/workspace"
+	"novel-assistant/internal/worldstate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,73 +26,79 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type projectState struct {
+	dataDir       string
+	profiles      *profile.Manager
+	store         *vectorstore.Store
+	project       *projectsettings.Store
+	rules         *reviewrules.Store
+	history       *reviewhistory.Store
+	relationships *tracker.RelationshipTracker
+	timeline      *tracker.TimelineTracker
+	foreshadow    *tracker.ForeshadowTracker
+	worldstate    *worldstate.Store
+}
+
 type Server struct {
 	cfg            *config.Config
+	globalDataDir  string
 	router         *gin.Engine
+	auth           *authManager
+	diagnostics    *retrievalDiagnostics
+	stateMu        sync.RWMutex
+	state          *projectState
 	profiles       *profile.Manager
 	store          *vectorstore.Store
 	project        *projectsettings.Store
 	embedder       *embedder.OllamaEmbedder
 	checker        *checker.Checker
+	consistency    *consistency.Checker
 	rules          *reviewrules.Store
 	history        *reviewhistory.Store
 	relationships  *tracker.RelationshipTracker
 	timeline       *tracker.TimelineTracker
 	foreshadow     *tracker.ForeshadowTracker
+	worldstate     *worldstate.Store
 	chapterOrderMu sync.RWMutex
 	scenePlansMu   sync.RWMutex
 }
 
 func New(cfg *config.Config) (*Server, error) {
-	s := &Server{cfg: cfg}
+	idx, err := workspace.EnsureIndex()
+	if err != nil {
+		return nil, fmt.Errorf("load workspace index: %w", err)
+	}
 
-	s.project = projectsettings.New(cfg.DataDir+"/project_settings.json", projectsettings.Settings{
+	s := &Server{
+		cfg:           cfg,
+		globalDataDir: cfg.DataDir,
+		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
+		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
+		auth:          newAuthManager(cfg),
+		diagnostics:   newRetrievalDiagnostics(),
+	}
+	s.consistency = consistency.New(s.checker)
+	if s.globalDataDir == "" {
+		s.globalDataDir = "data"
+	}
+
+	s.project = projectsettings.New(filepath.Join(s.globalDataDir, "project_settings.json"), projectsettings.Settings{
 		OllamaURL:  cfg.OllamaURL,
 		LLMModel:   cfg.LLMModel,
 		EmbedModel: cfg.EmbedModel,
 		Port:       cfg.Port,
-		DataDir:    cfg.DataDir,
+		DataDir:    s.globalDataDir,
 	})
 	if err := s.project.Load(); err != nil {
 		log.Printf("project settings load: %v", err)
 	}
+
+	st, err := s.loadProjectState(idx.Active)
+	if err != nil {
+		return nil, fmt.Errorf("load project state: %w", err)
+	}
+	s.setProjectState(st)
 	s.applyProjectSettings()
-
-	s.profiles = profile.NewManager(cfg.DataDir)
-	if err := s.profiles.Load(); err != nil {
-		log.Printf("profiles load: %v", err)
-	}
-
-	s.store = vectorstore.New(cfg.DataDir + "/store.json")
-	if err := s.store.Load(); err != nil {
-		log.Printf("store load: %v", err)
-	}
-
-	s.embedder = embedder.New(cfg.OllamaURL, cfg.EmbedModel)
-	s.checker = checker.New(cfg.OllamaURL, cfg.LLMModel)
-	s.rules = reviewrules.New(cfg.DataDir + "/review_rules.json")
-	if err := s.rules.Load(); err != nil {
-		log.Printf("review rules load: %v", err)
-	}
-	s.history = reviewhistory.New(cfg.DataDir + "/reviews.json")
-	if err := s.history.Load(); err != nil {
-		log.Printf("review history load: %v", err)
-	}
-
-	s.relationships = tracker.NewRelationshipTracker(cfg.DataDir + "/relationships.json")
-	if err := s.relationships.Load(); err != nil {
-		log.Printf("relationships load: %v", err)
-	}
-
-	s.timeline = tracker.NewTimelineTracker(cfg.DataDir + "/timeline.json")
-	if err := s.timeline.Load(); err != nil {
-		log.Printf("timeline load: %v", err)
-	}
-
-	s.foreshadow = tracker.NewForeshadowTracker(cfg.DataDir + "/foreshadow.json")
-	if err := s.foreshadow.Load(); err != nil {
-		log.Printf("foreshadow load: %v", err)
-	}
 
 	gin.SetMode(gin.ReleaseMode)
 	s.router = gin.Default()
@@ -109,6 +118,9 @@ func New(cfg *config.Config) (*Server, error) {
 			}
 			return false
 		},
+		"authEnabled": func() bool {
+			return s.auth != nil && s.auth.Enabled()
+		},
 	})
 	s.router.LoadHTMLGlob("web/templates/*.html")
 	s.router.Static("/static", "web/static")
@@ -120,74 +132,193 @@ func New(cfg *config.Config) (*Server, error) {
 func (s *Server) setupRoutes() {
 	r := s.router
 
-	r.GET("/", s.handleIndex)
-	r.GET("/chapters", s.handleChaptersPage)
-	r.GET("/characters", s.handleCharacters)
-	r.GET("/history", s.handleHistoryPage)
-	r.GET("/settings", s.handleSettingsPage)
-	r.GET("/styles", s.handleStylesPage)
-	r.GET("/check", s.handleCheckPage)
-	r.GET("/chat", s.handleChatPage)
-	r.GET("/relationships", s.handleRelationshipsPage)
-	r.GET("/timeline", s.handleTimelinePage)
-	r.GET("/foreshadow", s.handleForeshadowPage)
-	r.GET("/api/history/:id", s.handleGetHistoryEntry)
-	r.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
-	r.GET("/api/backups", s.handleListBackups)
-	r.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
-	r.GET("/api/chapters", s.handleListChapters)
-	r.GET("/api/chapters/:name", s.handleGetChapter)
-	r.GET("/api/settings", s.handleGetSettings)
+	r.GET("/login", s.handleLoginPage)
+	r.POST("/login", s.handleLogin)
+	r.POST("/logout", s.handleLogout)
 
-	r.POST("/ingest", s.handleIngest)
-	r.POST("/api/chapters", s.handleSaveChapter)
-	r.POST("/api/chapters/order", s.handleSaveChapterOrder)
-	r.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
-	r.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
-	r.POST("/api/backups/create", s.handleCreateBackup)
-	r.POST("/api/backups/restore", s.handleRestoreBackup)
-	r.POST("/api/candidates/create", s.handleCreateCandidateDraft)
-	r.POST("/api/chapter-report/export", s.handleExportChapterBundle)
-	r.POST("/api/manuscript/export", s.handleExportManuscript)
-	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
-	r.POST("/api/history/export", s.handleExportHistory)
-	r.POST("/api/styles/analyze", s.handleAnalyzeStyle)
-	r.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
-	r.POST("/api/settings", s.handleSaveSettings)
-	r.POST("/api/emotion-curve", s.handleEmotionCurve)
-	r.POST("/check/stream", s.handleCheckStream)
-	r.POST("/chat/stream", s.handleChatStream)
-	r.POST("/rewrite/stream", s.handleRewriteStream)
-	r.POST("/api/templates/apply", s.handleApplyTemplate)
-	r.POST("/api/writeback/timeline", s.handleWritebackTimeline)
-	r.POST("/api/writeback/foreshadow", s.handleWritebackForeshadow)
-	r.POST("/api/writeback/relationship", s.handleWritebackRelationship)
+	protected := r.Group("/")
+	protected.Use(s.requireAuth())
 
-	r.POST("/relationships", s.handleAddRelationship)
-	r.POST("/relationships/delete", s.handleDeleteRelationship)
+	protected.GET("/", s.handleIndex)
+	protected.GET("/chapters", s.handleChaptersPage)
+	protected.GET("/characters", s.handleCharacters)
+	protected.GET("/history", s.handleHistoryPage)
+	protected.GET("/settings", s.handleSettingsPage)
+	protected.GET("/styles", s.handleStylesPage)
+	protected.GET("/check", s.handleCheckPage)
+	protected.GET("/diagnostics", s.handleDiagnosticsPage)
+	protected.GET("/chat", s.handleChatPage)
+	protected.GET("/relationships", s.handleRelationshipsPage)
+	protected.GET("/timeline", s.handleTimelinePage)
+	protected.GET("/foreshadow", s.handleForeshadowPage)
+	protected.GET("/api/history/:id", s.handleGetHistoryEntry)
+	protected.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
+	protected.GET("/api/backups", s.handleListBackups)
+	protected.GET("/api/backups/:name/preview", s.handleGetBackupPreview)
+	protected.GET("/api/projects", s.handleListProjects)
+	protected.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
+	protected.GET("/api/chapters", s.handleListChapters)
+	protected.GET("/api/chapters/:name", s.handleGetChapter)
+	protected.GET("/api/settings", s.handleGetSettings)
+	protected.GET("/api/worldstate", s.handleListWorldstate)
 
-	r.POST("/timeline", s.handleAddTimelineEvent)
-	r.POST("/timeline/delete", s.handleDeleteTimelineEvent)
+	protected.POST("/ingest", s.handleIngest)
+	protected.POST("/api/chapters", s.handleSaveChapter)
+	protected.POST("/api/chapters/:name/snapshot", s.handleCreateWorldstateSnapshot)
+	protected.POST("/api/chapters/order", s.handleSaveChapterOrder)
+	protected.POST("/api/chapters/:name/scenes/plan", s.handleSaveScenePlan)
+	protected.POST("/api/chapters/:name/scenes/order", s.handleSaveSceneOrder)
+	protected.POST("/api/backups/create", s.handleCreateBackup)
+	protected.POST("/api/backups/restore", s.handleRestoreBackup)
+	protected.POST("/api/candidates/create", s.handleCreateCandidateDraft)
+	protected.POST("/api/chapter-report/export", s.handleExportChapterBundle)
+	protected.POST("/api/manuscript/export", s.handleExportManuscript)
+	protected.POST("/api/history/delete", s.handleDeleteHistoryEntry)
+	protected.POST("/api/history/export", s.handleExportHistory)
+	protected.POST("/api/styles/analyze", s.handleAnalyzeStyle)
+	protected.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
+	protected.POST("/api/settings", s.handleSaveSettings)
+	protected.POST("/api/projects", s.handleCreateProject)
+	protected.POST("/api/projects/:name/switch", s.handleSwitchProject)
+	protected.POST("/api/emotion-curve", s.handleEmotionCurve)
+	protected.POST("/check/stream", s.handleCheckStream)
+	protected.POST("/chat/stream", s.handleChatStream)
+	protected.POST("/rewrite/stream", s.handleRewriteStream)
+	protected.POST("/api/templates/apply", s.handleApplyTemplate)
+	protected.POST("/api/writeback/timeline", s.handleWritebackTimeline)
+	protected.POST("/api/writeback/foreshadow", s.handleWritebackForeshadow)
+	protected.POST("/api/writeback/relationship", s.handleWritebackRelationship)
 
-	r.POST("/foreshadow", s.handleAddForeshadow)
-	r.POST("/foreshadow/resolve", s.handleResolveForeshadow)
-	r.POST("/foreshadow/delete", s.handleDeleteForeshadow)
+	protected.POST("/relationships", s.handleAddRelationship)
+	protected.POST("/relationships/delete", s.handleDeleteRelationship)
 
-	r.POST("/export", s.handleExport)
+	protected.POST("/timeline", s.handleAddTimelineEvent)
+	protected.POST("/timeline/delete", s.handleDeleteTimelineEvent)
+
+	protected.POST("/foreshadow", s.handleAddForeshadow)
+	protected.POST("/foreshadow/resolve", s.handleResolveForeshadow)
+	protected.POST("/foreshadow/delete", s.handleDeleteForeshadow)
+
+	protected.POST("/export", s.handleExport)
+}
+
+func (s *Server) loadProjectState(name string) (*projectState, error) {
+	dataDir := workspace.ProjectDataDir(name)
+
+	st := &projectState{dataDir: dataDir}
+	st.project = s.project
+
+	st.profiles = profile.NewManager(dataDir)
+	if err := st.profiles.Load(); err != nil {
+		log.Printf("profiles load: %v", err)
+	}
+
+	st.store = vectorstore.New(filepath.Join(dataDir, "store.json"))
+	if err := st.store.Load(); err != nil {
+		log.Printf("store load: %v", err)
+	}
+
+	st.rules = reviewrules.New(filepath.Join(dataDir, "review_rules.json"))
+	if err := st.rules.Load(); err != nil {
+		log.Printf("review rules load: %v", err)
+	}
+
+	st.history = reviewhistory.New(filepath.Join(dataDir, "reviews.json"))
+	if err := st.history.Load(); err != nil {
+		log.Printf("review history load: %v", err)
+	}
+
+	st.relationships = tracker.NewRelationshipTracker(filepath.Join(dataDir, "relationships.json"))
+	if err := st.relationships.Load(); err != nil {
+		log.Printf("relationships load: %v", err)
+	}
+
+	st.timeline = tracker.NewTimelineTracker(filepath.Join(dataDir, "timeline.json"))
+	if err := st.timeline.Load(); err != nil {
+		log.Printf("timeline load: %v", err)
+	}
+
+	st.foreshadow = tracker.NewForeshadowTracker(filepath.Join(dataDir, "foreshadow.json"))
+	if err := st.foreshadow.Load(); err != nil {
+		log.Printf("foreshadow load: %v", err)
+	}
+
+	st.worldstate = worldstate.New(filepath.Join(dataDir, "worldstate.json"))
+	if err := st.worldstate.Load(); err != nil {
+		log.Printf("worldstate load: %v", err)
+	}
+
+	return st, nil
+}
+
+func (s *Server) currentState() *projectState {
+	s.stateMu.RLock()
+	st := s.state
+	s.stateMu.RUnlock()
+	if st != nil {
+		return st
+	}
+	if s.profiles == nil && s.store == nil && s.project == nil && s.rules == nil && s.history == nil &&
+		s.relationships == nil && s.timeline == nil && s.foreshadow == nil && s.worldstate == nil {
+		return nil
+	}
+	dataDir := s.cfg.DataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	return &projectState{
+		dataDir:       dataDir,
+		profiles:      s.profiles,
+		store:         s.store,
+		project:       s.project,
+		rules:         s.rules,
+		history:       s.history,
+		relationships: s.relationships,
+		timeline:      s.timeline,
+		foreshadow:    s.foreshadow,
+		worldstate:    s.worldstate,
+	}
+}
+
+func (s *Server) setProjectState(st *projectState) {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	s.state = st
+	s.profiles = st.profiles
+	s.store = st.store
+	s.project = st.project
+	s.rules = st.rules
+	s.history = st.history
+	s.relationships = st.relationships
+	s.timeline = st.timeline
+	s.foreshadow = st.foreshadow
+	s.worldstate = st.worldstate
+	s.cfg.DataDir = st.dataDir
+}
+
+func (s *Server) switchProject(name string) error {
+	newState, err := s.loadProjectState(name)
+	if err != nil {
+		return err
+	}
+	s.setProjectState(newState)
+	s.applyProjectSettings()
+	return nil
 }
 
 func (s *Server) Ingest(ctx context.Context) error {
-	if err := s.profiles.Load(); err != nil {
+	st := s.currentState()
+	if err := st.profiles.Load(); err != nil {
 		return fmt.Errorf("load profiles: %w", err)
 	}
-	s.store.Clear()
+	st.store.Clear()
 
-	for _, char := range s.profiles.Characters {
+	for _, char := range st.profiles.Characters {
 		vec, err := s.embedder.Embed(ctx, char.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed %s: %w", char.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "char_" + char.Name,
 			Type:      "character",
 			Content:   char.RawContent,
@@ -196,12 +327,12 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed character: %s", char.Name)
 	}
 
-	for _, world := range s.profiles.Worlds {
+	for _, world := range st.profiles.Worlds {
 		vec, err := s.embedder.Embed(ctx, world.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed world %s: %w", world.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "world_" + world.Name,
 			Type:      "world",
 			Content:   world.RawContent,
@@ -210,12 +341,12 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed world: %s", world.Name)
 	}
 
-	for _, style := range s.profiles.Styles {
+	for _, style := range st.profiles.Styles {
 		vec, err := s.embedder.Embed(ctx, style.RawContent)
 		if err != nil {
 			return fmt.Errorf("embed style %s: %w", style.Name, err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "style_" + style.Name,
 			Type:      "style",
 			Content:   style.RawContent,
@@ -224,7 +355,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed style: %s", style.Name)
 	}
 
-	files, err := os.ReadDir(s.chapterDir())
+	files, err := os.ReadDir(chapterDirFor(st.dataDir))
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("list chapters: %w", err)
 	}
@@ -232,7 +363,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if file.IsDir() || !strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(s.chapterDir(), file.Name()))
+		content, err := os.ReadFile(filepath.Join(chapterDirFor(st.dataDir), file.Name()))
 		if err != nil {
 			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
 		}
@@ -240,7 +371,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("embed chapter %s: %w", file.Name(), err)
 		}
-		s.store.Upsert(vectorstore.Document{
+		st.store.Upsert(vectorstore.Document{
 			ID:        "chapter_" + file.Name(),
 			Type:      "chapter",
 			Content:   string(content),
@@ -249,7 +380,7 @@ func (s *Server) Ingest(ctx context.Context) error {
 		log.Printf("indexed chapter: %s", file.Name())
 	}
 
-	return s.store.Save()
+	return st.store.Save()
 }
 
 func (s *Server) Run() error {
@@ -257,12 +388,18 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) applyProjectSettings() {
+	if s.project == nil {
+		return
+	}
 	settings := s.project.Get()
 	s.cfg.OllamaURL = settings.OllamaURL
 	s.cfg.LLMModel = settings.LLMModel
 	s.cfg.EmbedModel = settings.EmbedModel
 	s.cfg.Port = settings.Port
-	if settings.DataDir != "" {
-		s.cfg.DataDir = settings.DataDir
+	if st := s.currentState(); st != nil {
+		s.cfg.DataDir = st.dataDir
 	}
+	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
+	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+	s.consistency = consistency.New(s.checker)
 }

@@ -188,6 +188,14 @@
           <div id="source-box" class="source-box">
             <div class="empty-state">尚未開始審查。重新索引後，這裡會顯示本次引用的角色、世界觀與風格資料。</div>
           </div>
+          <div id="gaps-box" style="display:none;margin-top:12px;padding:10px 12px;background:#1a1625;border:1px solid #3b2f5e;border-radius:8px">
+            <div class="helper-text" style="font-weight:600;margin-bottom:6px;color:#c084fc">⚠ 潛在盲點提示</div>
+            <div id="gaps-content" class="helper-text" style="line-height:1.9"></div>
+          </div>
+          <div id="conflict-box" style="display:none;margin-top:12px;padding:10px 12px;background:#201613;border:1px solid #7c2d12;border-radius:8px">
+            <div class="helper-text" style="font-weight:600;margin-bottom:6px;color:#fca5a5">⚠ 生成前邏輯衝突預檢</div>
+            <div id="conflict-content" class="helper-text" style="line-height:1.9"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -683,6 +691,63 @@ function renderSources(items) {
   `).join('');
 }
 
+function renderGaps(gaps) {
+  const box = document.getElementById('gaps-box');
+  const content = document.getElementById('gaps-content');
+  if (!gaps) {
+    box.style.display = 'none';
+    content.textContent = '';
+    return;
+  }
+
+  const chars = gaps.missing_characters || [];
+  const locs = gaps.missing_locations || [];
+  const sets = gaps.missing_settings || [];
+  if (!chars.length && !locs.length && !sets.length) {
+    box.style.display = 'none';
+    content.textContent = '';
+    return;
+  }
+
+  const lines = [];
+  if (chars.length) lines.push('角色：' + chars.join('、'));
+  if (locs.length) lines.push('地點：' + locs.join('、'));
+  if (sets.length) lines.push('設定：' + sets.join('、'));
+
+  const intro = gaps.index_ready
+    ? '以下名稱出現在章節中，但未命中任何參考文件，可能影響審查準確度：'
+    : '尚未建立索引，以下名稱目前沒有任何索引參考可對照：';
+  content.textContent = intro + '\n' + lines.join('\n');
+  box.style.display = 'block';
+}
+
+function renderConflicts(conflicts) {
+  const box = document.getElementById('conflict-box');
+  const content = document.getElementById('conflict-content');
+  if (!conflicts || !conflicts.length) {
+    box.style.display = 'none';
+    content.innerHTML = '';
+    return;
+  }
+
+  const hasError = conflicts.some(item => item.severity === 'error');
+  box.style.background = hasError ? '#201613' : '#241f12';
+  box.style.borderColor = hasError ? '#7c2d12' : '#a16207';
+
+  content.innerHTML = conflicts.map((item) => {
+    const color = item.severity === 'error' ? '#fca5a5' : '#fde68a';
+    const reference = item.reference ? `<div style="color:#94a3b8">依據：${escapeHTML(item.reference)}</div>` : '';
+    return `
+      <div style="margin-bottom:10px">
+        <div style="color:${color};font-weight:600">${item.severity === 'error' ? 'Error' : 'Warning'}</div>
+        <div>${escapeHTML(item.description || '')}</div>
+        ${reference}
+      </div>
+    `;
+  }).join('');
+  box.style.display = 'block';
+}
+
 function escapeHTML(text) {
   return String(text || '')
     .replaceAll('&', '&amp;')
@@ -904,6 +969,8 @@ async function runCheck() {
 
   resultBox.textContent = '分析中...\n';
   renderSources([]);
+  renderGaps(null);
+  renderConflicts([]);
   submitBtn.disabled = true;
   submitBtn.textContent = '分析中...';
   document.getElementById('export-section').style.display = 'none';
@@ -951,6 +1018,10 @@ async function runCheck() {
           appendResult(parsed.payload.text);
         } else if (parsed.eventName === 'sources') {
           renderSources(parsed.payload.items || []);
+        } else if (parsed.eventName === 'gaps') {
+          renderGaps(parsed.payload);
+        } else if (parsed.eventName === 'conflict') {
+          renderConflicts(parsed.payload.conflicts || []);
         } else if (parsed.eventName === 'retrieval') {
           renderAppliedRetrieval(parsed.payload.tasks || {});
         }
@@ -962,6 +1033,8 @@ async function runCheck() {
       if (parsed) {
         if (parsed.eventName === 'chunk') appendResult(parsed.payload.text);
         if (parsed.eventName === 'sources') renderSources(parsed.payload.items || []);
+        if (parsed.eventName === 'gaps') renderGaps(parsed.payload);
+        if (parsed.eventName === 'conflict') renderConflicts(parsed.payload.conflicts || []);
         if (parsed.eventName === 'retrieval') renderAppliedRetrieval(parsed.payload.tasks || {});
       }
     }
@@ -996,6 +1069,7 @@ async function runRewrite(mode) {
   const rewriteBox = document.getElementById('rewrite-box');
   rewriteBox.textContent = '修稿中...\n';
   renderAppliedRetrieval({});
+  renderConflicts([]);
 
   try {
     const resp = await fetch('/rewrite/stream', {
@@ -1043,6 +1117,9 @@ async function runRewrite(mode) {
         if (parsed.eventName === 'sources') {
           renderSources(parsed.payload.items || []);
         }
+        if (parsed.eventName === 'conflict') {
+          renderConflicts(parsed.payload.conflicts || []);
+        }
         if (parsed.eventName === 'retrieval') {
           renderAppliedRetrieval(parsed.payload.tasks || {});
         }
@@ -1054,6 +1131,9 @@ async function runRewrite(mode) {
       if (parsed) {
         if (parsed.eventName === 'chunk') {
           rewriteBox.textContent += parsed.payload.text || '';
+        }
+        if (parsed.eventName === 'conflict') {
+          renderConflicts(parsed.payload.conflicts || []);
         }
         if (parsed.eventName === 'retrieval') {
           renderAppliedRetrieval(parsed.payload.tasks || {});

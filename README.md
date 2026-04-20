@@ -81,14 +81,8 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for planned work.
 ### Requirements
 
 - Go `1.21+`
-- [Ollama](https://ollama.com/) running locally
-
-### Install Models
-
-```bash
-ollama pull llama3.2
-ollama pull nomic-embed-text
-```
+- [Ollama](https://ollama.com/) running locally for native `go run ./cmd`
+- Docker + Docker Compose for the container flow
 
 ### Run Locally
 
@@ -98,6 +92,7 @@ go run ./cmd
 ```
 
 Open `http://localhost:8080`.
+Before your first review request, make sure Ollama already has `llama3.2` and `nomic-embed-text` available, for example with `ollama pull llama3.2` and `ollama pull nomic-embed-text`.
 
 ### Environment Configuration
 
@@ -118,15 +113,21 @@ Supported variables:
 ### Docker Compose
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+The `.env` file controls the Ollama URL, default model names, and exposed app port for the compose setup.
 
 This starts:
 
 - `app`: the Go web server
 - `ollama`: a local Ollama container
+- `ollama-init`: a one-shot setup container that pulls required models if they are missing
 
 The compose file expects a local `.env` file and mounts `./data` for persistence.
+The `app` container waits for Ollama's health check to pass before starting, so your first reindex is less likely to fail on a cold boot.
+On the first startup, `ollama-init` waits for Ollama and then automatically pulls `llama3.2` and `nomic-embed-text`. Later runs skip the pull when those models already exist in the shared Ollama volume.
 
 ### Common Development Commands
 
@@ -195,7 +196,7 @@ Built-in examples:
 
 1. Maintain character, worldbuilding, and style files under `data/`
 2. Click `重新索引` to rebuild the local knowledge base
-3. Use `Chapter Overview` to inspect chapter counts, unresolved signals, and draft candidates
+3. Use `Chapter Overview` to inspect chapter counts, unresolved signals, draft candidates, and the starter sample chapter included under `data/chapters/`
 4. Review or rewrite a single chapter from the review page
 5. Inspect rewrite diffs and history before saving a new chapter version
 6. Export a full chapter bundle or update relationship, timeline, and foreshadow trackers
@@ -228,7 +229,7 @@ Example files for onboarding and demos live in [examples/README.md](examples/REA
 - VSCode shows red errors but `go test` and `go build` pass:
   Open the `novel-assistant` folder directly in VSCode, not the outer `gopl.io` workspace.
 - Docker starts but review requests fail:
-  Make sure the Ollama container is healthy and the configured models have been pulled.
+  Make sure the Ollama container is healthy. On first startup, wait for `ollama-init` to finish pulling the required models.
 - `寫作風格` has no selectable items:
   Add `.md` files under `data/style/` and reindex.
 - Review requests fail immediately:
@@ -258,6 +259,10 @@ Start here:
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
+
+## Release Checklist
+
+For public releases, screenshot refreshes, and repo asset updates, use [docs/RELEASE_ASSET_CHECKLIST.md](docs/RELEASE_ASSET_CHECKLIST.md).
 
 ## Planning Docs
 

@@ -399,6 +399,10 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 	_ = s.relationships.Load()
 	_ = s.timeline.Load()
 	_ = s.foreshadow.Load()
+	if s.project != nil {
+		_ = s.project.Load()
+		s.applyProjectSettings()
+	}
 
 	retention := 10
 	if s.project != nil {

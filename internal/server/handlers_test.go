@@ -38,6 +38,76 @@ func TestParsePositiveChapterRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestDefaultReviewLayersReturnsFourLayersInOrder(t *testing.T) {
+	t.Parallel()
+
+	layers := defaultReviewLayers()
+	if len(layers) != 4 {
+		t.Fatalf("expected 4 layers, got %d", len(layers))
+	}
+
+	want := []struct {
+		name  string
+		label string
+	}{
+		{name: "structure", label: "結構層"},
+		{name: "character", label: "角色層"},
+		{name: "world_logic", label: "世界觀層"},
+		{name: "language", label: "語言層"},
+	}
+
+	for i, layer := range layers {
+		if layer.Name != want[i].name || layer.Label != want[i].label || !layer.Enabled {
+			t.Fatalf("unexpected layer at %d: %#v", i, layer)
+		}
+		if strings.TrimSpace(layer.Prompt) == "" {
+			t.Fatalf("expected prompt for layer %s", layer.Name)
+		}
+	}
+}
+
+func TestResolveReviewLayersPipelineReturnsAllEnabled(t *testing.T) {
+	t.Parallel()
+
+	req := checkRequest{
+		Chapter:   "章節內容",
+		LayerMode: "pipeline",
+	}
+
+	layers := resolveReviewLayers(req)
+	if len(layers) != 4 {
+		t.Fatalf("expected 4 layers in pipeline mode, got %#v", layers)
+	}
+}
+
+func TestResolveReviewLayersSingleReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	req := checkRequest{
+		Chapter:   "章節內容",
+		LayerMode: "single",
+	}
+
+	layers := resolveReviewLayers(req)
+	if layers != nil {
+		t.Fatalf("expected nil layers in single mode, got %#v", layers)
+	}
+}
+
+func TestResolveReviewLayersTreatsEmptyModeAsSingle(t *testing.T) {
+	t.Parallel()
+
+	req := checkRequest{
+		Chapter:   "章節內容",
+		LayerMode: normalizedLayerMode("   "),
+	}
+
+	layers := resolveReviewLayers(req)
+	if layers != nil {
+		t.Fatalf("expected nil layers for empty mode, got %#v", layers)
+	}
+}
+
 func TestResolveStylesReturnsAllStylesWhenNoneSelected(t *testing.T) {
 	t.Parallel()
 

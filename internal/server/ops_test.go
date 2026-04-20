@@ -10,12 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/projectsettings"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
+	"novel-assistant/internal/vectorstore"
 
 	"github.com/gin-gonic/gin"
 )
@@ -70,13 +73,103 @@ func TestCreateBackupSnapshotCopiesMarkdownAndJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &Server{cfg: &config.Config{DataDir: dir}}
+	s := &Server{
+		cfg:     &config.Config{DataDir: dir},
+		project: projectsettings.New(filepath.Join(dir, "project_settings.json"), projectsettings.Settings{DataDir: dir}),
+	}
 	item, err := s.createBackupSnapshot()
 	if err != nil {
 		t.Fatalf("expected backup snapshot, got error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "backups", item.Name, "chapters", "第01章.md")); err != nil {
 		t.Fatalf("expected chapter in backup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "backups", item.Name, ".backup_manifest.json")); err != nil {
+		t.Fatalf("expected backup manifest: %v", err)
+	}
+}
+
+func TestCreateBackupSnapshotPrunesOldSnapshots(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	backupDir := filepath.Join(dir, "backups")
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	for i, name := range []string{"backup_newest", "backup_middle", "backup_oldest"} {
+		target := filepath.Join(backupDir, name)
+		if err := os.MkdirAll(target, 0755); err != nil {
+			t.Fatal(err)
+		}
+		ts := now.Add(-time.Duration(i) * time.Hour)
+		if err := writeBackupPreview(target, backupPreview{Name: name, CreatedAt: ts}); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(target, ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	removed, err := pruneOldBackups(backupDir, 2, nil)
+	if err != nil {
+		t.Fatalf("prune backups: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "backup_oldest" {
+		t.Fatalf("expected oldest backup pruned, got %v", removed)
+	}
+}
+
+func TestHandleRestoreBackupCreatesSafetySnapshot(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+	if _, err := s.saveChapterFile("第01章", "目前內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+
+	item, err := s.createBackupSnapshot()
+	if err != nil {
+		t.Fatalf("create backup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chapters", "第01章.md"), []byte("被覆蓋前的現況"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/backups/restore", strings.NewReader(`{"name":"`+item.Name+`"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	s.handleRestoreBackup(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected restore success, got %d %s", w.Code, w.Body.String())
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "chapters", "第01章.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "目前內容" {
+		t.Fatalf("expected restored chapter content, got %q", content)
+	}
+
+	items, err := listBackupItems(filepath.Join(dir, "backups"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSafety := false
+	for _, candidate := range items {
+		if strings.HasPrefix(candidate.Name, "pre_restore_") {
+			foundSafety = true
+			break
+		}
+	}
+	if !foundSafety {
+		t.Fatalf("expected safety snapshot before restore, got %#v", items)
 	}
 }
 
@@ -497,9 +590,12 @@ Open.`); err != nil {
 }
 
 func newOpsTestServer(dir string) *Server {
+	project := projectsettings.New(filepath.Join(dir, "project_settings.json"), projectsettings.Settings{DataDir: dir})
 	return &Server{
 		cfg:           &config.Config{DataDir: dir},
+		project:       project,
 		profiles:      profile.NewManager(dir),
+		store:         vectorstore.New(filepath.Join(dir, "store.json")),
 		rules:         reviewrules.New(filepath.Join(dir, "review_rules.json")),
 		history:       reviewhistory.New(filepath.Join(dir, "reviews.json")),
 		timeline:      tracker.NewTimelineTracker(filepath.Join(dir, "timeline.json")),

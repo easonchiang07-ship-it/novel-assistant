@@ -8,11 +8,12 @@ import (
 )
 
 type Settings struct {
-	OllamaURL  string `json:"ollama_url"`
-	LLMModel   string `json:"llm_model"`
-	EmbedModel string `json:"embed_model"`
-	Port       string `json:"port"`
-	DataDir    string `json:"data_dir"`
+	OllamaURL       string `json:"ollama_url"`
+	LLMModel        string `json:"llm_model"`
+	EmbedModel      string `json:"embed_model"`
+	Port            string `json:"port"`
+	DataDir         string `json:"data_dir"`
+	BackupRetention int    `json:"backup_retention"`
 }
 
 type Store struct {
@@ -23,11 +24,12 @@ type Store struct {
 
 func Defaults() Settings {
 	return Settings{
-		OllamaURL:  "http://localhost:11434",
-		LLMModel:   "llama3.2",
-		EmbedModel: "nomic-embed-text",
-		Port:       "8080",
-		DataDir:    "data",
+		OllamaURL:       "http://localhost:11434",
+		LLMModel:        "llama3.2",
+		EmbedModel:      "nomic-embed-text",
+		Port:            "8080",
+		DataDir:         "data",
+		BackupRetention: 10,
 	}
 }
 
@@ -97,6 +99,9 @@ func normalize(item Settings) Settings {
 	}
 	if item.DataDir == "" {
 		item.DataDir = def.DataDir
+	}
+	if item.BackupRetention < 1 {
+		item.BackupRetention = def.BackupRetention
 	}
 	return item
 }

@@ -24,6 +24,7 @@ type settingsSaveRequest struct {
 	LLMModel           string                                 `json:"llm_model"`
 	EmbedModel         string                                 `json:"embed_model"`
 	Port               string                                 `json:"port"`
+	BackupRetention    int                                    `json:"backup_retention"`
 }
 
 func (s *Server) handleSettingsPage(c *gin.Context) {
@@ -57,6 +58,7 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 		"llm_model":           project.LLMModel,
 		"embed_model":         project.EmbedModel,
 		"port":                project.Port,
+		"backup_retention":    project.BackupRetention,
 	})
 }
 
@@ -87,7 +89,8 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 		LLMModel:   req.LLMModel,
 		EmbedModel: req.EmbedModel,
 		Port:       req.Port,
-		DataDir:    s.globalDataDir,
+		DataDir:    s.cfg.DataDir,
+		BackupRetention: req.BackupRetention,
 	})
 	if err := s.project.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "專案設定保存失敗"})

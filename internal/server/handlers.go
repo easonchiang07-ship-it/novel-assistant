@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"novel-assistant/internal/checker"
+	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/extractor"
 	"novel-assistant/internal/profile"
@@ -28,6 +29,7 @@ type streamEvent struct {
 	Sources   []referenceSummary
 	Retrieval any
 	Gaps      *retrievalGaps
+	Conflicts []consistency.Conflict
 }
 
 type referenceSummary struct {
@@ -182,6 +184,36 @@ func summarizeRetrieval(task string, opts retrievalOptions) retrievalSummary {
 		Sources:   append([]string(nil), opts.Sources...),
 		TopK:      opts.TopK,
 		Threshold: opts.Threshold,
+	}
+}
+
+func buildConsistencyWorldContext(references []vectorProfile) string {
+	if len(references) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, ref := range references {
+		line := fmt.Sprintf("[%s] %s：%s", ref.Type, ref.Name, excerptText(ref.Content))
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *Server) runConsistencyPrecheck(ctx context.Context, chapter, worldContext string, transcript *strings.Builder, msgChan chan<- streamEvent) {
+	if s.consistency == nil || strings.TrimSpace(worldContext) == "" {
+		return
+	}
+	conflicts, err := s.consistency.Check(ctx, chapter, worldContext)
+	if err != nil {
+		text := fmt.Sprintf("\n> 一致性預檢失敗，改為直接生成：%s\n", err.Error())
+		if transcript != nil {
+			transcript.WriteString(text)
+		}
+		msgChan <- streamEvent{Event: "chunk", Text: text}
+		return
+	}
+	if len(conflicts) > 0 {
+		msgChan <- streamEvent{Event: "conflict", Conflicts: conflicts}
 	}
 }
 
@@ -825,6 +857,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 		references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
 		indexReady := s.store != nil && s.store.Len() > 0
+		worldContext := buildConsistencyWorldContext(references)
 		if len(references) > 0 {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
 			gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), references)
@@ -832,6 +865,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			if len(gaps.MissingCharacters)+len(gaps.MissingLocations)+len(gaps.MissingSettings) > 0 {
 				msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
 			}
+			s.runConsistencyPrecheck(ctx, req.Chapter, worldContext, &transcript, msgChan)
 			transcript.WriteString("### 本地參考上下文\n\n")
 			msgChan <- streamEvent{Event: "chunk", Text: "### 本地參考上下文\n\n"}
 			for _, ref := range references {
@@ -1007,6 +1041,10 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 				c.SSEvent("gaps", msg.Gaps)
 				return true
 			}
+			if msg.Event == "conflict" {
+				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
+				return true
+			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})
 			return true
 		case <-ctx.Done():
@@ -1103,6 +1141,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		} else {
 			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
 		}
+		s.runConsistencyPrecheck(ctx, req.Chapter, buildConsistencyWorldContext(references), &transcript, msgChan)
 
 		var promptParts []string
 		promptParts = append(promptParts, instruction)
@@ -1181,6 +1220,10 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 			}
 			if msg.Event == "retrieval" {
 				c.SSEvent("retrieval", msg.Retrieval)
+				return true
+			}
+			if msg.Event == "conflict" {
+				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
 				return true
 			}
 			c.SSEvent("chunk", gin.H{"text": msg.Text})

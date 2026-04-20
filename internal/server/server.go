@@ -8,6 +8,7 @@ import (
 	"log"
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
+	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/projectsettings"
@@ -51,6 +52,7 @@ type Server struct {
 	project        *projectsettings.Store
 	embedder       *embedder.OllamaEmbedder
 	checker        *checker.Checker
+	consistency    *consistency.Checker
 	rules          *reviewrules.Store
 	history        *reviewhistory.Store
 	relationships  *tracker.RelationshipTracker
@@ -75,6 +77,7 @@ func New(cfg *config.Config) (*Server, error) {
 		auth:          newAuthManager(cfg),
 		diagnostics:   newRetrievalDiagnostics(),
 	}
+	s.consistency = consistency.New(s.checker)
 	if s.globalDataDir == "" {
 		s.globalDataDir = "data"
 	}
@@ -396,4 +399,5 @@ func (s *Server) applyProjectSettings() {
 	}
 	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
 	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+	s.consistency = consistency.New(s.checker)
 }

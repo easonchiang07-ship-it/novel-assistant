@@ -30,6 +30,8 @@ import (
 type streamEvent struct {
 	Event     string
 	Text      string
+	Layer     string
+	Label     string
 	Sources   []referenceSummary
 	Retrieval any
 	Gaps      *retrievalGaps
@@ -104,6 +106,14 @@ func parsePositiveChapter(raw string) (int, error) {
 		return 0, fmt.Errorf("章節必須是大於 0 的整數")
 	}
 	return chapter, nil
+}
+
+func normalizedLayerMode(raw string) string {
+	mode := strings.TrimSpace(raw)
+	if mode == "" {
+		return "single"
+	}
+	return mode
 }
 
 func saveOrAbort(c *gin.Context, err error, action string) bool {
@@ -860,6 +870,8 @@ type checkRequest struct {
 	ChapterFile        string                      `json:"chapter_file"`
 	ChapterTitle       string                      `json:"chapter_title"`
 	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
+	LayerMode          string                      `json:"layer_mode"`
+	Layers             []string                    `json:"layers,omitempty"`
 }
 
 type retrievalOptions struct {
@@ -900,8 +912,41 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		defer cancel()
 		defer close(msgChan)
 
-		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
+		if normalizedLayerMode(req.LayerMode) == "pipeline" {
+			if err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix); err != nil {
+				return
+			}
+
+			completion := "\n\n---\n審查完成\n"
+			msgChan <- streamEvent{Event: "chunk", Text: completion}
+			transcript.WriteString(completion)
+
+			chapterFile := strings.TrimSpace(req.ChapterFile)
+			chapterTitle := strings.TrimSpace(req.ChapterTitle)
+			if chapterTitle == "" && chapterFile != "" {
+				chapterTitle = strings.TrimSuffix(chapterFile, ".md")
+			}
+			if chapterTitle == "" {
+				chapterTitle = "未命名章節"
+			}
+			s.history.Add(&reviewhistory.Entry{
+				Kind:         "review",
+				ChapterTitle: chapterTitle,
+				ChapterFile:  chapterFile,
+				SceneTitle:   strings.TrimSpace(req.SceneTitle),
+				InputContent: req.Chapter,
+				Checks:       append([]string(nil), req.Checks...),
+				Styles:       append([]string(nil), req.Styles...),
+				Result:       transcript.String(),
+			})
+			if err := s.history.Save(); err != nil {
+				log.Printf("save review history: %v", err)
+			}
+			return
+		}
+
+		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		charsToCheck := s.resolveCharacters(req)
 		needsCharacters := len(req.Checks) == 0 || contains(req.Checks, "behavior") || contains(req.Checks, "dialogue")
 		if needsCharacters && len(charsToCheck) == 0 {
@@ -1140,6 +1185,14 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			}
 			if msg.Event == "gaps" {
 				c.SSEvent("gaps", msg.Gaps)
+				return true
+			}
+			if msg.Event == "layer_start" {
+				c.SSEvent("layer_start", gin.H{"layer": msg.Layer, "label": msg.Label})
+				return true
+			}
+			if msg.Event == "layer_end" {
+				c.SSEvent("layer_end", gin.H{"layer": msg.Layer})
 				return true
 			}
 			if msg.Event == "conflict" {

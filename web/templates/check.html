@@ -133,6 +133,21 @@
           </div>
 
           <div class="form-group">
+            <label>審稿模式</label>
+            <div class="radio-group" style="display:flex;gap:1.5rem">
+              <label class="checkbox-label">
+                <input type="radio" name="layer_mode" value="single" checked> 單層（原有模式）
+              </label>
+              <label class="checkbox-label">
+                <input type="radio" name="layer_mode" value="pipeline"> Pipeline（四層依序）
+              </label>
+            </div>
+            <div id="pipeline-hint" style="display:none;font-size:0.85rem;color:#64748b;margin-top:0.4rem">
+              將固定依序執行：結構層、角色層、世界觀層、語言層
+            </div>
+          </div>
+
+          <div class="form-group" id="checks-section">
             <label>審查項目</label>
             <div class="checkbox-group">
               <label class="checkbox-label">
@@ -362,7 +377,19 @@ let lastAppliedRetrieval = {};
 let tagPreviewVisible = false;
 let emotionChartInstance = null;
 
+function applyLayerMode(mode) {
+  const isPipeline = mode === 'pipeline';
+  document.getElementById('checks-section').style.display = isPipeline ? 'none' : '';
+  document.getElementById('pipeline-hint').style.display = isPipeline ? 'block' : 'none';
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('[name="layer_mode"]').forEach((el) => {
+    el.addEventListener('change', () => applyLayerMode(el.value));
+  });
+  const initialMode = document.querySelector('[name="layer_mode"]:checked');
+  if (initialMode) applyLayerMode(initialMode.value);
+
   const styleCheck = document.getElementById('check-style');
   if (styleCheck) {
     styleCheck.addEventListener('change', () => {
@@ -977,7 +1004,8 @@ async function runCheck() {
   if (!chapter) { alert('請先輸入章節內容'); return; }
 
   const characters = selectedCharacters();
-  const checks = Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
+  const layerMode = (document.querySelector('[name="layer_mode"]:checked') || {}).value || 'single';
+  const checks = layerMode === 'pipeline' ? [] : Array.from(document.querySelectorAll('[name="checks"]:checked')).map(el => el.value);
   const styles = Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value);
   const retrievalOverrides = buildCheckRetrievalOverrides(checks);
   const resultBox = document.getElementById('result-box');
@@ -1003,6 +1031,7 @@ async function runCheck() {
         characters,
         checks,
         styles,
+        layer_mode: layerMode,
         retrieval_overrides: retrievalOverrides,
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),
@@ -1034,6 +1063,10 @@ async function runCheck() {
         if (!parsed) continue;
         if (parsed.eventName === 'chunk') {
           appendResult(parsed.payload.text);
+        } else if (parsed.eventName === 'layer_start') {
+          appendResult('\n── ' + (parsed.payload.label || parsed.payload.layer) + ' ──\n');
+        } else if (parsed.eventName === 'layer_end') {
+          appendResult('\n');
         } else if (parsed.eventName === 'sources') {
           renderSources(parsed.payload.items || []);
         } else if (parsed.eventName === 'gaps') {
@@ -1050,6 +1083,8 @@ async function runCheck() {
       const parsed = parseSSEBlock(buffer);
       if (parsed) {
         if (parsed.eventName === 'chunk') appendResult(parsed.payload.text);
+        if (parsed.eventName === 'layer_start') appendResult('\n── ' + (parsed.payload.label || parsed.payload.layer) + ' ──\n');
+        if (parsed.eventName === 'layer_end') appendResult('\n');
         if (parsed.eventName === 'sources') renderSources(parsed.payload.items || []);
         if (parsed.eventName === 'gaps') renderGaps(parsed.payload);
         if (parsed.eventName === 'conflict') renderConflicts(parsed.payload.conflicts || []);

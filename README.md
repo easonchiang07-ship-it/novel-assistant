@@ -193,7 +193,7 @@ Built-in examples:
 
 1. Maintain character, worldbuilding, and style files under `data/`
 2. Click `重新索引` to rebuild the local knowledge base
-3. Use `Chapter Overview` to inspect chapter counts, unresolved signals, and draft candidates
+3. Use `Chapter Overview` to inspect chapter counts, unresolved signals, draft candidates, and the starter sample chapter included under `data/chapters/`
 4. Review or rewrite a single chapter from the review page
 5. Inspect rewrite diffs and history before saving a new chapter version
 6. Export a full chapter bundle or update relationship, timeline, and foreshadow trackers

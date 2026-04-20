@@ -85,11 +85,11 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 	}
 
 	s.project.Update(projectsettings.Settings{
-		OllamaURL:  req.OllamaURL,
-		LLMModel:   req.LLMModel,
-		EmbedModel: req.EmbedModel,
-		Port:       req.Port,
-		DataDir:    s.cfg.DataDir,
+		OllamaURL:       req.OllamaURL,
+		LLMModel:        req.LLMModel,
+		EmbedModel:      req.EmbedModel,
+		Port:            req.Port,
+		DataDir:         s.cfg.DataDir,
 		BackupRetention: req.BackupRetention,
 	})
 	if err := s.project.Save(); err != nil {

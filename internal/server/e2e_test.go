@@ -181,12 +181,19 @@ func TestCheckStreamSourcesExposeChunkMetadata(t *testing.T) {
 		t.Fatalf("check stream failed: %s", string(resp.Body))
 	}
 
-	body := string(resp.Body)
-	if !strings.Contains(body, "\"chapter_file\":\"第02章.md\"") ||
-		!strings.Contains(body, "\"chapter_index\":2") ||
-		!strings.Contains(body, "\"scene_index\":1") ||
-		!strings.Contains(body, "\"chunk_type\":\"scene\"") {
-		t.Fatalf("expected chunk metadata in sources payload, got %s", body)
+	items := decodeSSEItems(t, string(resp.Body))
+	if len(items) == 0 {
+		t.Fatalf("expected sources payload in stream, got %s", string(resp.Body))
+	}
+	found := false
+	for _, item := range items {
+		if item.ChapterFile == "第02章.md" && item.ChapterIndex == 2 && item.SceneIndex == 1 && item.ChunkType == "scene" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected chunk metadata in sources payload, got %#v", items)
 	}
 }
 
@@ -256,8 +263,26 @@ func TestCreateWorldstateSnapshotAndList(t *testing.T) {
 	if listResp.StatusCode != http.StatusOK {
 		t.Fatalf("worldstate list failed: %s", string(listResp.Body))
 	}
-	if !strings.Contains(string(listResp.Body), "\"chapter_file\":\"第02章.md\"") || !strings.Contains(string(listResp.Body), "已失去傳家寶劍") {
-		t.Fatalf("expected snapshot in list payload, got %s", string(listResp.Body))
+
+	var payload struct {
+		Items []struct {
+			ChapterFile string `json:"chapter_file"`
+			Changes     []struct {
+				Description string `json:"description"`
+			} `json:"changes"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(listResp.Body, &payload); err != nil {
+		t.Fatalf("decode worldstate list: %v", err)
+	}
+	if len(payload.Items) != 1 {
+		t.Fatalf("expected 1 snapshot in list payload, got %#v", payload.Items)
+	}
+	if payload.Items[0].ChapterFile != "第02章.md" {
+		t.Fatalf("expected chapter_file 第02章.md, got %#v", payload.Items[0])
+	}
+	if len(payload.Items[0].Changes) != 1 || payload.Items[0].Changes[0].Description != "已失去傳家寶劍" {
+		t.Fatalf("expected snapshot change in list payload, got %#v", payload.Items[0].Changes)
 	}
 }
 
@@ -737,6 +762,13 @@ type httpResult struct {
 	Body       []byte
 }
 
+type sourceEventItem struct {
+	ChapterFile  string `json:"chapter_file"`
+	ChapterIndex int    `json:"chapter_index"`
+	SceneIndex   int    `json:"scene_index"`
+	ChunkType    string `json:"chunk_type"`
+}
+
 func performJSONRequest(t *testing.T, baseURL, method, path string, payload any) httpResult {
 	t.Helper()
 
@@ -781,6 +813,39 @@ func mustWriteFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func decodeSSEItems(t *testing.T, body string) []sourceEventItem {
+	t.Helper()
+
+	type sourceEvent struct {
+		Items []sourceEventItem `json:"items"`
+	}
+
+	blocks := strings.Split(body, "\n\n")
+	for _, block := range blocks {
+		lines := strings.Split(block, "\n")
+		if len(lines) < 2 || strings.TrimSpace(lines[0]) != "event:sources" {
+			continue
+		}
+		var payloadLines []string
+		for _, line := range lines[1:] {
+			if strings.HasPrefix(line, "data:") {
+				payloadLines = append(payloadLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			}
+		}
+		if len(payloadLines) == 0 {
+			continue
+		}
+
+		var payload sourceEvent
+		if err := json.Unmarshal([]byte(strings.Join(payloadLines, "\n")), &payload); err != nil {
+			t.Fatalf("decode SSE sources payload: %v body=%s", err, body)
+		}
+		return payload.Items
+	}
+
+	return nil
 }
 
 func reconstructChapterForSceneEdit(t *testing.T, fullContent string, scenes []Scene, sceneTitle, editedContent string) string {

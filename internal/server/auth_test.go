@@ -13,14 +13,11 @@ import (
 
 func TestOpenModeAllowsAccessWithoutLogin(t *testing.T) {
 	t.Parallel()
-
 	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
 	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
-
 	s.router.ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected open mode to allow request, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -28,19 +25,11 @@ func TestOpenModeAllowsAccessWithoutLogin(t *testing.T) {
 
 func TestProtectedModeRedirectsHTMLRequestsToLogin(t *testing.T) {
 	t.Parallel()
-
-	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
-	s.cfg.AuthMode = "password"
-	s.cfg.AuthPassword = "secret-pass"
-	s.auth = newAuthManager(s.cfg)
-	s.router = setupAuthTestRouter(s)
-
+	s := newProtectedAuthTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
 	req.Header.Set("Accept", "text/html")
 	rec := httptest.NewRecorder()
-
 	s.router.ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("expected redirect to login, got %d", rec.Code)
 	}
@@ -51,19 +40,11 @@ func TestProtectedModeRedirectsHTMLRequestsToLogin(t *testing.T) {
 
 func TestProtectedModeRejectsAPIWithoutSession(t *testing.T) {
 	t.Parallel()
-
-	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
-	s.cfg.AuthMode = "password"
-	s.cfg.AuthPassword = "secret-pass"
-	s.auth = newAuthManager(s.cfg)
-	s.router = setupAuthTestRouter(s)
-
+	s := newProtectedAuthTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	req.Header.Set("Accept", "application/json")
 	rec := httptest.NewRecorder()
-
 	s.router.ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
@@ -74,13 +55,7 @@ func TestProtectedModeRejectsAPIWithoutSession(t *testing.T) {
 
 func TestProtectedModeRejectsWrongPassword(t *testing.T) {
 	t.Parallel()
-
-	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
-	s.cfg.AuthMode = "password"
-	s.cfg.AuthPassword = "secret-pass"
-	s.auth = newAuthManager(s.cfg)
-	s.router = setupAuthTestRouter(s)
-
+	s := newProtectedAuthTestServer(t)
 	form := url.Values{
 		"password": {"wrong-pass"},
 		"next":     {"/settings"},
@@ -89,9 +64,7 @@ func TestProtectedModeRejectsWrongPassword(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "text/html")
 	rec := httptest.NewRecorder()
-
 	s.router.ServeHTTP(rec, req)
-
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for wrong password, got %d", rec.Code)
 	}
@@ -102,13 +75,7 @@ func TestProtectedModeRejectsWrongPassword(t *testing.T) {
 
 func TestProtectedModeLoginAndLogoutFlow(t *testing.T) {
 	t.Parallel()
-
-	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
-	s.cfg.AuthMode = "password"
-	s.cfg.AuthPassword = "secret-pass"
-	s.auth = newAuthManager(s.cfg)
-	s.router = setupAuthTestRouter(s)
-
+	s := newProtectedAuthTestServer(t)
 	form := url.Values{
 		"password": {"secret-pass"},
 		"next":     {"/settings"},
@@ -117,9 +84,7 @@ func TestProtectedModeLoginAndLogoutFlow(t *testing.T) {
 	loginReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	loginReq.Header.Set("Accept", "text/html")
 	loginRec := httptest.NewRecorder()
-
 	s.router.ServeHTTP(loginRec, loginReq)
-
 	if loginRec.Code != http.StatusSeeOther {
 		t.Fatalf("expected login redirect, got %d: %s", loginRec.Code, loginRec.Body.String())
 	}
@@ -157,6 +122,16 @@ func TestProtectedModeLoginAndLogoutFlow(t *testing.T) {
 	if afterLogoutRec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected session to be invalid after logout, got %d", afterLogoutRec.Code)
 	}
+}
+
+func newProtectedAuthTestServer(t *testing.T) *Server {
+	t.Helper()
+	s := newE2ETestServer(t, t.TempDir(), "http://127.0.0.1:0")
+	s.cfg.AuthMode = "password"
+	s.cfg.AuthPassword = "secret-pass"
+	s.auth = newAuthManager(s.cfg)
+	s.router = setupAuthTestRouter(s)
+	return s
 }
 
 func setupAuthTestRouter(s *Server) *gin.Engine {

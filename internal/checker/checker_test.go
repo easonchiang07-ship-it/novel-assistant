@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"novel-assistant/internal/profile"
@@ -107,5 +108,7 @@ func TestAnalyzeStyleRejectsMalformedJSON(t *testing.T) {
 	c := New(srv.URL, "mock")
 	if _, err := c.AnalyzeStyle(context.Background(), "一段文字"); err == nil {
 		t.Fatal("expected malformed JSON error")
+	} else if !errors.Is(err, ErrStyleParseFailure) {
+		t.Fatalf("expected ErrStyleParseFailure, got %v", err)
 	}
 }

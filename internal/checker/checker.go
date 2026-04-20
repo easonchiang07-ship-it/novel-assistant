@@ -5,12 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"novel-assistant/internal/profile"
 	"strings"
 )
+
+var ErrStyleParseFailure = errors.New("style analysis parse failure")
 
 type Checker struct {
 	baseURL string
@@ -199,12 +202,12 @@ summary（一句話描述此風格）。
 	start := strings.Index(raw, "{")
 	end := strings.LastIndex(raw, "}")
 	if start < 0 || end <= start {
-		return nil, fmt.Errorf("無法解析風格分析回應")
+		return nil, fmt.Errorf("%w: 無法解析風格分析回應", ErrStyleParseFailure)
 	}
 
 	var analysis profile.StyleAnalysis
 	if err := json.Unmarshal([]byte(raw[start:end+1]), &analysis); err != nil {
-		return nil, fmt.Errorf("JSON 解析失敗：%w", err)
+		return nil, fmt.Errorf("%w: JSON 解析失敗：%v", ErrStyleParseFailure, err)
 	}
 	return &analysis, nil
 }

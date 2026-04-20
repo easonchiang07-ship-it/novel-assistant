@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -500,7 +501,7 @@ func (s *Server) handleAnalyzeStyle(c *gin.Context) {
 
 	analysis, err := s.checker.AnalyzeStyle(c.Request.Context(), req.Text)
 	if err != nil {
-		if strings.Contains(err.Error(), "解析") {
+		if errors.Is(err, checker.ErrStyleParseFailure) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

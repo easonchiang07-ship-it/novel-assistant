@@ -132,13 +132,31 @@ function renderStyleAnalysis(analysis) {
     box.innerHTML = '<div class="empty-state">分析結果會顯示在這裡。</div>';
     return;
   }
-  box.innerHTML = `
-    <div class="source-card">
-      <div class="source-meta"><strong>風格分析結果</strong></div>
-      <div class="source-excerpt">摘要：${analysis.summary || '未提供'}</div>
-      <div class="helper-text">對話比例：${analysis.dialogue_ratio || '未提供'} ・ 感官描寫：${analysis.sensory_freq || '未提供'} ・ 句子長度：${analysis.avg_sentence_len || '未提供'} ・ 語氣：${analysis.tone || '未提供'}</div>
-    </div>
-  `;
+  box.innerHTML = '';
+
+  const card = document.createElement('div');
+  card.className = 'source-card';
+
+  const meta = document.createElement('div');
+  meta.className = 'source-meta';
+  const title = document.createElement('strong');
+  title.textContent = '風格分析結果';
+  meta.appendChild(title);
+
+  const summary = document.createElement('div');
+  summary.className = 'source-excerpt';
+  summary.textContent = '摘要：' + (analysis.summary || '未提供');
+
+  const details = document.createElement('div');
+  details.className = 'helper-text';
+  details.textContent =
+    '對話比例：' + (analysis.dialogue_ratio || '未提供') +
+    ' ・ 感官描寫：' + (analysis.sensory_freq || '未提供') +
+    ' ・ 句子長度：' + (analysis.avg_sentence_len || '未提供') +
+    ' ・ 語氣：' + (analysis.tone || '未提供');
+
+  card.append(meta, summary, details);
+  box.appendChild(card);
 }
 
 async function analyzeStyleSample() {

@@ -319,6 +319,33 @@ func TestE2EStyleAnalyzeApplyAndRewritePreset(t *testing.T) {
 	}
 }
 
+func TestE2EStyleAnalyzeReturnsBadRequestOnParseFailure(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"not-json\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/api/styles/analyze", map[string]any{
+		"text": "他看著門，沒有說話。",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 on parse failure, got %d body=%s", resp.StatusCode, string(resp.Body))
+	}
+}
+
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	t.Helper()
 

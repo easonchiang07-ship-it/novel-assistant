@@ -692,18 +692,21 @@ function renderSources(items) {
     return item.chapter_file || '';
   }
 
-  box.innerHTML = items.map(item => `
-    <div class="source-card">
-      <div class="source-meta">
-        <span class="source-type">${escapeHTML(item.type)}</span>
-        <strong>${escapeHTML(item.name)}</strong>
+  box.innerHTML = items.map(item => {
+    const location = formatSourceLocation(item);
+    return `
+      <div class="source-card">
+        <div class="source-meta">
+          <span class="source-type">${escapeHTML(item.type)}</span>
+          <strong>${escapeHTML(item.name)}</strong>
+        </div>
+        <div class="helper-text">相似度 ${(Number(item.score || 0) * 100).toFixed(1)}% ・ ${escapeHTML(item.match_reason || '由向量相似度命中')}</div>
+        ${location ? `<div class="helper-text">${escapeHTML(location)}</div>` : ''}
+        ${item.chapter_match ? `<div class="source-match">章節片段：${escapeHTML(item.chapter_match)}</div>` : ''}
+        <div class="source-excerpt">${escapeHTML(item.excerpt || '')}</div>
       </div>
-      <div class="helper-text">相似度 ${(Number(item.score || 0) * 100).toFixed(1)}% ・ ${escapeHTML(item.match_reason || '由向量相似度命中')}</div>
-      ${formatSourceLocation(item) ? `<div class="helper-text">${escapeHTML(formatSourceLocation(item))}</div>` : ''}
-      ${item.chapter_match ? `<div class="source-match">章節片段：${escapeHTML(item.chapter_match)}</div>` : ''}
-      <div class="source-excerpt">${escapeHTML(item.excerpt || '')}</div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function renderGaps(gaps) {

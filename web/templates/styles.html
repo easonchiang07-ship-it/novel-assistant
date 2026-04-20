@@ -18,6 +18,29 @@
 
     {{if .Styles}}
     <div class="card">
+      <h2>分析我的文字</h2>
+      <p class="helper-text">貼上一段你滿意的文字，系統會抽取結構化風格特徵，之後可以直接套用到既有 Style Guide。</p>
+      <div class="form-group">
+        <label for="style-analyzer-text">分析文字</label>
+        <textarea id="style-analyzer-text" class="large" placeholder="貼上一段能代表你想追求語感的文字..."></textarea>
+      </div>
+      <div class="chapter-toolbar">
+        <button class="btn btn-ghost" type="button" onclick="analyzeStyleSample()">分析風格</button>
+        <select id="style-analysis-target">
+          <option value="">選擇要套用的 Style Guide...</option>
+          {{range .Styles}}
+          <option value="{{.Name}}">{{.Name}}</option>
+          {{end}}
+        </select>
+        <button class="btn btn-ghost" type="button" onclick="applyStyleAnalysis()">套用到此 Style Guide</button>
+      </div>
+      <div id="style-analysis-status" class="helper-text" style="margin-top:12px">尚未分析。</div>
+      <div id="style-analysis-result" class="source-box" style="margin-top:12px">
+        <div class="empty-state">分析結果會顯示在這裡。</div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2>風格設定（{{len .Styles}} 份）</h2>
       <div class="char-grid">
         {{range .Styles}}
@@ -53,6 +76,28 @@
             <span class="char-value">{{.Forbidden}}</span>
           </div>
           {{end}}
+          {{if .Analysis}}
+          <div class="char-field char-field-block">
+            <span class="char-label">分析摘要</span>
+            <span class="char-value">{{.Analysis.Summary}}</span>
+          </div>
+          <div class="char-field">
+            <span class="char-label">對話比例</span>
+            <span class="char-value">{{.Analysis.DialogueRatio}}</span>
+          </div>
+          <div class="char-field">
+            <span class="char-label">感官描寫</span>
+            <span class="char-value">{{.Analysis.SensoryFreq}}</span>
+          </div>
+          <div class="char-field">
+            <span class="char-label">句子長度</span>
+            <span class="char-value">{{.Analysis.AvgSentenceLen}}</span>
+          </div>
+          <div class="char-field">
+            <span class="char-label">分析語氣</span>
+            <span class="char-value">{{.Analysis.Tone}}</span>
+          </div>
+          {{end}}
           <details style="margin-top:12px">
             <summary style="color:#64748b;font-size:0.8rem;cursor:pointer">原始設定檔</summary>
             <pre style="color:#94a3b8;font-size:0.78rem;margin-top:8px;white-space:pre-wrap;line-height:1.5">{{.RawContent}}</pre>
@@ -78,6 +123,79 @@
     </div>
   </main>
 </div>
+<script>
+let latestStyleAnalysis = null;
+
+function renderStyleAnalysis(analysis) {
+  const box = document.getElementById('style-analysis-result');
+  if (!analysis) {
+    box.innerHTML = '<div class="empty-state">分析結果會顯示在這裡。</div>';
+    return;
+  }
+  box.innerHTML = `
+    <div class="source-card">
+      <div class="source-meta"><strong>風格分析結果</strong></div>
+      <div class="source-excerpt">摘要：${analysis.summary || '未提供'}</div>
+      <div class="helper-text">對話比例：${analysis.dialogue_ratio || '未提供'} ・ 感官描寫：${analysis.sensory_freq || '未提供'} ・ 句子長度：${analysis.avg_sentence_len || '未提供'} ・ 語氣：${analysis.tone || '未提供'}</div>
+    </div>
+  `;
+}
+
+async function analyzeStyleSample() {
+  const text = document.getElementById('style-analyzer-text').value.trim();
+  const status = document.getElementById('style-analysis-status');
+  if (!text) {
+    status.textContent = '請先貼上要分析的文字。';
+    return;
+  }
+
+  status.textContent = '分析中...';
+  try {
+    const resp = await fetch('/api/styles/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '分析失敗');
+    latestStyleAnalysis = data.analysis || null;
+    renderStyleAnalysis(latestStyleAnalysis);
+    status.textContent = '分析完成，可以直接套用到指定的 Style Guide。';
+  } catch (e) {
+    latestStyleAnalysis = null;
+    renderStyleAnalysis(null);
+    status.textContent = '分析失敗：' + e.message;
+  }
+}
+
+async function applyStyleAnalysis() {
+  const styleName = document.getElementById('style-analysis-target').value;
+  const status = document.getElementById('style-analysis-status');
+  if (!latestStyleAnalysis) {
+    status.textContent = '請先完成一次風格分析。';
+    return;
+  }
+  if (!styleName) {
+    status.textContent = '請先選擇要套用的 Style Guide。';
+    return;
+  }
+
+  status.textContent = '套用中...';
+  try {
+    const resp = await fetch('/api/styles/' + encodeURIComponent(styleName) + '/analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(latestStyleAnalysis)
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '套用失敗');
+    status.textContent = data.message + '：' + styleName;
+    window.location.reload();
+  } catch (e) {
+    status.textContent = '套用失敗：' + e.message;
+  }
+}
+</script>
 </body>
 </html>
 {{end}}

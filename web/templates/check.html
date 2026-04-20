@@ -198,6 +198,15 @@
         <div id="rewrite-section" class="card">
           <h2>修稿模式</h2>
           <p class="muted">在完成審查後，直接套用不同修稿策略：保守修訂、強化風格、或重新整理結構節奏。</p>
+          <div class="form-group">
+            <label for="rewrite-style-preset">風格預設</label>
+            <select id="rewrite-style-preset">
+              <option value="">不套用</option>
+              <option value="cold_hard">冷硬派</option>
+              <option value="light_novel">輕小說感</option>
+              <option value="epic">史詩劇感</option>
+            </select>
+          </div>
           <div class="rewrite-mode-grid">
             <button class="btn btn-ghost" type="button" onclick="runRewrite('conservative')">保守修訂</button>
             <button class="btn btn-ghost" type="button" onclick="runRewrite('style')">強化風格</button>
@@ -997,6 +1006,7 @@ async function runRewrite(mode) {
         mode,
         characters: selectedCharacters(),
         styles: Array.from(document.querySelectorAll('[name="styles"]:checked')).map(el => el.value),
+        style_preset: document.getElementById('rewrite-style-preset').value,
         retrieval: getRetrievalOptions(),
         chapter_file: currentChapterFile,
         chapter_title: chapterTitleFromName(currentChapterFile || document.getElementById('chapter-file-name').value.trim()),

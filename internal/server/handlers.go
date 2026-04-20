@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,8 @@ import (
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -116,6 +119,21 @@ func rewriteBiasInstruction(mode string) string {
 		return "本次修稿偏好：優先整理段落結構、節奏與資訊揭露順序。"
 	default:
 		return "本次修稿偏好：盡量忠於原稿，只做必要調整。"
+	}
+}
+
+func stylePresetInstruction(preset string) (string, error) {
+	switch preset {
+	case "":
+		return "", nil
+	case "cold_hard":
+		return "【風格約束：冷硬派】\n- 句子保持短促，避免超過 20 字的長句\n- 以白描為主，盡量不使用形容詞疊加\n- 情緒不直接描寫，透過動作與對白呈現", nil
+	case "light_novel":
+		return "【風格約束：輕小說感】\n- 允許更活潑的對話節奏與內心獨白\n- 保持節奏輕快，句式清楚易讀\n- 情緒轉折可以更鮮明，但不要脫離原事件順序", nil
+	case "epic":
+		return "【風格約束：史詩劇感】\n- 允許較長的鋪陳句與層次分明的段落推進\n- 加強場景規模感、感官描寫與情緒重量\n- 讓敘事有莊嚴感，但不要改動核心情節", nil
+	default:
+		return "", fmt.Errorf("未知的風格預設：%s", preset)
 	}
 }
 
@@ -465,6 +483,72 @@ func (s *Server) handleStylesPage(c *gin.Context) {
 		"Title":  "風格管理",
 		"Styles": s.profiles.Styles,
 	})
+}
+
+func (s *Server) handleAnalyzeStyle(c *gin.Context) {
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請求格式錯誤"})
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "分析文字不可為空"})
+		return
+	}
+
+	analysis, err := s.checker.AnalyzeStyle(c.Request.Context(), req.Text)
+	if err != nil {
+		if strings.Contains(err.Error(), "解析") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"analysis": analysis})
+}
+
+func (s *Server) handleApplyStyleAnalysis(c *gin.Context) {
+	styleName := c.Param("name")
+	style := s.profiles.FindStyleByName(styleName)
+	if style == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "找不到寫作風格：" + styleName})
+		return
+	}
+
+	var analysis profile.StyleAnalysis
+	if err := c.ShouldBindJSON(&analysis); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "請求格式錯誤"})
+		return
+	}
+	if err := s.saveStyleAnalysis(style.FilePath, analysis); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := s.profiles.Load(); err != nil {
+		log.Printf("reload profiles after style analysis save: %v", err)
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已套用到風格設定", "style": styleName})
+}
+
+func (s *Server) saveStyleAnalysis(styleFilePath string, analysis profile.StyleAnalysis) error {
+	if strings.TrimSpace(styleFilePath) == "" {
+		return fmt.Errorf("找不到風格設定檔路徑")
+	}
+	analysisPath := filepath.Join(filepath.Dir(styleFilePath), ".analysis", strings.TrimSuffix(filepath.Base(styleFilePath), filepath.Ext(styleFilePath))+".json")
+	if err := os.MkdirAll(filepath.Dir(analysisPath), 0755); err != nil {
+		return fmt.Errorf("建立風格分析目錄失敗：%w", err)
+	}
+	data, err := json.MarshalIndent(analysis, "", "  ")
+	if err != nil {
+		return fmt.Errorf("編碼風格分析失敗：%w", err)
+	}
+	if err := os.WriteFile(analysisPath, data, 0644); err != nil {
+		return fmt.Errorf("寫入風格分析失敗：%w", err)
+	}
+	return nil
 }
 
 func (s *Server) handleCheckPage(c *gin.Context) {
@@ -842,6 +926,7 @@ type rewriteRequest struct {
 	Mode         string           `json:"mode"`
 	Characters   []string         `json:"characters"`
 	Styles       []string         `json:"styles"`
+	StylePreset  string           `json:"style_preset"`
 	Retrieval    retrievalOptions `json:"retrieval"`
 	ChapterFile  string           `json:"chapter_file"`
 	ChapterTitle string           `json:"chapter_title"`
@@ -889,6 +974,11 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 			return
 		}
 	}
+	stylePresetText, err := stylePresetInstruction(strings.TrimSpace(req.StylePreset))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	stylesReq := checkRequest{Checks: []string{"style"}, Styles: req.Styles}
 	styles, err := s.resolveStyles(stylesReq)
@@ -926,6 +1016,9 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		var promptParts []string
 		promptParts = append(promptParts, instruction)
 		promptParts = append(promptParts, rewriteBias)
+		if stylePresetText != "" {
+			promptParts = append(promptParts, stylePresetText)
+		}
 		if len(styles) > 0 {
 			var styleTexts []string
 			for _, style := range styles {

@@ -151,6 +151,8 @@ func (s *Server) setupRoutes() {
 	r.POST("/api/manuscript/export", s.handleExportManuscript)
 	r.POST("/api/history/delete", s.handleDeleteHistoryEntry)
 	r.POST("/api/history/export", s.handleExportHistory)
+	r.POST("/api/styles/analyze", s.handleAnalyzeStyle)
+	r.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
 	r.POST("/api/settings", s.handleSaveSettings)
 	r.POST("/api/emotion-curve", s.handleEmotionCurve)
 	r.POST("/check/stream", s.handleCheckStream)

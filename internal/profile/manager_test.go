@@ -86,3 +86,75 @@ func TestLoadIndexesCharacterAppearancesFromChapters(t *testing.T) {
 		t.Fatalf("unexpected appearance title: %s", char.Appearances[0].ChapterTitle)
 	}
 }
+
+func TestLoadStyleGuideAnalysisFromSidecar(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "style", ".analysis"), 0755); err != nil {
+		t.Fatalf("mkdir style analysis: %v", err)
+	}
+
+	stylePath := filepath.Join(dir, "style", "主線敘事.md")
+	if err := os.WriteFile(stylePath, []byte("# 風格：主線敘事\n- 語氣：克制"), 0644); err != nil {
+		t.Fatalf("write style guide: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "style", ".analysis", "主線敘事.json"), []byte(`{
+  "dialogue_ratio":"中",
+  "sensory_freq":"低",
+  "avg_sentence_len":"短促",
+  "tone":"冷靜",
+  "summary":"冷靜克制，偏白描"
+}`), 0644); err != nil {
+		t.Fatalf("write analysis: %v", err)
+	}
+
+	manager := NewManager(dir)
+	if err := manager.Load(); err != nil {
+		t.Fatalf("load manager: %v", err)
+	}
+
+	style := manager.FindStyleByName("主線敘事")
+	if style == nil {
+		t.Fatal("expected style guide to be loaded")
+	}
+	if style.Analysis == nil {
+		t.Fatal("expected style analysis to be loaded")
+	}
+	if style.Analysis.DialogueRatio != "中" {
+		t.Fatalf("expected dialogue ratio loaded, got %q", style.Analysis.DialogueRatio)
+	}
+	if style.Analysis.Summary != "冷靜克制，偏白描" {
+		t.Fatalf("expected summary loaded, got %q", style.Analysis.Summary)
+	}
+}
+
+func TestLoadStyleGuideIgnoresInvalidAnalysisSidecar(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "style", ".analysis"), 0755); err != nil {
+		t.Fatalf("mkdir style analysis: %v", err)
+	}
+
+	stylePath := filepath.Join(dir, "style", "回憶場景.md")
+	if err := os.WriteFile(stylePath, []byte("# 風格：回憶場景\n- 語氣：詩意"), 0644); err != nil {
+		t.Fatalf("write style guide: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "style", ".analysis", "回憶場景.json"), []byte(`{not-json}`), 0644); err != nil {
+		t.Fatalf("write invalid analysis: %v", err)
+	}
+
+	manager := NewManager(dir)
+	if err := manager.Load(); err != nil {
+		t.Fatalf("load manager: %v", err)
+	}
+
+	style := manager.FindStyleByName("回憶場景")
+	if style == nil {
+		t.Fatal("expected style guide to be loaded")
+	}
+	if style.Analysis != nil {
+		t.Fatalf("expected invalid analysis to be ignored, got %#v", style.Analysis)
+	}
+}

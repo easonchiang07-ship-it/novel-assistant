@@ -234,6 +234,91 @@ func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
 	}
 }
 
+func TestE2EStyleAnalyzeApplyAndRewritePreset(t *testing.T) {
+	t.Parallel()
+
+	var prompts []string
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode generate request: %v", err)
+			}
+			prompt, _ := req["prompt"].(string)
+			prompts = append(prompts, prompt)
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case strings.Contains(prompt, "分析以下文字的寫作風格"):
+				_, _ = w.Write([]byte("{\"response\":\"{\\\"dialogue_ratio\\\":\\\"中\\\",\\\"sensory_freq\\\":\\\"高\\\",\\\"avg_sentence_len\\\":\\\"中等\\\",\\\"tone\\\":\\\"冷靜\\\",\\\"summary\\\":\\\"冷靜中帶細節\\\"}\",\"done\":true}\n"))
+			default:
+				_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "style", "主線敘事.md"), "# 風格：主線敘事\n- 語氣：克制\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	analyzeResp := performJSONRequest(t, app.URL, "POST", "/api/styles/analyze", map[string]any{
+		"text": "他看著門，沒有說話。",
+	})
+	if analyzeResp.StatusCode != http.StatusOK {
+		t.Fatalf("style analyze failed: %s", string(analyzeResp.Body))
+	}
+	if !strings.Contains(string(analyzeResp.Body), "\"dialogue_ratio\":\"中\"") {
+		t.Fatalf("expected analyze response payload, got %s", string(analyzeResp.Body))
+	}
+
+	applyResp := performJSONRequest(t, app.URL, "POST", "/api/styles/%E4%B8%BB%E7%B7%9A%E6%95%98%E4%BA%8B/analysis", map[string]any{
+		"dialogue_ratio":   "中",
+		"sensory_freq":     "高",
+		"avg_sentence_len": "中等",
+		"tone":             "冷靜",
+		"summary":          "冷靜中帶細節",
+	})
+	if applyResp.StatusCode != http.StatusOK {
+		t.Fatalf("apply style analysis failed: %s", string(applyResp.Body))
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "style", ".analysis", "主線敘事.json"))
+	if err != nil {
+		t.Fatalf("expected analysis sidecar to be written: %v", err)
+	}
+	if !strings.Contains(string(data), "冷靜中帶細節") {
+		t.Fatalf("expected sidecar to contain applied summary, got %s", string(data))
+	}
+
+	rewriteResp := performJSONRequest(t, app.URL, "POST", "/rewrite/stream", map[string]any{
+		"chapter":       "林昊站在夜港塔下。",
+		"mode":          "conservative",
+		"style_preset":  "cold_hard",
+		"chapter_title": "第01章",
+	})
+	if rewriteResp.StatusCode != http.StatusOK || !strings.Contains(string(rewriteResp.Body), "ok") {
+		t.Fatalf("rewrite stream with preset failed: %s", string(rewriteResp.Body))
+	}
+
+	foundPreset := false
+	for _, prompt := range prompts {
+		if strings.Contains(prompt, "【風格約束：冷硬派】") {
+			foundPreset = true
+			break
+		}
+	}
+	if !foundPreset {
+		t.Fatalf("expected rewrite prompt to include cold_hard preset, prompts=%v", prompts)
+	}
+}
+
 func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 	t.Helper()
 

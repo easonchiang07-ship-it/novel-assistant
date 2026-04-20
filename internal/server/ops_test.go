@@ -173,6 +173,49 @@ func TestHandleRestoreBackupCreatesSafetySnapshot(t *testing.T) {
 	}
 }
 
+func TestRestoreBackupRemovesFilesAbsentFromSnapshot(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := newOpsTestServer(dir)
+
+	if _, err := s.saveChapterFile("第01章", "快照時的內容"); err != nil {
+		t.Fatalf("save chapter: %v", err)
+	}
+	item, err := s.createBackupSnapshot()
+	if err != nil {
+		t.Fatalf("create backup: %v", err)
+	}
+
+	if _, err := s.saveChapterFile("第02章", "快照後新增的章節"); err != nil {
+		t.Fatalf("save new chapter: %v", err)
+	}
+	newChapter := filepath.Join(dir, "chapters", "第02章.md")
+	if _, err := os.Stat(newChapter); err != nil {
+		t.Fatalf("expected new chapter to exist before restore: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/backups/restore", strings.NewReader(`{"name":"`+item.Name+`"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	s.handleRestoreBackup(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected restore success, got %d %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(newChapter); !os.IsNotExist(err) {
+		t.Fatalf("expected post-snapshot chapter to be removed after restore, but it still exists")
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "chapters", "第01章.md"))
+	if err != nil {
+		t.Fatalf("expected snapshot chapter to be restored: %v", err)
+	}
+	if string(content) != "快照時的內容" {
+		t.Fatalf("unexpected chapter content after restore: %q", content)
+	}
+}
+
 func TestZipHelperWritesReadableFile(t *testing.T) {
 	t.Parallel()
 

@@ -212,6 +212,38 @@ func copySnapshotTree(srcDir, dstDir string) error {
 	})
 }
 
+// cleanDataDirForRestore removes all managed files (.md, .json, .gitkeep)
+// from dataDir before a restore so that files absent from the snapshot are
+// not left behind (true point-in-time restore, not an overlay).
+func cleanDataDirForRestore(dataDir string) error {
+	return filepath.WalkDir(dataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dataDir {
+			return nil
+		}
+		rel, err := filepath.Rel(dataDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "backups" || strings.HasPrefix(rel, "backups"+string(filepath.Separator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(d.Name())
+		if ext == ".md" || ext == ".json" || d.Name() == ".gitkeep" {
+			return os.Remove(path)
+		}
+		return nil
+	})
+}
+
 func pruneOldBackups(dir string, retain int, protected map[string]struct{}) ([]string, error) {
 	if retain < 1 {
 		return nil, nil
@@ -237,25 +269,34 @@ func pruneOldBackups(dir string, retain int, protected map[string]struct{}) ([]s
 	return removed, nil
 }
 
+// writeSnapshot creates a snapshot directory and manifest without pruning.
+func (s *Server) writeSnapshot(prefix string) (backupItem, error) {
+	name := prefix + "_" + time.Now().Format("20060102_150405")
+	createdAt := time.Now()
+	target := filepath.Join(s.backupDir(), name)
+	if err := os.MkdirAll(target, 0755); err != nil {
+		return backupItem{}, err
+	}
+	if err := copySnapshotTree(s.cfg.DataDir, target); err != nil {
+		return backupItem{}, err
+	}
+	preview, err := buildBackupPreview(target, name, createdAt)
+	if err != nil {
+		return backupItem{}, err
+	}
+	if err := writeBackupPreview(target, preview); err != nil {
+		return backupItem{}, err
+	}
+	return backupItem{Name: name, CreatedAt: createdAt, Preview: preview}, nil
+}
+
 func (s *Server) createBackupSnapshotWithPrefix(prefix string) (backupItem, []string, error) {
 	return s.createBackupSnapshotWithPrefixProtected(prefix, nil)
 }
 
 func (s *Server) createBackupSnapshotWithPrefixProtected(prefix string, protected map[string]struct{}) (backupItem, []string, error) {
-	name := prefix + "_" + time.Now().Format("20060102_150405")
-	createdAt := time.Now()
-	target := filepath.Join(s.backupDir(), name)
-	if err := os.MkdirAll(target, 0755); err != nil {
-		return backupItem{}, nil, err
-	}
-	if err := copySnapshotTree(s.cfg.DataDir, target); err != nil {
-		return backupItem{}, nil, err
-	}
-	preview, err := buildBackupPreview(target, name, createdAt)
+	item, err := s.writeSnapshot(prefix)
 	if err != nil {
-		return backupItem{}, nil, err
-	}
-	if err := writeBackupPreview(target, preview); err != nil {
 		return backupItem{}, nil, err
 	}
 	retention := 10
@@ -266,7 +307,7 @@ func (s *Server) createBackupSnapshotWithPrefixProtected(prefix string, protecte
 	if err != nil {
 		return backupItem{}, removed, err
 	}
-	return backupItem{Name: name, CreatedAt: createdAt, Preview: preview}, removed, nil
+	return item, removed, nil
 }
 
 func (s *Server) createBackupSnapshot() (backupItem, error) {
@@ -334,12 +375,16 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 		return
 	}
 
-	safetySnapshot, removed, err := s.createBackupSnapshotWithPrefixProtected("pre_restore", map[string]struct{}{name: {}})
+	safetySnapshot, err := s.writeSnapshot("pre_restore")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "建立還原前安全備份失敗：" + err.Error()})
 		return
 	}
 
+	if err := cleanDataDirForRestore(s.cfg.DataDir); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "清除現有資料失敗：" + err.Error()})
+		return
+	}
 	if err := copySnapshotTree(src, s.cfg.DataDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -354,6 +399,13 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 	_ = s.relationships.Load()
 	_ = s.timeline.Load()
 	_ = s.foreshadow.Load()
+
+	retention := 10
+	if s.project != nil {
+		retention = s.project.Get().BackupRetention
+	}
+	protected := map[string]struct{}{name: {}, safetySnapshot.Name: {}}
+	removed, _ := pruneOldBackups(s.backupDir(), retention, protected)
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":              true,

@@ -259,6 +259,10 @@ Start here:
 
 See [CHANGELOG.md](CHANGELOG.md).
 
+## Release Checklist
+
+For public releases, screenshot refreshes, and repo asset updates, use [docs/RELEASE_ASSET_CHECKLIST.md](docs/RELEASE_ASSET_CHECKLIST.md).
+
 ## Planning Docs
 
 - [docs/ROADMAP.md](docs/ROADMAP.md)

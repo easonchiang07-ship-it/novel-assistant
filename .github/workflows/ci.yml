@@ -20,11 +20,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          labels=$(gh pr view ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} --json labels --jq '.labels[].name')
+          if echo "$labels" | grep -q 'large-pr'; then
+            echo "large-pr label present, skipping size check."
+            exit 0
+          fi
           lines=$(gh pr diff ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} | grep -cE '^[+-]' || true)
           echo "Changed lines: $lines"
           if [ "$lines" -gt 700 ]; then
-            echo "PR too large ($lines lines, limit 700). Split into smaller PRs."
+            echo "PR too large ($lines lines, limit 700). Add 'large-pr' label to exempt, or split into smaller PRs."
             exit 1
           fi
 

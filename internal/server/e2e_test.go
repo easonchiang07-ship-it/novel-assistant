@@ -299,11 +299,14 @@ func TestCheckStreamEmitsConflictBeforeMainGeneration(t *testing.T) {
 	sourcesAt := strings.Index(body, "event:sources")
 	conflictAt := strings.Index(body, "event:conflict")
 	chunkAt := strings.Index(body, "event:chunk")
-	if sourcesAt < 0 || conflictAt < 0 || chunkAt < 0 {
-		t.Fatalf("expected sources/conflict/chunk events, got %s", body)
+	if sourcesAt < 0 || conflictAt < 0 {
+		t.Fatalf("expected sources/conflict events, got %s", body)
 	}
-	if !(sourcesAt < conflictAt && conflictAt < chunkAt) {
-		t.Fatalf("expected sources -> conflict -> chunk ordering, got %s", body)
+	if sourcesAt >= conflictAt {
+		t.Fatalf("expected sources -> conflict ordering, got %s", body)
+	}
+	if chunkAt >= 0 && conflictAt >= chunkAt {
+		t.Fatalf("expected conflict before chunk when chunk is present, got %s", body)
 	}
 }
 

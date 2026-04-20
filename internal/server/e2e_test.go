@@ -16,6 +16,7 @@ import (
 
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
+	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/projectsettings"
@@ -253,6 +254,104 @@ func TestCheckAndRewriteUseLatestWorldstateInSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestCheckStreamEmitsConflictBeforeMainGeneration(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			if callCount == 1 {
+				_, _ = w.Write([]byte("{\"response\":\"[{\\\"severity\\\":\\\"error\\\",\\\"description\\\":\\\"主角試圖使用傳家寶劍，但該道具已賣出\\\",\\\"reference\\\":\\\"城市規則\\\"}]\",\"done\":true}\n"))
+				return
+			}
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+	mustWriteFile(t, filepath.Join(dir, "worldbuilding", "城市規則.md"), "# 城市規則\n- 傳家寶劍已賣出\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter": "林昊拔出傳家寶劍。",
+		"checks":  []string{"behavior"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("check stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+	sourcesAt := strings.Index(body, "event:sources")
+	conflictAt := strings.Index(body, "event:conflict")
+	chunkAt := strings.Index(body, "event:chunk")
+	if sourcesAt < 0 || conflictAt < 0 || chunkAt < 0 {
+		t.Fatalf("expected sources/conflict/chunk events, got %s", body)
+	}
+	if !(sourcesAt < conflictAt && conflictAt < chunkAt) {
+		t.Fatalf("expected sources -> conflict -> chunk ordering, got %s", body)
+	}
+}
+
+func TestRewriteStreamEmitsConflictEvent(t *testing.T) {
+	t.Parallel()
+
+	callCount := 0
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			if callCount == 1 {
+				_, _ = w.Write([]byte("{\"response\":\"[{\\\"severity\\\":\\\"warning\\\",\\\"description\\\":\\\"場景提及已毀的裝置\\\",\\\"reference\\\":\\\"城市規則\\\"}]\",\"done\":true}\n"))
+				return
+			}
+			_, _ = w.Write([]byte("{\"response\":\"rewrite ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+	mustWriteFile(t, filepath.Join(dir, "worldbuilding", "城市規則.md"), "# 城市規則\n- 裝置已毀\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/rewrite/stream", map[string]any{
+		"chapter": "他重新啟動那台裝置。",
+		"mode":    "conservative",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rewrite stream failed: %s", string(resp.Body))
+	}
+	if !strings.Contains(string(resp.Body), "event:conflict") {
+		t.Fatalf("expected conflict event in rewrite stream, got %s", string(resp.Body))
+	}
+}
+
 func TestE2ESceneEditsPersistAcrossSequentialSaves(t *testing.T) {
 	t.Parallel()
 
@@ -428,6 +527,7 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		store:         vectorstore.New(filepath.Join(dataDir, "store.json")),
 		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
 		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
+		consistency:   consistency.New(cfg.OllamaURL, cfg.LLMModel),
 		rules:         reviewrules.New(filepath.Join(dataDir, "review_rules.json")),
 		history:       reviewhistory.New(filepath.Join(dataDir, "reviews.json")),
 		relationships: tracker.NewRelationshipTracker(filepath.Join(dataDir, "relationships.json")),

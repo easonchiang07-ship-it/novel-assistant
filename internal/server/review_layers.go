@@ -7,43 +7,38 @@ import (
 )
 
 type reviewLayer struct {
-	Name    string `json:"name"`
-	Label   string `json:"label"`
-	Prompt  string `json:"prompt"`
-	Enabled bool   `json:"enabled"`
+	Name   string `json:"name"`
+	Label  string `json:"label"`
+	Prompt string `json:"prompt"`
 }
 
 func defaultReviewLayers() []reviewLayer {
 	return []reviewLayer{
 		{
-			Name:    "structure",
-			Label:   "結構層",
-			Prompt:  "你是專業小說結構編輯。只分析以下章節的敘事節奏、開場鉤子、張力起伏與段落長短，不要評論角色或語言風格。",
-			Enabled: true,
+			Name:   "structure",
+			Label:  "結構層",
+			Prompt: "你是專業小說結構編輯。只分析以下章節的敘事節奏、開場鉤子、張力起伏與段落長短，不要評論角色或語言風格。",
 		},
 		{
-			Name:    "character",
-			Label:   "角色層",
-			Prompt:  "你是角色塑造專家。只分析以下章節的角色行為是否符合人設、對白語氣是否一致，並結合提供的角色資料判斷，不要評論結構或語言。",
-			Enabled: true,
+			Name:   "character",
+			Label:  "角色層",
+			Prompt: "你是角色塑造專家。只分析以下章節的角色行為是否符合人設、對白語氣是否一致，並結合提供的角色資料判斷，不要評論結構或語言。",
 		},
 		{
-			Name:    "world_logic",
-			Label:   "世界觀層",
-			Prompt:  "你是世界觀邏輯審查員。只分析以下章節的設定自洽性、時間線合理性、道具與地點邏輯，不要評論其他層面。",
-			Enabled: true,
+			Name:   "world_logic",
+			Label:  "世界觀層",
+			Prompt: "你是世界觀邏輯審查員。只分析以下章節的設定自洽性、時間線合理性、道具與地點邏輯，不要評論其他層面。",
 		},
 		{
-			Name:    "language",
-			Label:   "語言層",
-			Prompt:  "你是文字風格編輯。只分析以下章節的句式多樣性、重複用語、感官描寫密度與語言流暢度，不要評論劇情或角色。",
-			Enabled: true,
+			Name:   "language",
+			Label:  "語言層",
+			Prompt: "你是文字風格編輯。只分析以下章節的句式多樣性、重複用語、感官描寫密度與語言流暢度，不要評論劇情或角色。",
 		},
 	}
 }
 
-func resolveReviewLayers(req checkRequest) []reviewLayer {
-	if req.LayerMode != "pipeline" {
+func resolveReviewLayers(layerMode string) []reviewLayer {
+	if layerMode != "pipeline" {
 		return nil
 	}
 	return defaultReviewLayers()
@@ -56,7 +51,7 @@ func (s *Server) runPipelineReview(
 	transcript *strings.Builder,
 	worldStatePrefix string,
 ) error {
-	layers := resolveReviewLayers(req)
+	layers := resolveReviewLayers(normalizedLayerMode(req.LayerMode))
 	if len(layers) == 0 {
 		return nil
 	}

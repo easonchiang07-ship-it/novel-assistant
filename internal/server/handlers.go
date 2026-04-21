@@ -870,8 +870,7 @@ type checkRequest struct {
 	ChapterFile        string                      `json:"chapter_file"`
 	ChapterTitle       string                      `json:"chapter_title"`
 	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
-	LayerMode          string                      `json:"layer_mode"`
-	Layers             []string                    `json:"layers,omitempty"`
+	LayerMode string `json:"layer_mode"`
 }
 
 type retrievalOptions struct {

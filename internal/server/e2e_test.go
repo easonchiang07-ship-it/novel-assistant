@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"novel-assistant/internal/checker"
@@ -236,13 +237,13 @@ func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
 func TestCheckStreamPipelineEmitsOrderedLayerEvents(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
+	var callCount atomic.Int32
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/embeddings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
 		case "/api/generate":
-			callCount++
+			callCount.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
 		default:
@@ -293,22 +294,22 @@ func TestCheckStreamPipelineEmitsOrderedLayerEvents(t *testing.T) {
 		}
 		last = idx
 	}
-	if callCount != 4 {
-		t.Fatalf("expected 4 generate calls, got %d", callCount)
+	if n := callCount.Load(); n != 4 {
+		t.Fatalf("expected 4 generate calls, got %d", n)
 	}
 }
 
 func TestCheckStreamPipelineAbortsOnFirstLayerFailure(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
+	var callCount atomic.Int32
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/embeddings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
 		case "/api/generate":
-			callCount++
-			if callCount == 1 {
+			n := callCount.Add(1)
+			if n == 1 {
 				// First layer (structure) fails: return 500 to trigger layer error.
 				http.Error(w, "model overloaded", http.StatusInternalServerError)
 				return
@@ -355,8 +356,8 @@ func TestCheckStreamPipelineAbortsOnFirstLayerFailure(t *testing.T) {
 		t.Fatalf("pipeline should abort after first failure, got character layer in %s", body)
 	}
 	// only one generate call (structure layer)
-	if callCount != 1 {
-		t.Fatalf("expected exactly 1 generate call before abort, got %d", callCount)
+	if n := callCount.Load(); n != 1 {
+		t.Fatalf("expected exactly 1 generate call before abort, got %d", n)
 	}
 }
 

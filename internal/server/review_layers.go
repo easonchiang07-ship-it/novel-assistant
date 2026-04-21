@@ -46,15 +46,7 @@ func resolveReviewLayers(req checkRequest) []reviewLayer {
 	if req.LayerMode != "pipeline" {
 		return nil
 	}
-
-	layers := defaultReviewLayers()
-	out := make([]reviewLayer, 0, len(layers))
-	for _, layer := range layers {
-		if layer.Enabled {
-			out = append(out, layer)
-		}
-	}
-	return out
+	return defaultReviewLayers()
 }
 
 func (s *Server) runPipelineReview(
@@ -70,12 +62,6 @@ func (s *Server) runPipelineReview(
 	}
 
 	charsToCheck := s.resolveCharacters(req)
-	if len(charsToCheck) == 0 {
-		text := "\n> 找不到可審查的角色，請先建立角色設定檔。\n"
-		transcript.WriteString(text)
-		msgChan <- streamEvent{Event: "chunk", Text: text}
-		return fmt.Errorf("no characters available for pipeline review")
-	}
 
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
 	behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
@@ -125,8 +111,6 @@ func (s *Server) runPipelineReview(
 		}
 	}
 
-	behaviorRefText := joinProfiles(behaviorRefs)
-	dialogueRefText := joinProfiles(dialogueRefs)
 	worldText := joinWorldProfiles(filterReferencesByType(worldRefs, "world"), s.profiles.Worlds)
 
 	styleReq := req
@@ -180,11 +164,6 @@ func (s *Server) runPipelineReview(
 			if strings.TrimSpace(languageRefs) != "" {
 				promptParts = append(promptParts, "【補充參考資料】\n"+languageRefs)
 			}
-		}
-
-		if layer.Name == "character" && strings.TrimSpace(behaviorRefText) != "" && strings.TrimSpace(dialogueRefText) == "" {
-			// Keep behavior reference context available even when dialogue retrieval is empty.
-			promptParts = append(promptParts, "【角色參考摘要】\n"+behaviorRefText)
 		}
 
 		promptParts = append(promptParts, "【章節內容】\n"+req.Chapter)

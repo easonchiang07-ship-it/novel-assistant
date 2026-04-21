@@ -905,11 +905,11 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 	msgChan := make(chan streamEvent, 512)
 	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
 	var transcript strings.Builder
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
 
 	go func() {
-		defer cancel()
 		defer close(msgChan)
 
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
@@ -1169,42 +1169,34 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	c.Stream(func(w io.Writer) bool {
+	// Drain all events until the goroutine closes msgChan. ctx.Done() only
+	// fires on genuine client disconnect (parent request context), not when
+	// the goroutine finishes — cancel() is deferred in this function, so it
+	// only fires after we return.
+	for msg := range msgChan {
 		select {
-		case msg, ok := <-msgChan:
-			if !ok {
-				return false
-			}
-			if msg.Event == "sources" {
-				c.SSEvent("sources", gin.H{"items": msg.Sources})
-				return true
-			}
-			if msg.Event == "retrieval" {
-				c.SSEvent("retrieval", msg.Retrieval)
-				return true
-			}
-			if msg.Event == "gaps" {
-				c.SSEvent("gaps", msg.Gaps)
-				return true
-			}
-			if msg.Event == "layer_start" {
-				c.SSEvent("layer_start", gin.H{"layer": msg.Layer, "label": msg.Label})
-				return true
-			}
-			if msg.Event == "layer_end" {
-				c.SSEvent("layer_end", gin.H{"layer": msg.Layer})
-				return true
-			}
-			if msg.Event == "conflict" {
-				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
-				return true
-			}
-			c.SSEvent("chunk", gin.H{"text": msg.Text})
-			return true
 		case <-ctx.Done():
-			return false
+			return
+		default:
 		}
-	})
+		switch msg.Event {
+		case "sources":
+			c.SSEvent("sources", gin.H{"items": msg.Sources})
+		case "retrieval":
+			c.SSEvent("retrieval", msg.Retrieval)
+		case "gaps":
+			c.SSEvent("gaps", msg.Gaps)
+		case "layer_start":
+			c.SSEvent("layer_start", gin.H{"layer": msg.Layer, "label": msg.Label})
+		case "layer_end":
+			c.SSEvent("layer_end", gin.H{"layer": msg.Layer})
+		case "conflict":
+			c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
+		default:
+			c.SSEvent("chunk", gin.H{"text": msg.Text})
+		}
+		c.Writer.Flush()
+	}
 }
 
 type rewriteRequest struct {

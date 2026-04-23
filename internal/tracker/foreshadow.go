@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,10 +23,11 @@ type Foreshadowing struct {
 
 // PendingHook is an LLM-suggested hook awaiting user confirmation.
 type PendingHook struct {
-	ID          string `json:"id"`
-	Description string `json:"description"`
-	Context     string `json:"context"`
-	Confidence  string `json:"confidence"`
+	ID           string `json:"id"`
+	Description  string `json:"description"`
+	Context      string `json:"context"`
+	Confidence   string `json:"confidence"`
+	ChapterIndex int    `json:"chapter_index,omitempty"`
 }
 
 type foreshadowStore struct {
@@ -54,9 +56,12 @@ func (t *ForeshadowTracker) Load() error {
 	if err != nil {
 		return err
 	}
-	// Try new wrapper format first; fall back to legacy array format.
-	var store foreshadowStore
-	if json.Unmarshal(data, &store) == nil && (store.Items != nil || store.Pending != nil) {
+	// Distinguish new wrapper format {"items":...} from legacy plain array.
+	if trimmed := bytes.TrimSpace(data); len(trimmed) > 0 && trimmed[0] == '{' {
+		var store foreshadowStore
+		if err := json.Unmarshal(data, &store); err != nil {
+			return err
+		}
 		t.Items = store.Items
 		t.Pending = store.Pending
 		return nil
@@ -113,13 +118,27 @@ func (t *ForeshadowTracker) GetAll() []*Foreshadowing {
 	return result
 }
 
-// AddPending appends LLM-suggested hooks awaiting user confirmation.
+// AddPending replaces any existing pending hooks for the same ChapterIndex
+// and appends the new suggestions. If ChapterIndex == 0 all previous pending
+// hooks are cleared before appending.
 func (t *ForeshadowTracker) AddPending(hooks []PendingHook) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if len(hooks) == 0 {
+		return
+	}
+	chapterIndex := hooks[0].ChapterIndex
+	var kept []*PendingHook
+	for _, p := range t.Pending {
+		if chapterIndex == 0 || p.ChapterIndex != chapterIndex {
+			kept = append(kept, p)
+		}
+	}
+	t.Pending = kept
+	now := time.Now().UnixNano()
 	for i := range hooks {
 		h := hooks[i]
-		h.ID = fmt.Sprintf("ph_%d_%d", time.Now().UnixNano(), i)
+		h.ID = fmt.Sprintf("ph_%d_%d", now, i)
 		t.Pending = append(t.Pending, &h)
 	}
 }

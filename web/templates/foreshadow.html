@@ -46,7 +46,7 @@
                 </div>
               </div>
               <div style="display:flex;flex-direction:column;gap:4px;white-space:nowrap">
-                <button class="btn btn-sm btn-success" onclick="confirmHook('{{.ID}}')">確認採用</button>
+                <button class="btn btn-sm btn-success" onclick="confirmHook('{{.ID}}', {{.ChapterIndex}})">確認採用</button>
                 <button class="btn btn-sm btn-ghost" onclick="dismissHook('{{.ID}}')">忽略</button>
               </div>
             </div>
@@ -209,16 +209,19 @@ function renderPending(pending, chapter) {
 }
 
 async function confirmHook(id, chapter) {
+  let chapterNum = parseInt(chapter, 10);
+  if (!chapterNum || chapterNum < 1) {
+    const input = prompt('請輸入此伏筆所在章節編號：');
+    chapterNum = parseInt(input, 10);
+    if (!chapterNum || chapterNum < 1) { alert('章節編號無效'); return; }
+  }
   const planted = prompt('請描述伏筆埋下方式（可留空）：') ?? '';
   const resp = await fetch('/foreshadow/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, chapter: chapter || 0, planted_in: planted }),
+    body: JSON.stringify({ id, chapter: chapterNum, planted_in: planted }),
   });
   if (!resp.ok) { alert('確認失敗'); return; }
-  const data = await resp.json();
-  document.getElementById('ph-' + id)?.remove();
-  renderPending(data.pending || [], chapter);
   location.reload();
 }
 

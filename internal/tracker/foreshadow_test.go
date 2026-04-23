@@ -103,10 +103,9 @@ func TestStaleForeshadows(t *testing.T) {
 	tr.Add(&Foreshadowing{Chapter: 1, Description: "舊伏筆"})
 	// planted ch4, seen at ch4 → not stale at current=5
 	tr.Add(&Foreshadowing{Chapter: 4, Description: "新伏筆", LastSeenChapter: 4})
-	// resolved → not counted
-	tr.Add(&Foreshadowing{Chapter: 1, Description: "已回收", Status: "已回收"})
-
-	// Fix status of first two (Add sets status)
+	// resolved → not included in stale results
+	// Add() always forces Status="未回收"; override directly since we are in the same package.
+	tr.Add(&Foreshadowing{Chapter: 1, Description: "已回收伏筆"})
 	tr.Items[2].Status = "已回收"
 
 	stale := tr.StaleForeshadows(5, 3)

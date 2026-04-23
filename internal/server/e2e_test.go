@@ -1090,3 +1090,127 @@ func TestBuildReferenceContextExcludesFutureChapters(t *testing.T) {
 		t.Fatalf("past chapter 第02章 should appear in retrieval sources, got: %s", body)
 	}
 }
+
+func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			// Return a valid JSON array of hook candidates.
+			_, _ = w.Write([]byte(`{"response":"[{\"description\":\"神秘信封\",\"context\":\"桌上\",\"confidence\":\"高\"}]","done":true}` + "\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	// detect: LLM should return one candidate
+	detectResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "林昊看到桌上的信封，沒有打開。",
+		"chapter_index": 3,
+	})
+	if detectResp.StatusCode != http.StatusOK {
+		t.Fatalf("detect failed: %s", string(detectResp.Body))
+	}
+	var detectPayload struct {
+		Pending []struct {
+			ID           string `json:"id"`
+			Description  string `json:"description"`
+			ChapterIndex int    `json:"chapter_index"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(detectResp.Body, &detectPayload); err != nil {
+		t.Fatalf("decode detect response: %v", err)
+	}
+	if len(detectPayload.Pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d: %s", len(detectPayload.Pending), string(detectResp.Body))
+	}
+	if detectPayload.Pending[0].ChapterIndex != 3 {
+		t.Fatalf("expected chapter_index 3, got %d", detectPayload.Pending[0].ChapterIndex)
+	}
+	pendingID := detectPayload.Pending[0].ID
+
+	// second detect on same chapter_index should replace, not accumulate
+	detectResp2 := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "林昊又看了一眼信封。",
+		"chapter_index": 3,
+	})
+	if detectResp2.StatusCode != http.StatusOK {
+		t.Fatalf("second detect failed: %s", string(detectResp2.Body))
+	}
+	var detectPayload2 struct {
+		Pending []struct{ ID string `json:"id"` } `json:"pending"`
+	}
+	if err := json.Unmarshal(detectResp2.Body, &detectPayload2); err != nil {
+		t.Fatalf("decode second detect: %v", err)
+	}
+	if len(detectPayload2.Pending) != 1 {
+		t.Fatalf("expected pending list replaced (1 item), got %d", len(detectPayload2.Pending))
+	}
+	pendingID2 := detectPayload2.Pending[0].ID
+
+	// dismiss the new pending
+	dismissResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/dismiss", map[string]any{"id": pendingID2})
+	if dismissResp.StatusCode != http.StatusOK {
+		t.Fatalf("dismiss failed: %s", string(dismissResp.Body))
+	}
+
+	// re-detect to get a fresh pending for confirm test
+	detectResp3 := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "林昊盯著信封。",
+		"chapter_index": 3,
+	})
+	if detectResp3.StatusCode != http.StatusOK {
+		t.Fatalf("third detect failed: %s", string(detectResp3.Body))
+	}
+	var detectPayload3 struct {
+		Pending []struct{ ID string `json:"id"` } `json:"pending"`
+	}
+	if err := json.Unmarshal(detectResp3.Body, &detectPayload3); err != nil {
+		t.Fatalf("decode third detect: %v", err)
+	}
+	if len(detectPayload3.Pending) != 1 {
+		t.Fatalf("expected 1 pending after re-detect, got %d", len(detectPayload3.Pending))
+	}
+	_ = pendingID // first pending was replaced; variable kept for clarity
+
+	// confirm: invalid chapter should return 400
+	badConfirm := performJSONRequest(t, app.URL, "POST", "/foreshadow/confirm", map[string]any{
+		"id": detectPayload3.Pending[0].ID, "chapter": 0, "planted_in": "",
+	})
+	if badConfirm.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for chapter=0, got %d", badConfirm.StatusCode)
+	}
+
+	// confirm with valid chapter
+	confirmResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/confirm", map[string]any{
+		"id": detectPayload3.Pending[0].ID, "chapter": 3, "planted_in": "桌上的信",
+	})
+	if confirmResp.StatusCode != http.StatusOK {
+		t.Fatalf("confirm failed: %s", string(confirmResp.Body))
+	}
+
+	// stale: confirmed item planted at ch3, current=7, threshold=3 → stale
+	staleResp := performJSONRequest(t, app.URL, "GET", "/api/foreshadow/stale?current_chapter=7&threshold=3", nil)
+	if staleResp.StatusCode != http.StatusOK {
+		t.Fatalf("stale failed: %s", string(staleResp.Body))
+	}
+	var stalePayload struct {
+		Items []struct {
+			Description string `json:"description"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(staleResp.Body, &stalePayload); err != nil {
+		t.Fatalf("decode stale: %v", err)
+	}
+	if len(stalePayload.Items) != 1 {
+		t.Fatalf("expected 1 stale item, got %d: %s", len(stalePayload.Items), string(staleResp.Body))
+	}
+}

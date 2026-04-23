@@ -1557,9 +1557,10 @@ func (s *Server) handleDetectForeshadow(c *gin.Context) {
 	hooks := make([]tracker.PendingHook, len(candidates))
 	for i, cand := range candidates {
 		hooks[i] = tracker.PendingHook{
-			Description: cand.Description,
-			Context:     cand.Context,
-			Confidence:  cand.Confidence,
+			Description:  cand.Description,
+			Context:      cand.Context,
+			Confidence:   cand.Confidence,
+			ChapterIndex: req.ChapterIndex,
 		}
 	}
 	s.foreshadow.AddPending(hooks)
@@ -1577,6 +1578,10 @@ func (s *Server) handleConfirmForeshadow(c *gin.Context) {
 	}
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Chapter <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter 必須為正整數"})
 		return
 	}
 	if !s.foreshadow.ConfirmPending(req.ID, req.Chapter, req.PlantedIn) {

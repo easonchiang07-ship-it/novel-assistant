@@ -1146,7 +1146,9 @@ func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
 		t.Fatalf("second detect failed: %s", string(detectResp2.Body))
 	}
 	var detectPayload2 struct {
-		Pending []struct{ ID string `json:"id"` } `json:"pending"`
+		Pending []struct {
+			ID string `json:"id"`
+		} `json:"pending"`
 	}
 	if err := json.Unmarshal(detectResp2.Body, &detectPayload2); err != nil {
 		t.Fatalf("decode second detect: %v", err)
@@ -1171,7 +1173,9 @@ func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
 		t.Fatalf("third detect failed: %s", string(detectResp3.Body))
 	}
 	var detectPayload3 struct {
-		Pending []struct{ ID string `json:"id"` } `json:"pending"`
+		Pending []struct {
+			ID string `json:"id"`
+		} `json:"pending"`
 	}
 	if err := json.Unmarshal(detectResp3.Body, &detectPayload3); err != nil {
 		t.Fatalf("decode third detect: %v", err)

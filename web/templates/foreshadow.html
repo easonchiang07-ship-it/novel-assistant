@@ -16,11 +16,51 @@
       <p>記錄埋下的伏筆，追蹤是否已在後續章節回收</p>
     </div>
 
+    <!-- 自動偵測區 -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <h2>LLM 自動偵測</h2>
+      <p class="helper-text">貼入章節內容，讓 AI 偵測潛在伏筆，再逐一確認或忽略。</p>
+      <div class="form-group">
+        <label>章節編號（確認後用於記錄埋下章節）</label>
+        <input type="number" id="detect-chapter" min="1" placeholder="例：3" style="width:120px">
+      </div>
+      <div class="form-group">
+        <label>章節內容</label>
+        <textarea id="detect-content" style="min-height:120px" placeholder="貼入章節全文…"></textarea>
+      </div>
+      <button class="btn" onclick="detectHooks()" id="detect-btn">偵測伏筆</button>
+      <div id="detect-status" class="helper-text" style="margin-top:8px"></div>
+
+      <!-- 待確認清單 -->
+      <div id="pending-section" style="margin-top:1rem;display:{{if .Pending}}block{{else}}none{{end}}">
+        <h3 style="margin-bottom:0.5rem">待確認建議（{{len .Pending}} 筆）</h3>
+        <div id="pending-list">
+          {{range .Pending}}
+          <div class="card" id="ph-{{.ID}}" style="margin-bottom:0.75rem;background:#1e293b">
+            <div style="display:flex;gap:0.5rem;align-items:flex-start">
+              <div style="flex:1">
+                <div style="font-weight:600">{{.Description}}</div>
+                {{if .Context}}<div class="helper-text" style="margin-top:4px">「{{.Context}}」</div>{{end}}
+                <div style="margin-top:4px">
+                  <span class="badge {{if eq .Confidence "高"}}badge-open{{else}}badge-resolved{{end}}">可信度：{{.Confidence}}</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:4px;white-space:nowrap">
+                <button class="btn btn-sm btn-success" onclick="confirmHook('{{.ID}}')">確認採用</button>
+                <button class="btn btn-sm btn-ghost" onclick="dismissHook('{{.ID}}')">忽略</button>
+              </div>
+            </div>
+          </div>
+          {{end}}
+        </div>
+      </div>
+    </div>
+
     <div class="grid-2" style="align-items:start">
 
       <!-- 新增伏筆 -->
       <div class="card">
-        <h2>新增伏筆</h2>
+        <h2>手動新增伏筆</h2>
         <form action="/foreshadow" method="post">
           <div class="form-group">
             <label>埋下章節</label>
@@ -57,6 +97,9 @@
                 {{end}}
                 {{if .ResolvedIn}}
                 <div style="color:#86efac;font-size:0.8rem;margin-top:4px">回收：{{.ResolvedIn}}</div>
+                {{end}}
+                {{if .Confidence}}
+                <div style="color:#94a3b8;font-size:0.75rem;margin-top:2px">可信度：{{.Confidence}}</div>
                 {{end}}
               </td>
               <td>
@@ -112,6 +155,87 @@ function deleteForeshadow(id) {
       document.getElementById('fs-' + id)?.remove();
       document.getElementById('resolve-' + id)?.remove();
     });
+}
+
+async function detectHooks() {
+  const chapter = parseInt(document.getElementById('detect-chapter').value, 10);
+  const content = document.getElementById('detect-content').value.trim();
+  const status = document.getElementById('detect-status');
+  if (!content) { alert('請輸入章節內容'); return; }
+  if (!chapter || chapter < 1) { alert('請輸入有效的章節編號'); return; }
+
+  document.getElementById('detect-btn').disabled = true;
+  status.textContent = '偵測中…';
+
+  const resp = await fetch('/foreshadow/detect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter: content, chapter_index: chapter }),
+  });
+  document.getElementById('detect-btn').disabled = false;
+
+  if (!resp.ok) {
+    status.textContent = '偵測失敗：' + (await resp.text());
+    return;
+  }
+  const data = await resp.json();
+  status.textContent = `偵測完成，找到 ${data.pending?.length ?? 0} 個建議`;
+  renderPending(data.pending || [], chapter);
+}
+
+function renderPending(pending, chapter) {
+  const section = document.getElementById('pending-section');
+  const list = document.getElementById('pending-list');
+  if (!pending.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  section.querySelector('h3').textContent = `待確認建議（${pending.length} 筆）`;
+  list.innerHTML = pending.map(p => `
+    <div class="card" id="ph-${p.id}" style="margin-bottom:0.75rem;background:#1e293b">
+      <div style="display:flex;gap:0.5rem;align-items:flex-start">
+        <div style="flex:1">
+          <div style="font-weight:600">${escapeHTML(p.description)}</div>
+          ${p.context ? `<div class="helper-text" style="margin-top:4px">「${escapeHTML(p.context)}」</div>` : ''}
+          <div style="margin-top:4px">
+            <span class="badge ${p.confidence === '高' ? 'badge-open' : 'badge-resolved'}">可信度：${escapeHTML(p.confidence)}</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;white-space:nowrap">
+          <button class="btn btn-sm btn-success" onclick="confirmHook('${p.id}', ${chapter})">確認採用</button>
+          <button class="btn btn-sm btn-ghost" onclick="dismissHook('${p.id}')">忽略</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function confirmHook(id, chapter) {
+  const planted = prompt('請描述伏筆埋下方式（可留空）：') ?? '';
+  const resp = await fetch('/foreshadow/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, chapter: chapter || 0, planted_in: planted }),
+  });
+  if (!resp.ok) { alert('確認失敗'); return; }
+  const data = await resp.json();
+  document.getElementById('ph-' + id)?.remove();
+  renderPending(data.pending || [], chapter);
+  location.reload();
+}
+
+async function dismissHook(id) {
+  const resp = await fetch('/foreshadow/dismiss', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  if (!resp.ok) { alert('忽略失敗'); return; }
+  const data = await resp.json();
+  document.getElementById('ph-' + id)?.remove();
+  renderPending(data.pending || [], 0);
+}
+
+function escapeHTML(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
 </body>

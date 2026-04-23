@@ -198,6 +198,10 @@ func (s *Server) setupRoutes() {
 	protected.POST("/foreshadow", s.handleAddForeshadow)
 	protected.POST("/foreshadow/resolve", s.handleResolveForeshadow)
 	protected.POST("/foreshadow/delete", s.handleDeleteForeshadow)
+	protected.POST("/foreshadow/detect", s.handleDetectForeshadow)
+	protected.POST("/foreshadow/confirm", s.handleConfirmForeshadow)
+	protected.POST("/foreshadow/dismiss", s.handleDismissForeshadow)
+	protected.GET("/api/foreshadow/stale", s.handleStaleForeshadow)
 
 	protected.POST("/export", s.handleExport)
 }

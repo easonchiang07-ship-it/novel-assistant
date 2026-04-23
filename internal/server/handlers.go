@@ -841,9 +841,11 @@ func (s *Server) handleDiagnosticsPage(c *gin.Context) {
 }
 
 func (s *Server) handleForeshadowPage(c *gin.Context) {
+	pending := s.foreshadow.GetPending()
 	c.HTML(http.StatusOK, "foreshadow.html", gin.H{
 		"Title":       "伏筆追蹤",
 		"Foreshadows": s.foreshadow.GetAll(),
+		"Pending":     pending,
 	})
 }
 
@@ -1532,6 +1534,96 @@ func (s *Server) handleDeleteForeshadow(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (s *Server) handleDetectForeshadow(c *gin.Context) {
+	var req struct {
+		Chapter      string `json:"chapter"`
+		ChapterIndex int    `json:"chapter_index"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Chapter) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+	candidates, err := s.checker.ExtractHooks(c.Request.Context(), req.Chapter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	hooks := make([]tracker.PendingHook, len(candidates))
+	for i, cand := range candidates {
+		hooks[i] = tracker.PendingHook{
+			Description: cand.Description,
+			Context:     cand.Context,
+			Confidence:  cand.Confidence,
+		}
+	}
+	s.foreshadow.AddPending(hooks)
+	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"pending": s.foreshadow.GetPending()})
+}
+
+func (s *Server) handleConfirmForeshadow(c *gin.Context) {
+	var req struct {
+		ID        string `json:"id"`
+		Chapter   int    `json:"chapter"`
+		PlantedIn string `json:"planted_in"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !s.foreshadow.ConfirmPending(req.ID, req.Chapter, req.PlantedIn) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "pending hook not found"})
+		return
+	}
+	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "pending": s.foreshadow.GetPending()})
+}
+
+func (s *Server) handleDismissForeshadow(c *gin.Context) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if !s.foreshadow.DismissPending(req.ID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "pending hook not found"})
+		return
+	}
+	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "pending": s.foreshadow.GetPending()})
+}
+
+func (s *Server) handleStaleForeshadow(c *gin.Context) {
+	currentChapter, err := parsePositiveChapter(c.Query("current_chapter"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "current_chapter 必須為正整數"})
+		return
+	}
+	threshold := 3
+	if t := c.Query("threshold"); t != "" {
+		if v, err := parsePositiveChapter(t); err == nil {
+			threshold = v
+		}
+	}
+	stale := s.foreshadow.StaleForeshadows(currentChapter, threshold)
+	if stale == nil {
+		stale = []*tracker.Foreshadowing{}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": stale})
 }
 
 // ─── export ───────────────────────────────────────────────────────────────────

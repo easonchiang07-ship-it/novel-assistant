@@ -51,62 +51,18 @@ func (s *Server) runPipelineReview(
 	transcript *strings.Builder,
 	worldStatePrefix string,
 ) error {
-	layers := resolveReviewLayers(normalizedLayerMode(req.LayerMode))
-	if len(layers) == 0 {
-		return nil
-	}
-
+	layers := defaultReviewLayers()
 	charsToCheck := s.resolveCharacters(req)
-
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
+
 	behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
 	dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 	worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
-	activeRetrieval := map[string]retrievalSummary{
+	msgChan <- streamEvent{Event: "retrieval", Retrieval: map[string]any{"tasks": map[string]retrievalSummary{
 		"behavior": summarizeRetrieval("behavior", behaviorOpts),
 		"dialogue": summarizeRetrieval("dialogue", dialogueOpts),
 		"world":    summarizeRetrieval("world", worldOpts),
-	}
-
-	behaviorRefs, err := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
-	if err != nil {
-		text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
-		transcript.WriteString(text)
-		msgChan <- streamEvent{Event: "chunk", Text: text}
-		behaviorRefs = nil
-	}
-	dialogueRefs, err := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
-	if err != nil {
-		text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
-		transcript.WriteString(text)
-		msgChan <- streamEvent{Event: "chunk", Text: text}
-		dialogueRefs = nil
-	}
-	worldRefs, err := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
-	if err != nil {
-		text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", err.Error())
-		transcript.WriteString(text)
-		msgChan <- streamEvent{Event: "chunk", Text: text}
-		worldRefs = nil
-	}
-
-	msgChan <- streamEvent{Event: "retrieval", Retrieval: map[string]any{"tasks": activeRetrieval}}
-
-	references := mergeReferenceLists(behaviorRefs, dialogueRefs, worldRefs)
-	if len(references) > 0 {
-		msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
-	}
-	if len(charsToCheck) > 0 {
-		gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), references)
-		if s.store.Len() > 0 {
-			gaps.IndexReady = true
-		}
-		if len(gaps.MissingCharacters) > 0 || len(gaps.MissingLocations) > 0 || len(gaps.MissingSettings) > 0 {
-			msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
-		}
-	}
-
-	worldText := joinWorldProfiles(filterReferencesByType(worldRefs, "world"), s.profiles.Worlds)
+	}}}
 
 	styleReq := req
 	styleReq.Checks = []string{"style"}
@@ -117,17 +73,9 @@ func (s *Server) runPipelineReview(
 		msgChan <- streamEvent{Event: "chunk", Text: text}
 		return err
 	}
-
 	styleTexts := make([]string, 0, len(stylesToCheck))
 	for _, sg := range stylesToCheck {
 		styleTexts = append(styleTexts, sg.RawContent)
-	}
-	languageRefs := joinProfiles(filterReferencesByType(references, "style"))
-	if len(styleTexts) > 0 {
-		if languageRefs != "" {
-			languageRefs += "\n\n"
-		}
-		languageRefs += strings.Join(styleTexts, "\n\n")
 	}
 
 	cw := &chanWriter{ch: msgChan, transcript: transcript}
@@ -140,6 +88,31 @@ func (s *Server) runPipelineReview(
 
 		switch layer.Name {
 		case "character":
+			behaviorRefs, bErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, behaviorOpts)
+			if bErr != nil {
+				text := fmt.Sprintf("\n> 行為審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", bErr.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+			dialogueRefs, dErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, dialogueOpts)
+			if dErr != nil {
+				text := fmt.Sprintf("\n> 對白審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", dErr.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+			refs := mergeReferenceLists(behaviorRefs, dialogueRefs)
+			if len(refs) > 0 {
+				msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(refs)}
+			}
+			if len(charsToCheck) > 0 {
+				gaps := computeRetrievalGaps(req.Chapter, s.profiles.AllNames(), refs)
+				if s.store.Len() > 0 {
+					gaps.IndexReady = true
+				}
+				if len(gaps.MissingCharacters) > 0 || len(gaps.MissingLocations) > 0 || len(gaps.MissingSettings) > 0 {
+					msgChan <- streamEvent{Event: "gaps", Gaps: &gaps}
+				}
+			}
 			profiles := make([]string, 0, len(charsToCheck))
 			for _, ch := range charsToCheck {
 				profiles = append(profiles, ch.RawContent)
@@ -147,16 +120,22 @@ func (s *Server) runPipelineReview(
 			if len(profiles) > 0 {
 				promptParts = append(promptParts, "【角色資料】\n"+strings.Join(profiles, "\n\n"))
 			}
-			layerRefs := joinProfiles(mergeReferenceLists(behaviorRefs, dialogueRefs))
-			if layerRefs != "" {
+			if layerRefs := joinProfiles(refs); layerRefs != "" {
 				promptParts = append(promptParts, "【補充參考資料】\n"+layerRefs)
 			}
 		case "world_logic":
+			worldRefs, wErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, worldOpts)
+			if wErr != nil {
+				text := fmt.Sprintf("\n> 世界觀審查的 RAG 參考載入失敗，改用基礎模式繼續：%s\n", wErr.Error())
+				transcript.WriteString(text)
+				msgChan <- streamEvent{Event: "chunk", Text: text}
+			}
+			worldText := joinWorldProfiles(filterReferencesByType(worldRefs, "world"), s.profiles.Worlds)
 			if strings.TrimSpace(worldText) != "" {
 				promptParts = append(promptParts, "【世界觀資料】\n"+worldText)
 			}
 		case "language":
-			if strings.TrimSpace(languageRefs) != "" {
+			if languageRefs := strings.Join(styleTexts, "\n\n"); strings.TrimSpace(languageRefs) != "" {
 				promptParts = append(promptParts, "【補充參考資料】\n"+languageRefs)
 			}
 		}

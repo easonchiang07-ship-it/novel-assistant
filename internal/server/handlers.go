@@ -116,6 +116,18 @@ func normalizedLayerMode(raw string) string {
 	return mode
 }
 
+func resolveReviewChapterMeta(req checkRequest) (chapterTitle, chapterFile string) {
+	chapterFile = strings.TrimSpace(req.ChapterFile)
+	chapterTitle = strings.TrimSpace(req.ChapterTitle)
+	if chapterTitle == "" && chapterFile != "" {
+		chapterTitle = strings.TrimSuffix(chapterFile, ".md")
+	}
+	if chapterTitle == "" {
+		chapterTitle = "未命名章節"
+	}
+	return
+}
+
 func saveOrAbort(c *gin.Context, err error, action string) bool {
 	if err == nil {
 		return true
@@ -870,7 +882,7 @@ type checkRequest struct {
 	ChapterFile        string                      `json:"chapter_file"`
 	ChapterTitle       string                      `json:"chapter_title"`
 	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
-	LayerMode string `json:"layer_mode"`
+	LayerMode          string                      `json:"layer_mode"`
 }
 
 type retrievalOptions struct {
@@ -901,6 +913,11 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	layerMode := normalizedLayerMode(req.LayerMode)
+	if layerMode != "single" && layerMode != "pipeline" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("未知的 layer_mode：%s", layerMode)})
+		return
+	}
 
 	msgChan := make(chan streamEvent, 512)
 	ctx, cancel := context.WithCancel(c.Request.Context())
@@ -912,7 +929,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		defer close(msgChan)
 
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
-		if normalizedLayerMode(req.LayerMode) == "pipeline" {
+		if layerMode == "pipeline" {
 			if err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix); err != nil {
 				return
 			}
@@ -921,14 +938,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 			msgChan <- streamEvent{Event: "chunk", Text: completion}
 			transcript.WriteString(completion)
 
-			chapterFile := strings.TrimSpace(req.ChapterFile)
-			chapterTitle := strings.TrimSpace(req.ChapterTitle)
-			if chapterTitle == "" && chapterFile != "" {
-				chapterTitle = strings.TrimSuffix(chapterFile, ".md")
-			}
-			if chapterTitle == "" {
-				chapterTitle = "未命名章節"
-			}
+			chapterTitle, chapterFile := resolveReviewChapterMeta(req)
 			s.history.Add(&reviewhistory.Entry{
 				Kind:         "review",
 				ChapterTitle: chapterTitle,
@@ -1138,14 +1148,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		msgChan <- streamEvent{Event: "chunk", Text: completion}
 		transcript.WriteString(completion)
 
-		chapterFile := strings.TrimSpace(req.ChapterFile)
-		chapterTitle := strings.TrimSpace(req.ChapterTitle)
-		if chapterTitle == "" && chapterFile != "" {
-			chapterTitle = strings.TrimSuffix(chapterFile, ".md")
-		}
-		if chapterTitle == "" {
-			chapterTitle = "未命名章節"
-		}
+		chapterTitle, chapterFile := resolveReviewChapterMeta(req)
 		s.history.Add(&reviewhistory.Entry{
 			Kind:             "review",
 			ChapterTitle:     chapterTitle,

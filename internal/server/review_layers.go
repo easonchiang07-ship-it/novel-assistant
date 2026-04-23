@@ -59,9 +59,9 @@ func (s *Server) runPipelineReview(
 	dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 	worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
 	msgChan <- streamEvent{Event: "retrieval", Retrieval: map[string]any{"tasks": map[string]retrievalSummary{
-		"behavior": summarizeRetrieval("behavior", behaviorOpts),
-		"dialogue": summarizeRetrieval("dialogue", dialogueOpts),
-		"world":    summarizeRetrieval("world", worldOpts),
+		"behavior": summarizeRetrieval("behavior", behaviorOpts, resolveBeforeChapter(req.ChapterFile, behaviorOpts)),
+		"dialogue": summarizeRetrieval("dialogue", dialogueOpts, resolveBeforeChapter(req.ChapterFile, dialogueOpts)),
+		"world":    summarizeRetrieval("world", worldOpts, resolveBeforeChapter(req.ChapterFile, worldOpts)),
 	}}}
 
 	styleReq := req

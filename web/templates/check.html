@@ -851,7 +851,8 @@ function renderAppliedRetrieval(tasks) {
     const sources = Array.isArray(cfg.sources) && cfg.sources.length
       ? cfg.sources.map(retrievalSourceLabel).join('、')
       : '無';
-    return `${retrievalTaskLabel(task)}：來源 ${sources} / Top-K ${Number(cfg.top_k || 0)} / 門檻 ${Number(cfg.threshold || 0).toFixed(2)}`;
+    const timeline = cfg.before_chapter > 0 ? ` / 限第 ${cfg.before_chapter} 章以前` : '';
+    return `${retrievalTaskLabel(task)}：來源 ${sources} / Top-K ${Number(cfg.top_k || 0)} / 門檻 ${Number(cfg.threshold || 0).toFixed(2)}${timeline}`;
   }).join('<br>');
 }
 

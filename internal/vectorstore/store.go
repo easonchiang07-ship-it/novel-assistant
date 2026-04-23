@@ -165,6 +165,51 @@ func (s *Store) QueryFilteredScored(queryVec []float64, topK int, types []string
 	return out
 }
 
+// QueryFilteredBeforeChapter is like QueryFilteredScored but additionally
+// excludes chapter-type documents whose ChapterIndex >= beforeChapter.
+// beforeChapter <= 0 means no timeline filter is applied.
+// Non-chapter document types are never filtered by this bound.
+func (s *Store) QueryFilteredBeforeChapter(queryVec []float64, topK int, types []string, threshold float64, beforeChapter int) []ScoredDocument {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	typeSet := make(map[string]struct{}, len(types))
+	for _, item := range types {
+		typeSet[item] = struct{}{}
+	}
+
+	type scored struct {
+		doc   Document
+		score float64
+	}
+	var results []scored
+	for _, d := range s.docs {
+		if len(typeSet) > 0 {
+			if _, ok := typeSet[d.Type]; !ok {
+				continue
+			}
+		}
+		if beforeChapter > 0 && d.Type == "chapter" && d.ChapterIndex >= beforeChapter {
+			continue
+		}
+		score := cosine(queryVec, d.Embedding)
+		if threshold > 0 && score < threshold {
+			continue
+		}
+		results = append(results, scored{doc: d, score: score})
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+
+	out := make([]ScoredDocument, 0, topK)
+	for i := 0; i < topK && i < len(results); i++ {
+		out = append(out, ScoredDocument{
+			Document: results[i].doc,
+			Score:    results[i].score,
+		})
+	}
+	return out
+}
+
 func cosine(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0

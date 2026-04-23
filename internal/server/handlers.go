@@ -30,6 +30,8 @@ import (
 type streamEvent struct {
 	Event     string
 	Text      string
+	Layer     string
+	Label     string
 	Sources   []referenceSummary
 	Retrieval any
 	Gaps      *retrievalGaps
@@ -104,6 +106,26 @@ func parsePositiveChapter(raw string) (int, error) {
 		return 0, fmt.Errorf("章節必須是大於 0 的整數")
 	}
 	return chapter, nil
+}
+
+func normalizedLayerMode(raw string) string {
+	mode := strings.TrimSpace(raw)
+	if mode == "" {
+		return "single"
+	}
+	return mode
+}
+
+func resolveReviewChapterMeta(req checkRequest) (chapterTitle, chapterFile string) {
+	chapterFile = strings.TrimSpace(req.ChapterFile)
+	chapterTitle = strings.TrimSpace(req.ChapterTitle)
+	if chapterTitle == "" && chapterFile != "" {
+		chapterTitle = strings.TrimSuffix(chapterFile, ".md")
+	}
+	if chapterTitle == "" {
+		chapterTitle = "未命名章節"
+	}
+	return
 }
 
 func saveOrAbort(c *gin.Context, err error, action string) bool {
@@ -860,6 +882,7 @@ type checkRequest struct {
 	ChapterFile        string                      `json:"chapter_file"`
 	ChapterTitle       string                      `json:"chapter_title"`
 	SceneTitle         string                      `json:"scene_title,omitempty"` // empty = full chapter
+	LayerMode          string                      `json:"layer_mode"`
 }
 
 type retrievalOptions struct {
@@ -890,18 +913,49 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	layerMode := normalizedLayerMode(req.LayerMode)
+	if layerMode != "single" && layerMode != "pipeline" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("未知的 layer_mode：%s", layerMode)})
+		return
+	}
 
 	msgChan := make(chan streamEvent, 512)
 	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
 	var transcript strings.Builder
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
 
 	go func() {
-		defer cancel()
 		defer close(msgChan)
 
-		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
+		if layerMode == "pipeline" {
+			if err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix); err != nil {
+				return
+			}
+
+			completion := "\n\n---\n審查完成\n"
+			msgChan <- streamEvent{Event: "chunk", Text: completion}
+			transcript.WriteString(completion)
+
+			chapterTitle, chapterFile := resolveReviewChapterMeta(req)
+			s.history.Add(&reviewhistory.Entry{
+				Kind:         "review",
+				ChapterTitle: chapterTitle,
+				ChapterFile:  chapterFile,
+				SceneTitle:   strings.TrimSpace(req.SceneTitle),
+				InputContent: req.Chapter,
+				Checks:       append([]string(nil), req.Checks...),
+				Styles:       append([]string(nil), req.Styles...),
+				Result:       transcript.String(),
+			})
+			if err := s.history.Save(); err != nil {
+				log.Printf("save review history: %v", err)
+			}
+			return
+		}
+
+		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		charsToCheck := s.resolveCharacters(req)
 		needsCharacters := len(req.Checks) == 0 || contains(req.Checks, "behavior") || contains(req.Checks, "dialogue")
 		if needsCharacters && len(charsToCheck) == 0 {
@@ -1094,14 +1148,7 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 		msgChan <- streamEvent{Event: "chunk", Text: completion}
 		transcript.WriteString(completion)
 
-		chapterFile := strings.TrimSpace(req.ChapterFile)
-		chapterTitle := strings.TrimSpace(req.ChapterTitle)
-		if chapterTitle == "" && chapterFile != "" {
-			chapterTitle = strings.TrimSuffix(chapterFile, ".md")
-		}
-		if chapterTitle == "" {
-			chapterTitle = "未命名章節"
-		}
+		chapterTitle, chapterFile := resolveReviewChapterMeta(req)
 		s.history.Add(&reviewhistory.Entry{
 			Kind:             "review",
 			ChapterTitle:     chapterTitle,
@@ -1124,34 +1171,34 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	c.Stream(func(w io.Writer) bool {
+	// Drain all events until the goroutine closes msgChan. ctx.Done() only
+	// fires on genuine client disconnect (parent request context), not when
+	// the goroutine finishes — cancel() is deferred in this function, so it
+	// only fires after we return.
+	for msg := range msgChan {
 		select {
-		case msg, ok := <-msgChan:
-			if !ok {
-				return false
-			}
-			if msg.Event == "sources" {
-				c.SSEvent("sources", gin.H{"items": msg.Sources})
-				return true
-			}
-			if msg.Event == "retrieval" {
-				c.SSEvent("retrieval", msg.Retrieval)
-				return true
-			}
-			if msg.Event == "gaps" {
-				c.SSEvent("gaps", msg.Gaps)
-				return true
-			}
-			if msg.Event == "conflict" {
-				c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
-				return true
-			}
-			c.SSEvent("chunk", gin.H{"text": msg.Text})
-			return true
 		case <-ctx.Done():
-			return false
+			return
+		default:
 		}
-	})
+		switch msg.Event {
+		case "sources":
+			c.SSEvent("sources", gin.H{"items": msg.Sources})
+		case "retrieval":
+			c.SSEvent("retrieval", msg.Retrieval)
+		case "gaps":
+			c.SSEvent("gaps", msg.Gaps)
+		case "layer_start":
+			c.SSEvent("layer_start", gin.H{"layer": msg.Layer, "label": msg.Label})
+		case "layer_end":
+			c.SSEvent("layer_end", gin.H{"layer": msg.Layer})
+		case "conflict":
+			c.SSEvent("conflict", gin.H{"conflicts": msg.Conflicts})
+		default:
+			c.SSEvent("chunk", gin.H{"text": msg.Text})
+		}
+		c.Writer.Flush()
+	}
 }
 
 type rewriteRequest struct {

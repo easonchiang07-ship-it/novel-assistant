@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"novel-assistant/internal/checker"
@@ -230,6 +231,167 @@ func TestCheckStreamMarksGapsAsUnindexedWhenStoreIsEmpty(t *testing.T) {
 	}
 	if !strings.Contains(string(checkResp.Body), "\"index_ready\":false") {
 		t.Fatalf("expected unindexed gap payload in stream, got %s", string(checkResp.Body))
+	}
+}
+
+func TestCheckStreamPipelineEmitsOrderedLayerEvents(t *testing.T) {
+	t.Parallel()
+
+	var callCount atomic.Int32
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			callCount.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+	mustWriteFile(t, filepath.Join(dir, "worldbuilding", "城市規則.md"), "# 城市規則\n- 夜晚才會顯影\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter":    "林昊站在夜港塔下。",
+		"layer_mode": "pipeline",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pipeline stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+	order := []string{
+		"event:layer_start\ndata:{\"label\":\"結構層\",\"layer\":\"structure\"}",
+		"event:layer_end\ndata:{\"layer\":\"structure\"}",
+		"event:layer_start\ndata:{\"label\":\"角色層\",\"layer\":\"character\"}",
+		"event:layer_end\ndata:{\"layer\":\"character\"}",
+		"event:layer_start\ndata:{\"label\":\"世界觀層\",\"layer\":\"world_logic\"}",
+		"event:layer_end\ndata:{\"layer\":\"world_logic\"}",
+		"event:layer_start\ndata:{\"label\":\"語言層\",\"layer\":\"language\"}",
+		"event:layer_end\ndata:{\"layer\":\"language\"}",
+	}
+
+	last := -1
+	for _, marker := range order {
+		idx := strings.Index(body, marker)
+		if idx < 0 {
+			t.Fatalf("expected marker %q in stream, got %s", marker, body)
+		}
+		if idx <= last {
+			t.Fatalf("expected ordered markers, got %s", body)
+		}
+		last = idx
+	}
+	if n := callCount.Load(); n != 4 {
+		t.Fatalf("expected 4 generate calls, got %d", n)
+	}
+}
+
+func TestCheckStreamPipelineAbortsOnFirstLayerFailure(t *testing.T) {
+	t.Parallel()
+
+	var callCount atomic.Int32
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			n := callCount.Add(1)
+			if n == 1 {
+				// First layer (structure) fails: return 500 to trigger layer error.
+				http.Error(w, "model overloaded", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n")
+	mustWriteFile(t, filepath.Join(dir, "worldbuilding", "城市規則.md"), "# 城市規則\n- 夜晚才會顯影\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter":    "林昊站在夜港塔下。",
+		"layer_mode": "pipeline",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pipeline stream failed with status %d", resp.StatusCode)
+	}
+
+	body := string(resp.Body)
+
+	// structure layer_start must appear (pipeline started)
+	if !strings.Contains(body, "event:layer_start\ndata:{\"label\":\"結構層\",\"layer\":\"structure\"}") {
+		t.Fatalf("expected structure layer_start in stream, got %s", body)
+	}
+	// failed layer must NOT have layer_end
+	if strings.Contains(body, "event:layer_end\ndata:{\"layer\":\"structure\"}") {
+		t.Fatalf("failed layer must not emit layer_end, got %s", body)
+	}
+	// subsequent layers must not appear
+	if strings.Contains(body, "event:layer_start\ndata:{\"label\":\"角色層\",\"layer\":\"character\"}") {
+		t.Fatalf("pipeline should abort after first failure, got character layer in %s", body)
+	}
+	// only one generate call (structure layer)
+	if n := callCount.Load(); n != 1 {
+		t.Fatalf("expected exactly 1 generate call before abort, got %d", n)
+	}
+}
+
+func TestCheckStreamSingleDoesNotEmitLayerEvents(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "characters", "林昊.md"), "# 角色：林昊\n- 個性：冷靜\n- 說話風格：短句\n")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/check/stream", map[string]any{
+		"chapter":    "林昊站在夜港塔下。",
+		"checks":     []string{"behavior"},
+		"layer_mode": "single",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("single stream failed: %s", string(resp.Body))
+	}
+	if strings.Contains(string(resp.Body), "event:layer_start") || strings.Contains(string(resp.Body), "event:layer_end") {
+		t.Fatalf("single mode should not emit layer events, got %s", string(resp.Body))
 	}
 }
 

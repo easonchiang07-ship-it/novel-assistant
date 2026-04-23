@@ -73,7 +73,7 @@ func chunkChapter(name string, content string) []vectorstore.Document {
 	}
 
 	chapterIndex := extractChapterIndex(name)
-	scenes := parseScenes(content)
+	scenes := parseScenes(trimmed)
 	if len(scenes) > 0 {
 		chunks := make([]vectorstore.Document, 0, len(scenes))
 		for _, scene := range scenes {
@@ -90,7 +90,7 @@ func chunkChapter(name string, content string) []vectorstore.Document {
 		return chunks
 	}
 
-	parts := strings.Split(content, "\n\n")
+	parts := strings.Split(trimmed, "\n\n")
 	chunks := make([]vectorstore.Document, 0, len(parts))
 	paragraphIndex := 0
 	for _, part := range parts {

@@ -1111,6 +1111,14 @@ func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
 	app := httptest.NewServer(s.router)
 	defer app.Close()
 
+	// detect: missing chapter_index should return 400
+	badDetect := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter": "林昊看到桌上的信封，沒有打開。",
+	})
+	if badDetect.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing chapter_index, got %d", badDetect.StatusCode)
+	}
+
 	// detect: LLM should return one candidate
 	detectResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
 		"chapter":       "林昊看到桌上的信封，沒有打開。",
@@ -1202,7 +1210,7 @@ func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
 	}
 
 	// stale: confirmed item planted at ch3, current=7, threshold=3 → stale
-	staleResp := performJSONRequest(t, app.URL, "GET", "/api/foreshadow/stale?current_chapter=7&threshold=3", nil)
+	staleResp := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=7&threshold=3", nil)
 	if staleResp.StatusCode != http.StatusOK {
 		t.Fatalf("stale failed: %s", string(staleResp.Body))
 	}

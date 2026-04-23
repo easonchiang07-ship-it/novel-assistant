@@ -1549,6 +1549,10 @@ func (s *Server) handleDetectForeshadow(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
 		return
 	}
+	if req.ChapterIndex < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter_index 必須為正整數"})
+		return
+	}
 	candidates, err := s.checker.ExtractHooks(c.Request.Context(), req.Chapter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

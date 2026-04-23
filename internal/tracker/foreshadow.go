@@ -215,7 +215,8 @@ func (t *ForeshadowTracker) StaleForeshadows(currentChapter, threshold int) []*F
 			baseline = item.Chapter
 		}
 		if currentChapter-baseline >= threshold {
-			out = append(out, item)
+			cp := *item
+			out = append(out, &cp)
 		}
 	}
 	return out

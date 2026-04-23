@@ -157,6 +157,8 @@ function deleteForeshadow(id) {
     });
 }
 
+let currentDetectChapter = 0;
+
 async function detectHooks() {
   const chapter = parseInt(document.getElementById('detect-chapter').value, 10);
   const content = document.getElementById('detect-content').value.trim();
@@ -179,11 +181,12 @@ async function detectHooks() {
     return;
   }
   const data = await resp.json();
+  currentDetectChapter = chapter;
   status.textContent = `偵測完成，找到 ${data.pending?.length ?? 0} 個建議`;
-  renderPending(data.pending || [], chapter);
+  renderPending(data.pending || []);
 }
 
-function renderPending(pending, chapter) {
+function renderPending(pending) {
   const section = document.getElementById('pending-section');
   const list = document.getElementById('pending-list');
   if (!pending.length) { section.style.display = 'none'; return; }
@@ -200,7 +203,7 @@ function renderPending(pending, chapter) {
           </div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;white-space:nowrap">
-          <button class="btn btn-sm btn-success" onclick="confirmHook('${p.id}', ${chapter})">確認採用</button>
+          <button class="btn btn-sm btn-success" onclick="confirmHook('${p.id}', ${p.chapter_index || 0})">確認採用</button>
           <button class="btn btn-sm btn-ghost" onclick="dismissHook('${p.id}')">忽略</button>
         </div>
       </div>
@@ -208,8 +211,8 @@ function renderPending(pending, chapter) {
   `).join('');
 }
 
-async function confirmHook(id, chapter) {
-  let chapterNum = parseInt(chapter, 10);
+async function confirmHook(id, chapterHint) {
+  let chapterNum = parseInt(chapterHint, 10) || currentDetectChapter;
   if (!chapterNum || chapterNum < 1) {
     const input = prompt('請輸入此伏筆所在章節編號：');
     chapterNum = parseInt(input, 10);
@@ -234,7 +237,7 @@ async function dismissHook(id) {
   if (!resp.ok) { alert('忽略失敗'); return; }
   const data = await resp.json();
   document.getElementById('ph-' + id)?.remove();
-  renderPending(data.pending || [], 0);
+  renderPending(data.pending || []);
 }
 
 function escapeHTML(str) {

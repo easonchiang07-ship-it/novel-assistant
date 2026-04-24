@@ -949,7 +949,8 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		if layerMode == "pipeline" {
-			if err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix); err != nil {
+			pipelineRefs, pipelineRetrieval, err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix)
+			if err != nil {
 				return
 			}
 
@@ -959,14 +960,16 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 			chapterTitle, chapterFile := resolveReviewChapterMeta(req)
 			s.history.Add(&reviewhistory.Entry{
-				Kind:         "review",
-				ChapterTitle: chapterTitle,
-				ChapterFile:  chapterFile,
-				SceneTitle:   strings.TrimSpace(req.SceneTitle),
-				InputContent: req.Chapter,
-				Checks:       append([]string(nil), req.Checks...),
-				Styles:       append([]string(nil), req.Styles...),
-				Result:       transcript.String(),
+				Kind:             "review",
+				ChapterTitle:     chapterTitle,
+				ChapterFile:      chapterFile,
+				SceneTitle:       strings.TrimSpace(req.SceneTitle),
+				InputContent:     req.Chapter,
+				Checks:           append([]string(nil), req.Checks...),
+				Styles:           append([]string(nil), req.Styles...),
+				Sources:          referenceNames(pipelineRefs),
+				RetrievalConfigs: buildHistoryRetrievalConfigs(pipelineRetrieval),
+				Result:           transcript.String(),
 			})
 			if err := s.history.Save(); err != nil {
 				log.Printf("save review history: %v", err)

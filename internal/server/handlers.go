@@ -949,7 +949,8 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 		worldStatePrefix := s.worldStateSystemPrefix(req.ChapterFile)
 		if layerMode == "pipeline" {
-			if err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix); err != nil {
+			pipelineRefs, pipelineRetrieval, err := s.runPipelineReview(ctx, req, msgChan, &transcript, worldStatePrefix)
+			if err != nil {
 				return
 			}
 
@@ -959,14 +960,16 @@ func (s *Server) handleCheckStream(c *gin.Context) {
 
 			chapterTitle, chapterFile := resolveReviewChapterMeta(req)
 			s.history.Add(&reviewhistory.Entry{
-				Kind:         "review",
-				ChapterTitle: chapterTitle,
-				ChapterFile:  chapterFile,
-				SceneTitle:   strings.TrimSpace(req.SceneTitle),
-				InputContent: req.Chapter,
-				Checks:       append([]string(nil), req.Checks...),
-				Styles:       append([]string(nil), req.Styles...),
-				Result:       transcript.String(),
+				Kind:             "review",
+				ChapterTitle:     chapterTitle,
+				ChapterFile:      chapterFile,
+				SceneTitle:       strings.TrimSpace(req.SceneTitle),
+				InputContent:     req.Chapter,
+				Checks:           append([]string(nil), req.Checks...),
+				Styles:           append([]string(nil), req.Styles...),
+				Sources:          referenceNames(pipelineRefs),
+				RetrievalConfigs: buildHistoryRetrievalConfigs(pipelineRetrieval),
+				Result:           transcript.String(),
 			})
 			if err := s.history.Save(); err != nil {
 				log.Printf("save review history: %v", err)
@@ -1299,12 +1302,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		rewriteOpts := mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval)
 		activeRetrieval := summarizeRetrieval("rewrite", rewriteOpts, resolveBeforeChapter(req.ChapterFile, rewriteOpts))
 		traceStarted := time.Now()
-		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
-			Sources:      append([]string(nil), activeRetrieval.Sources...),
-			TopK:         activeRetrieval.TopK,
-			Threshold:    activeRetrieval.Threshold,
-			ThresholdSet: true,
-		})
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, rewriteOpts)
 		s.recordRetrievalTrace("rewrite", activeRetrieval, req.ChapterTitle, req.ChapterFile, references, refErr, time.Since(traceStarted))
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": gin.H{"rewrite": activeRetrieval}}}

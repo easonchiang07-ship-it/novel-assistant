@@ -1439,3 +1439,181 @@ func TestNarrativeExtract(t *testing.T) {
 		t.Fatalf("expected pending hook '密函來源' at chapter 5 in tracker, got: %+v", detectPayload.Pending)
 	}
 }
+
+// ─── evaluate stream tests ────────────────────────────────────────────────────
+
+func TestEvaluateStreamReturnsResult(t *testing.T) {
+	t.Parallel()
+
+	evalJSON := `{"plot":4,"character":4,"style":4,"pacing":4,"hook":4,"reasons":{"plot":"情節流暢","character":"角色鮮明","style":"文風優美","pacing":"節奏適中","hook":"鉤子到位"}}`
+
+	var callCount atomic.Int32
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2}})
+		case "/api/generate":
+			callCount.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			chunk, _ := json.Marshal(map[string]any{"response": evalJSON, "done": true})
+			w.Write(chunk)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/evaluate/stream", map[string]any{
+		"chapter":       "林昊走進了雨夜的長廊。",
+		"chapter_index": 3,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("evaluate/stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+	if !strings.Contains(body, "event:result") {
+		t.Fatalf("expected event:result in stream, got: %s", body)
+	}
+	if !strings.Contains(body, "event:progress") {
+		t.Fatalf("expected event:progress in stream, got: %s", body)
+	}
+
+	// Extract result payload
+	var finalEval struct {
+		Stability struct {
+			MedianScores struct {
+				Plot int `json:"plot"`
+			} `json:"median_scores"`
+			SuccessRuns int    `json:"success_runs"`
+			Confidence  string `json:"confidence"`
+		} `json:"stability"`
+		BaseScore  int `json:"base_score"`
+		FinalScore int `json:"final_score"`
+	}
+	blocks := strings.Split(body, "\n\n")
+	for _, block := range blocks {
+		lines := strings.Split(strings.TrimSpace(block), "\n")
+		isResult := false
+		for _, l := range lines {
+			if strings.TrimSpace(l) == "event:result" {
+				isResult = true
+			}
+		}
+		if !isResult {
+			continue
+		}
+		for _, l := range lines {
+			if strings.HasPrefix(l, "data:") {
+				payload := strings.TrimPrefix(l, "data:")
+				if err := json.Unmarshal([]byte(strings.TrimSpace(payload)), &finalEval); err != nil {
+					t.Fatalf("decode result: %v (payload=%s)", err, payload)
+				}
+			}
+		}
+	}
+	if finalEval.Stability.SuccessRuns != 3 {
+		t.Errorf("expected 3 success runs, got %d", finalEval.Stability.SuccessRuns)
+	}
+	if finalEval.BaseScore != 80 { // plot=4,char=4,style=4,pacing=4,hook=4 → 4*5+4*5+4*4+4*3+4*3=80
+		t.Errorf("expected base_score=80, got %d", finalEval.BaseScore)
+	}
+	if finalEval.FinalScore != finalEval.BaseScore {
+		t.Errorf("expected final_score==base_score when no adjustments, got final=%d base=%d", finalEval.FinalScore, finalEval.BaseScore)
+	}
+}
+
+func TestEvaluateStreamStaleForeshadowPenalty(t *testing.T) {
+	t.Parallel()
+
+	evalJSON := `{"plot":4,"character":4,"style":4,"pacing":4,"hook":4,"reasons":{"plot":"ok","character":"ok","style":"ok","pacing":"ok","hook":"ok"}}`
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2}})
+		case "/api/generate":
+			w.Header().Set("Content-Type", "application/json")
+			chunk, _ := json.Marshal(map[string]any{"response": evalJSON, "done": true})
+			w.Write(chunk)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+
+	// Plant a stale foreshadow at chapter 1; with threshold 5 and current chapter 15 → stale (15-1=14 >= 5)
+	s.foreshadow.Items = append(s.foreshadow.Items, &tracker.Foreshadowing{
+		ID:          "stale-001",
+		Description: "懸而未決的秘密",
+		Chapter:     1,
+		Status:      "未回收",
+	})
+	if err := s.foreshadow.Save(); err != nil {
+		t.Fatalf("save foreshadow: %v", err)
+	}
+
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/evaluate/stream", map[string]any{
+		"chapter":         "林昊走進了雨夜的長廊。",
+		"chapter_index":   15,
+		"stale_threshold": 5,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("evaluate/stream failed: %s", string(resp.Body))
+	}
+
+	body := string(resp.Body)
+
+	var finalEval struct {
+		Adjustments []struct {
+			Label string `json:"label"`
+			Delta int    `json:"delta"`
+		} `json:"adjustments"`
+		BaseScore  int `json:"base_score"`
+		FinalScore int `json:"final_score"`
+	}
+	blocks := strings.Split(body, "\n\n")
+	for _, block := range blocks {
+		lines := strings.Split(strings.TrimSpace(block), "\n")
+		isResult := false
+		for _, l := range lines {
+			if strings.TrimSpace(l) == "event:result" {
+				isResult = true
+			}
+		}
+		if !isResult {
+			continue
+		}
+		for _, l := range lines {
+			if strings.HasPrefix(l, "data:") {
+				payload := strings.TrimPrefix(l, "data:")
+				_ = json.Unmarshal([]byte(strings.TrimSpace(payload)), &finalEval)
+			}
+		}
+	}
+
+	if len(finalEval.Adjustments) == 0 {
+		t.Fatalf("expected at least one adjustment for stale foreshadow")
+	}
+	staleDelta := 0
+	for _, a := range finalEval.Adjustments {
+		staleDelta += a.Delta
+	}
+	if staleDelta != -5 {
+		t.Errorf("expected total delta=-5 for stale foreshadow penalty, got %d", staleDelta)
+	}
+	if finalEval.FinalScore != finalEval.BaseScore-5 {
+		t.Errorf("expected final_score=base_score-5, got final=%d base=%d", finalEval.FinalScore, finalEval.BaseScore)
+	}
+}

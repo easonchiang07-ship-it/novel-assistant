@@ -206,6 +206,9 @@ func (s *Server) setupRoutes() {
 	protected.GET("/narrative", s.handleNarrativePage)
 	protected.POST("/narrative/extract", s.handleNarrativeExtract)
 
+	protected.GET("/evaluate", s.handleEvaluatePage)
+	protected.POST("/evaluate/stream", s.handleEvaluateStream)
+
 	protected.POST("/export", s.handleExport)
 }
 

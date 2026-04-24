@@ -1302,12 +1302,7 @@ func (s *Server) handleRewriteStream(c *gin.Context) {
 		rewriteOpts := mergeRetrieval(s.rules.PresetFor("rewrite"), req.Retrieval)
 		activeRetrieval := summarizeRetrieval("rewrite", rewriteOpts, resolveBeforeChapter(req.ChapterFile, rewriteOpts))
 		traceStarted := time.Now()
-		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, retrievalOptions{
-			Sources:      append([]string(nil), activeRetrieval.Sources...),
-			TopK:         activeRetrieval.TopK,
-			Threshold:    activeRetrieval.Threshold,
-			ThresholdSet: true,
-		})
+		references, refErr := s.buildReferenceContext(ctx, req.Chapter, req.ChapterFile, rewriteOpts)
 		s.recordRetrievalTrace("rewrite", activeRetrieval, req.ChapterTitle, req.ChapterFile, references, refErr, time.Since(traceStarted))
 		cw := &chanWriter{ch: msgChan, transcript: &transcript}
 		msgChan <- streamEvent{Event: "retrieval", Retrieval: gin.H{"tasks": gin.H{"rewrite": activeRetrieval}}}

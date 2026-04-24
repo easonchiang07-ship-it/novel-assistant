@@ -44,13 +44,16 @@ func resolveReviewLayers(layerMode string) []reviewLayer {
 	return defaultReviewLayers()
 }
 
+// runPipelineReview executes the multi-layer review pipeline.
+// Returns the accumulated vector refs across all layers, the active retrieval
+// summary map, and any error that aborted the pipeline.
 func (s *Server) runPipelineReview(
 	ctx context.Context,
 	req checkRequest,
 	msgChan chan<- streamEvent,
 	transcript *strings.Builder,
 	worldStatePrefix string,
-) error {
+) ([]vectorProfile, map[string]retrievalSummary, error) {
 	layers := defaultReviewLayers()
 	charsToCheck := s.resolveCharacters(req)
 	reviewBias := reviewBiasInstruction(s.rules.Get().ReviewBias)
@@ -58,11 +61,14 @@ func (s *Server) runPipelineReview(
 	behaviorOpts := mergeRetrieval(s.rules.PresetFor("behavior"), req.retrievalOverrideFor("behavior"))
 	dialogueOpts := mergeRetrieval(s.rules.PresetFor("dialogue"), req.retrievalOverrideFor("dialogue"))
 	worldOpts := mergeRetrieval(s.rules.PresetFor("world"), req.retrievalOverrideFor("world"))
-	msgChan <- streamEvent{Event: "retrieval", Retrieval: map[string]any{"tasks": map[string]retrievalSummary{
+	activeRetrieval := map[string]retrievalSummary{
 		"behavior": summarizeRetrieval("behavior", behaviorOpts, resolveBeforeChapter(req.ChapterFile, behaviorOpts)),
 		"dialogue": summarizeRetrieval("dialogue", dialogueOpts, resolveBeforeChapter(req.ChapterFile, dialogueOpts)),
 		"world":    summarizeRetrieval("world", worldOpts, resolveBeforeChapter(req.ChapterFile, worldOpts)),
-	}}}
+	}
+	msgChan <- streamEvent{Event: "retrieval", Retrieval: map[string]any{"tasks": activeRetrieval}}
+
+	var allRefs []vectorProfile
 
 	styleReq := req
 	styleReq.Checks = []string{"style"}
@@ -71,7 +77,7 @@ func (s *Server) runPipelineReview(
 		text := fmt.Sprintf("\n> 錯誤：%s\n", err.Error())
 		transcript.WriteString(text)
 		msgChan <- streamEvent{Event: "chunk", Text: text}
-		return err
+		return nil, nil, err
 	}
 	styleTexts := make([]string, 0, len(stylesToCheck))
 	for _, sg := range stylesToCheck {
@@ -101,6 +107,7 @@ func (s *Server) runPipelineReview(
 				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
 			refs := mergeReferenceLists(behaviorRefs, dialogueRefs)
+			allRefs = append(allRefs, refs...)
 			if len(refs) > 0 {
 				msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(refs)}
 			}
@@ -130,6 +137,7 @@ func (s *Server) runPipelineReview(
 				transcript.WriteString(text)
 				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
+			allRefs = append(allRefs, worldRefs...)
 			worldText := joinWorldProfiles(filterReferencesByType(worldRefs, "world"), s.profiles.Worlds)
 			if strings.TrimSpace(worldText) != "" {
 				promptParts = append(promptParts, "【世界觀資料】\n"+worldText)
@@ -148,7 +156,7 @@ func (s *Server) runPipelineReview(
 				transcript.WriteString(text)
 				msgChan <- streamEvent{Event: "chunk", Text: text}
 			}
-			return layerErr
+			return nil, nil, layerErr
 		}
 
 		msgChan <- streamEvent{Event: "layer_end", Layer: layer.Name}
@@ -156,5 +164,5 @@ func (s *Server) runPipelineReview(
 		transcript.WriteString("\n")
 	}
 
-	return nil
+	return allRefs, activeRetrieval, nil
 }

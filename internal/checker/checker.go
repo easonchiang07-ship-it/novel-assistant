@@ -476,6 +476,44 @@ func (c *Checker) stream(ctx context.Context, system, prompt string, w io.Writer
 	return scanner.Err()
 }
 
+// HookCandidate is a potential foreshadowing element detected by the LLM.
+type HookCandidate struct {
+	Description string `json:"description"`
+	Context     string `json:"context"`
+	Confidence  string `json:"confidence"` // "高" | "中" | "低"
+}
+
+// ExtractHooks asks the LLM to detect potential foreshadowing elements in the
+// chapter and returns them as structured candidates for user confirmation.
+func (c *Checker) ExtractHooks(ctx context.Context, chapter string) ([]HookCandidate, error) {
+	prompt := fmt.Sprintf(`分析以下章節內容，找出潛在的伏筆元素（物件、謎題、承諾、暗示、未解答的問題）。
+對每個伏筆估計可信度（高/中/低）。
+輸出嚴格 JSON 陣列，不要有任何額外說明文字：
+[
+  {"description":"...","context":"...","confidence":"高|中|低"}
+]
+
+章節內容：
+%s
+`, chapter)
+
+	var buf strings.Builder
+	if err := c.stream(ctx, "你是專業小說伏筆分析師，只輸出 JSON，不輸出任何額外文字。請用繁體中文填寫欄位。", prompt, &buf); err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(buf.String())
+	start := strings.Index(raw, "[")
+	end := strings.LastIndex(raw, "]")
+	if start < 0 || end <= start {
+		return nil, fmt.Errorf("無法解析伏筆偵測回應")
+	}
+	var candidates []HookCandidate
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &candidates); err != nil {
+		return nil, fmt.Errorf("JSON 解析失敗：%w", err)
+	}
+	return candidates, nil
+}
+
 func ExtractNames(text string, knownNames []string) []string {
 	var found []string
 	for _, name := range knownNames {

@@ -1570,6 +1570,17 @@ func (s *Server) handleDetectForeshadow(c *gin.Context) {
 		}
 	}
 	s.foreshadow.AddPending(hooks)
+
+	// Update LastSeenChapter for any existing confirmed hook whose description
+	// appears verbatim in the chapter text.
+	var touchIDs []string
+	for _, item := range s.foreshadow.GetAll() {
+		if strings.Contains(req.Chapter, item.Description) {
+			touchIDs = append(touchIDs, item.ID)
+		}
+	}
+	s.foreshadow.TouchLastSeen(req.ChapterIndex, touchIDs)
+
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}

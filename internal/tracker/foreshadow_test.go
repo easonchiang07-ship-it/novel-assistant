@@ -122,3 +122,49 @@ func TestConfirmPendingReturnsFalseForMissingID(t *testing.T) {
 		t.Fatal("expected false for missing id")
 	}
 }
+
+func TestTouchLastSeenUpdatesForwardOnly(t *testing.T) {
+	t.Parallel()
+
+	tr := NewForeshadowTracker("")
+	tr.Add(&Foreshadowing{Chapter: 1, Description: "神秘信封"})
+	id := tr.GetAll()[0].ID
+
+	// First touch at chapter 5.
+	if n := tr.TouchLastSeen(5, []string{id}); n != 1 {
+		t.Fatalf("expected 1 updated, got %d", n)
+	}
+	if tr.Items[0].LastSeenChapter != 5 {
+		t.Fatalf("expected LastSeenChapter=5, got %d", tr.Items[0].LastSeenChapter)
+	}
+
+	// Touch at an earlier chapter must not regress.
+	if n := tr.TouchLastSeen(3, []string{id}); n != 0 {
+		t.Fatalf("expected 0 updated (regression guard), got %d", n)
+	}
+	if tr.Items[0].LastSeenChapter != 5 {
+		t.Fatalf("LastSeenChapter regressed to %d", tr.Items[0].LastSeenChapter)
+	}
+}
+
+func TestTouchLastSeenSkipsResolvedItems(t *testing.T) {
+	t.Parallel()
+
+	tr := NewForeshadowTracker("")
+	tr.Add(&Foreshadowing{Chapter: 1, Description: "已回收伏筆"})
+	id := tr.GetAll()[0].ID
+	tr.Items[0].Status = "已回收"
+
+	if n := tr.TouchLastSeen(5, []string{id}); n != 0 {
+		t.Fatalf("expected 0 updated for resolved item, got %d", n)
+	}
+}
+
+func TestTouchLastSeenUnknownIDIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	tr := NewForeshadowTracker("")
+	if n := tr.TouchLastSeen(5, []string{"nonexistent"}); n != 0 {
+		t.Fatalf("expected 0, got %d", n)
+	}
+}

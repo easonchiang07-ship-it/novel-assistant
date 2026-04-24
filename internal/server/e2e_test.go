@@ -1326,3 +1326,69 @@ func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
 		t.Fatalf("expected item stale again at ch10 (10-6=4 ≥ 3), got %d items", len(stalePayload3.Items))
 	}
 }
+
+func TestNarrativeExtract(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		body := `{"response":"{\"events\":[{\"scene\":\"書房\",\"description\":\"林昊發現密函\",\"characters\":[\"林昊\"],\"consequences\":\"決定出城\"}],\"relationships\":[{\"from\":\"林昊\",\"to\":\"陳司長\",\"status\":\"敵對\",\"note\":\"發現背叛\",\"trigger_event\":\"密函事件\"}],\"world_state\":[{\"entity\":\"夜港城\",\"change_type\":\"政治\",\"description\":\"城主位置動搖\"}],\"hooks\":[{\"description\":\"密函來源\",\"context\":\"信封背面印記\",\"confidence\":\"高\"}]}","done":true}`
+		_, _ = w.Write([]byte(body + "\n"))
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	// missing chapter_index → 400
+	bad := performJSONRequest(t, app.URL, "POST", "/narrative/extract", map[string]any{
+		"chapter": "林昊翻開密函，臉色大變。",
+	})
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing chapter_index, got %d", bad.StatusCode)
+	}
+
+	// valid extract
+	resp := performJSONRequest(t, app.URL, "POST", "/narrative/extract", map[string]any{
+		"chapter":       "林昊翻開密函，臉色大變。他看見陳司長的印記，決定連夜出城。",
+		"chapter_index": 5,
+		"chapter_file":  "第05章.md",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("extract failed: %s", string(resp.Body))
+	}
+
+	var result struct {
+		Events        []struct{ Description string `json:"description"` } `json:"events"`
+		Relationships []struct{ From string `json:"from"` }             `json:"relationships"`
+		WorldState    []struct{ Entity string `json:"entity"` }         `json:"world_state"`
+		Hooks         []struct{ Description string `json:"description"` } `json:"hooks"`
+	}
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+	if len(result.Relationships) != 1 {
+		t.Fatalf("expected 1 relationship, got %d", len(result.Relationships))
+	}
+	if len(result.WorldState) != 1 {
+		t.Fatalf("expected 1 world_state, got %d", len(result.WorldState))
+	}
+	if len(result.Hooks) != 1 {
+		t.Fatalf("expected 1 hook, got %d", len(result.Hooks))
+	}
+
+	// verify pending hook was added to foreshadow tracker
+	pendingResp := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=1&threshold=1", nil)
+	if pendingResp.StatusCode != http.StatusOK {
+		t.Fatalf("stale check failed: %s", string(pendingResp.Body))
+	}
+}

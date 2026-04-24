@@ -1,0 +1,148 @@
+{{define "narrative.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>敘事記憶抽取 — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header">
+      <h1>敘事記憶抽取</h1>
+      <p>貼入章節，讓 AI 一次抽取時間軸事件、角色關係、世界觀變動與伏筆候選，自動寫入各 Tracker。</p>
+    </div>
+
+    <div class="card" style="margin-bottom:1.5rem">
+      <div style="display:grid;grid-template-columns:1fr 140px;gap:1rem;align-items:end">
+        <div class="form-group" style="margin:0">
+          <label>章節編號</label>
+          <input type="number" id="chapter-index" min="1" placeholder="例：5" style="width:120px">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>章節檔案名稱（選填）</label>
+          <input type="text" id="chapter-file" placeholder="第05章.md">
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:1rem">
+        <label>章節內容</label>
+        <textarea id="chapter-content" style="min-height:160px" placeholder="貼入章節全文…"></textarea>
+      </div>
+      <button class="btn" id="extract-btn" onclick="runExtract()">抽取記憶</button>
+      <div id="extract-status" class="helper-text" style="margin-top:8px"></div>
+    </div>
+
+    <div id="result-area" style="display:none">
+
+      <!-- 時間軸事件 -->
+      <div class="card" style="margin-bottom:1rem">
+        <h2>時間軸事件 <span id="events-count" class="badge badge-open"></span></h2>
+        <div id="events-list"></div>
+      </div>
+
+      <!-- 角色關係 -->
+      <div class="card" style="margin-bottom:1rem">
+        <h2>角色關係變化 <span id="rels-count" class="badge badge-open"></span></h2>
+        <div id="rels-list"></div>
+      </div>
+
+      <!-- 世界觀狀態 -->
+      <div class="card" style="margin-bottom:1rem">
+        <h2>世界觀變動 <span id="world-count" class="badge badge-open"></span></h2>
+        <div id="world-list"></div>
+      </div>
+
+      <!-- 伏筆候選 -->
+      <div class="card" style="margin-bottom:1rem">
+        <h2>伏筆候選（已加入待確認清單）<span id="hooks-count" class="badge badge-open"></span></h2>
+        <div id="hooks-list"></div>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script>
+async function runExtract() {
+  const chapter = document.getElementById('chapter-content').value.trim();
+  const chapterIndex = parseInt(document.getElementById('chapter-index').value, 10);
+  const chapterFile = document.getElementById('chapter-file').value.trim();
+  const status = document.getElementById('extract-status');
+
+  if (!chapter) { alert('請輸入章節內容'); return; }
+  if (!chapterIndex || chapterIndex < 1) { alert('請輸入有效的章節編號'); return; }
+
+  document.getElementById('extract-btn').disabled = true;
+  document.getElementById('result-area').style.display = 'none';
+  status.textContent = '抽取中…';
+
+  const resp = await fetch('/narrative/extract', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chapter, chapter_index: chapterIndex, chapter_file: chapterFile }),
+  });
+  document.getElementById('extract-btn').disabled = false;
+
+  if (!resp.ok) {
+    status.textContent = '抽取失敗：' + (await resp.text());
+    return;
+  }
+  const data = await resp.json();
+  status.textContent = '抽取完成，結果已寫入各 Tracker。';
+  renderResults(data);
+}
+
+function renderResults(data) {
+  const area = document.getElementById('result-area');
+  area.style.display = 'block';
+
+  renderList('events-list', 'events-count', data.events || [], ev => `
+    <div style="padding:0.5rem 0;border-bottom:1px solid #334155">
+      <div style="font-weight:600">${escapeHTML(ev.description)}</div>
+      ${ev.scene ? `<div class="helper-text">場景：${escapeHTML(ev.scene)}</div>` : ''}
+      ${ev.characters?.length ? `<div class="helper-text">角色：${ev.characters.map(escapeHTML).join('、')}</div>` : ''}
+      ${ev.consequences ? `<div class="helper-text">影響：${escapeHTML(ev.consequences)}</div>` : ''}
+    </div>`);
+
+  renderList('rels-list', 'rels-count', data.relationships || [], r => `
+    <div style="padding:0.5rem 0;border-bottom:1px solid #334155">
+      <div style="font-weight:600">${escapeHTML(r.from)} → ${escapeHTML(r.to)}
+        <span class="badge badge-resolved" style="margin-left:0.5rem">${escapeHTML(r.status)}</span>
+      </div>
+      ${r.note ? `<div class="helper-text">${escapeHTML(r.note)}</div>` : ''}
+      ${r.trigger_event ? `<div class="helper-text">觸發事件：${escapeHTML(r.trigger_event)}</div>` : ''}
+    </div>`);
+
+  renderList('world-list', 'world-count', data.world_state || [], w => `
+    <div style="padding:0.5rem 0;border-bottom:1px solid #334155">
+      <div style="font-weight:600">${escapeHTML(w.entity)}
+        <span class="badge badge-resolved" style="margin-left:0.5rem">${escapeHTML(w.change_type)}</span>
+      </div>
+      <div class="helper-text">${escapeHTML(w.description)}</div>
+    </div>`);
+
+  renderList('hooks-list', 'hooks-count', data.hooks || [], h => `
+    <div style="padding:0.5rem 0;border-bottom:1px solid #334155">
+      <div style="font-weight:600">${escapeHTML(h.description)}
+        <span class="badge ${h.confidence === '高' ? 'badge-open' : 'badge-resolved'}" style="margin-left:0.5rem">可信度：${escapeHTML(h.confidence)}</span>
+      </div>
+      ${h.context ? `<div class="helper-text">「${escapeHTML(h.context)}」</div>` : ''}
+    </div>`);
+}
+
+function renderList(listID, countID, items, renderFn) {
+  document.getElementById(countID).textContent = items.length + ' 筆';
+  document.getElementById(listID).innerHTML = items.length
+    ? items.map(renderFn).join('')
+    : '<div class="helper-text">（無）</div>';
+}
+
+function escapeHTML(str) {
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
+{{end}}

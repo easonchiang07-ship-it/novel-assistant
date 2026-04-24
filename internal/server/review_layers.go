@@ -44,6 +44,9 @@ func resolveReviewLayers(layerMode string) []reviewLayer {
 	return defaultReviewLayers()
 }
 
+// runPipelineReview executes the multi-layer review pipeline.
+// Returns the accumulated vector refs across all layers, the active retrieval
+// summary map, and any error that aborted the pipeline.
 func (s *Server) runPipelineReview(
 	ctx context.Context,
 	req checkRequest,

@@ -17,7 +17,7 @@
     </div>
 
     <div class="card" style="margin-bottom:1.5rem">
-      <div style="display:grid;grid-template-columns:1fr 140px;gap:1rem;align-items:end">
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:1rem;align-items:end">
         <div class="form-group" style="margin:0">
           <label>章節編號</label>
           <input type="number" id="chapter-index" min="1" placeholder="例：5" style="width:120px">
@@ -78,20 +78,24 @@ async function runExtract() {
   document.getElementById('result-area').style.display = 'none';
   status.textContent = '抽取中…';
 
-  const resp = await fetch('/narrative/extract', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chapter, chapter_index: chapterIndex, chapter_file: chapterFile }),
-  });
-  document.getElementById('extract-btn').disabled = false;
-
-  if (!resp.ok) {
-    status.textContent = '抽取失敗：' + (await resp.text());
-    return;
+  try {
+    const resp = await fetch('/narrative/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chapter, chapter_index: chapterIndex, chapter_file: chapterFile }),
+    });
+    if (!resp.ok) {
+      status.textContent = '抽取失敗：' + (await resp.text());
+      return;
+    }
+    const data = await resp.json();
+    status.textContent = '抽取完成，結果已寫入各 Tracker。';
+    renderResults(data);
+  } catch (e) {
+    status.textContent = '連線錯誤：' + e.message;
+  } finally {
+    document.getElementById('extract-btn').disabled = false;
   }
-  const data = await resp.json();
-  status.textContent = '抽取完成，結果已寫入各 Tracker。';
-  renderResults(data);
 }
 
 function renderResults(data) {

@@ -1759,6 +1759,146 @@ func (s *Server) handleNarrativeExtract(c *gin.Context) {
 	})
 }
 
+// ─── evaluate ─────────────────────────────────────────────────────────────────
+
+type evaluateRequest struct {
+	Chapter        string `json:"chapter"`
+	ChapterIndex   int    `json:"chapter_index"`
+	ChapterFile    string `json:"chapter_file"`
+	StaleThreshold int    `json:"stale_threshold"`
+	CompareChapter string `json:"compare_chapter"`
+}
+
+type ScoreAdjustment struct {
+	Label string `json:"label"`
+	Delta int    `json:"delta"`
+}
+
+type FinalEvaluation struct {
+	Stability   *checker.StabilityResult `json:"stability"`
+	BaseScore   int                      `json:"base_score"`
+	Adjustments []ScoreAdjustment        `json:"adjustments"`
+	FinalScore  int                      `json:"final_score"`
+	Compare     *checker.StabilityResult `json:"compare,omitempty"`
+}
+
+func (s *Server) computeAdjustments(ctx context.Context, chapterIndex, staleThreshold int, worldContext, chapter string) ([]ScoreAdjustment, int) {
+	var adjustments []ScoreAdjustment
+	total := 0
+
+	if s.foreshadow != nil && chapterIndex > 0 {
+		threshold := staleThreshold
+		if threshold <= 0 {
+			threshold = 10
+		}
+		stale := s.foreshadow.StaleForeshadows(chapterIndex, threshold)
+		if len(stale) > 0 {
+			adj := ScoreAdjustment{Label: fmt.Sprintf("過期伏筆 %d 條", len(stale)), Delta: -5}
+			adjustments = append(adjustments, adj)
+			total += adj.Delta
+		}
+	}
+
+	if s.consistency != nil && chapter != "" {
+		conflicts, err := s.consistency.Check(ctx, chapter, worldContext)
+		if err == nil {
+			maxConflicts := 3
+			if len(conflicts) < maxConflicts {
+				maxConflicts = len(conflicts)
+			}
+			for i := 0; i < maxConflicts; i++ {
+				adj := ScoreAdjustment{Label: fmt.Sprintf("世界觀衝突：%s", conflicts[i].Description), Delta: -3}
+				adjustments = append(adjustments, adj)
+				total += adj.Delta
+			}
+		}
+	}
+
+	return adjustments, total
+}
+
+func (s *Server) handleEvaluatePage(c *gin.Context) {
+	c.HTML(http.StatusOK, "evaluate.html", nil)
+}
+
+func (s *Server) handleEvaluateStream(c *gin.Context) {
+	var req evaluateRequest
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Chapter) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+
+	type evalEvent struct {
+		kind    string
+		payload any
+	}
+
+	msgChan := make(chan evalEvent, 16)
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+
+	worldPrefix := s.worldStateSystemPrefix(req.ChapterFile)
+
+	go func() {
+		defer close(msgChan)
+
+		onProgress := func(run, total int) {
+			msgChan <- evalEvent{kind: "progress", payload: gin.H{"run": run, "total": total}}
+		}
+
+		stability, err := s.checker.EvaluateChapter(ctx, req.Chapter, worldPrefix, onProgress)
+		if err != nil {
+			msgChan <- evalEvent{kind: "error", payload: gin.H{"error": err.Error()}}
+			return
+		}
+
+		baseScore := checker.WeightedScore(stability.MedianScores)
+		adjustments, delta := s.computeAdjustments(ctx, req.ChapterIndex, req.StaleThreshold, worldPrefix, req.Chapter)
+		finalScore := baseScore + delta
+		if finalScore < 0 {
+			finalScore = 0
+		}
+		if finalScore > 100 {
+			finalScore = 100
+		}
+
+		eval := &FinalEvaluation{
+			Stability:   stability,
+			BaseScore:   baseScore,
+			Adjustments: adjustments,
+			FinalScore:  finalScore,
+		}
+
+		if strings.TrimSpace(req.CompareChapter) != "" {
+			compare, err := s.checker.EvaluateChapter(ctx, req.CompareChapter, worldPrefix, nil)
+			if err == nil {
+				eval.Compare = compare
+			}
+		}
+
+		msgChan <- evalEvent{kind: "result", payload: eval}
+	}()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	for msg := range msgChan {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		c.SSEvent(msg.kind, msg.payload)
+		c.Writer.Flush()
+	}
+}
+
 // ─── export ───────────────────────────────────────────────────────────────────
 
 func (s *Server) handleExport(c *gin.Context) {

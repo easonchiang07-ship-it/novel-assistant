@@ -203,6 +203,9 @@ func (s *Server) setupRoutes() {
 	protected.POST("/foreshadow/dismiss", s.handleDismissForeshadow)
 	protected.GET("/foreshadow/stale", s.handleStaleForeshadow)
 
+	protected.GET("/narrative", s.handleNarrativePage)
+	protected.POST("/narrative/extract", s.handleNarrativeExtract)
+
 	protected.POST("/export", s.handleExport)
 }
 

@@ -514,6 +514,70 @@ func (c *Checker) ExtractHooks(ctx context.Context, chapter string) ([]HookCandi
 	return candidates, nil
 }
 
+// EventCandidate is a timeline event extracted from chapter text.
+type EventCandidate struct {
+	Scene        string   `json:"scene"`
+	Description  string   `json:"description"`
+	Characters   []string `json:"characters"`
+	Consequences string   `json:"consequences"`
+}
+
+// RelationshipCandidate is a character relationship change extracted from chapter text.
+type RelationshipCandidate struct {
+	From         string `json:"from"`
+	To           string `json:"to"`
+	Status       string `json:"status"`
+	Note         string `json:"note"`
+	TriggerEvent string `json:"trigger_event"`
+}
+
+// NarrativeMemory holds all structured data extracted from a single chapter.
+type NarrativeMemory struct {
+	Events        []EventCandidate        `json:"events"`
+	Relationships []RelationshipCandidate `json:"relationships"`
+	WorldState    []worldstate.Change     `json:"world_state"`
+	Hooks         []HookCandidate         `json:"hooks"`
+}
+
+// ExtractNarrativeMemory asks the LLM to extract structured story state from a
+// chapter in one pass: timeline events, relationship changes, worldstate changes,
+// and foreshadowing hook candidates.
+func (c *Checker) ExtractNarrativeMemory(ctx context.Context, chapter string) (*NarrativeMemory, error) {
+	prompt := fmt.Sprintf(`分析以下章節，提取四類結構化資料，輸出嚴格 JSON 物件，不含任何說明文字：
+{
+  "events": [{"scene":"...","description":"...","characters":["..."],"consequences":"..."}],
+  "relationships": [{"from":"...","to":"...","status":"...","note":"...","trigger_event":"..."}],
+  "world_state": [{"entity":"...","change_type":"...","description":"..."}],
+  "hooks": [{"description":"...","context":"...","confidence":"高|中|低"}]
+}
+
+欄位說明：
+- events：本章節發生的重要事件（可為空陣列）
+- relationships：角色關係變化（可為空陣列）
+- world_state：世界觀或設定狀態的變動（可為空陣列）
+- hooks：潛在伏筆元素，confidence 只能是「高」「中」「低」（可為空陣列）
+
+章節內容：
+%s
+`, chapter)
+
+	var buf strings.Builder
+	if err := c.stream(ctx, "你是專業小說分析師，只輸出合法 JSON，不輸出任何額外文字。請用繁體中文填寫欄位。", prompt, &buf); err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(buf.String())
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start < 0 || end <= start {
+		return nil, fmt.Errorf("無法解析記憶抽取回應")
+	}
+	var mem NarrativeMemory
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &mem); err != nil {
+		return nil, fmt.Errorf("JSON 解析失敗：%w", err)
+	}
+	return &mem, nil
+}
+
 func ExtractNames(text string, knownNames []string) []string {
 	var found []string
 	for _, name := range knownNames {

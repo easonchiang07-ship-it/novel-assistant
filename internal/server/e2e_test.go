@@ -1283,7 +1283,9 @@ func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
 	// Step 3: stale at current=7, threshold=3 → stale (baseline=ch3, 7-3=4 ≥ 3).
 	stale1 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=7&threshold=3", nil)
 	var stalePayload1 struct {
-		Items []struct{ Description string `json:"description"` } `json:"items"`
+		Items []struct {
+			Description string `json:"description"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(stale1.Body, &stalePayload1); err != nil {
 		t.Fatalf("decode stale1: %v", err)
@@ -1304,7 +1306,9 @@ func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
 	// Step 5: stale at current=8, threshold=3 → not stale (baseline=ch6, 8-6=2 < 3).
 	stale2 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=8&threshold=3", nil)
 	var stalePayload2 struct {
-		Items []struct{ Description string `json:"description"` } `json:"items"`
+		Items []struct {
+			Description string `json:"description"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(stale2.Body, &stalePayload2); err != nil {
 		t.Fatalf("decode stale2: %v", err)
@@ -1317,12 +1321,121 @@ func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
 	// Step 6: stale at current=10, threshold=3 → stale again (10-6=4 ≥ 3).
 	stale3 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=10&threshold=3", nil)
 	var stalePayload3 struct {
-		Items []struct{ Description string `json:"description"` } `json:"items"`
+		Items []struct {
+			Description string `json:"description"`
+		} `json:"items"`
 	}
 	if err := json.Unmarshal(stale3.Body, &stalePayload3); err != nil {
 		t.Fatalf("decode stale3: %v", err)
 	}
 	if len(stalePayload3.Items) != 1 {
 		t.Fatalf("expected item stale again at ch10 (10-6=4 ≥ 3), got %d items", len(stalePayload3.Items))
+	}
+}
+
+func TestNarrativeExtract(t *testing.T) {
+	t.Parallel()
+
+	var callCount atomic.Int32
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		n := callCount.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		// First call: narrative extract → full NarrativeMemory JSON
+		// Subsequent calls (foreshadow detect): empty hooks array
+		var body string
+		if n == 1 {
+			body = `{"response":"{\"events\":[{\"scene\":\"書房\",\"description\":\"林昊發現密函\",\"characters\":[\"林昊\"],\"consequences\":\"決定出城\"}],\"relationships\":[{\"from\":\"林昊\",\"to\":\"陳司長\",\"status\":\"敵對\",\"note\":\"發現背叛\",\"trigger_event\":\"密函事件\"}],\"world_state\":[{\"entity\":\"夜港城\",\"change_type\":\"政治\",\"description\":\"城主位置動搖\"}],\"hooks\":[{\"description\":\"密函來源\",\"context\":\"信封背面印記\",\"confidence\":\"高\"}]}","done":true}`
+		} else {
+			body = `{"response":"[]","done":true}`
+		}
+		_, _ = w.Write([]byte(body + "\n"))
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	// missing chapter_index → 400
+	bad := performJSONRequest(t, app.URL, "POST", "/narrative/extract", map[string]any{
+		"chapter": "林昊翻開密函，臉色大變。",
+	})
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing chapter_index, got %d", bad.StatusCode)
+	}
+
+	// valid extract
+	resp := performJSONRequest(t, app.URL, "POST", "/narrative/extract", map[string]any{
+		"chapter":       "林昊翻開密函，臉色大變。他看見陳司長的印記，決定連夜出城。",
+		"chapter_index": 5,
+		"chapter_file":  "第05章.md",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("extract failed: %s", string(resp.Body))
+	}
+
+	var result struct {
+		Events []struct {
+			Description string `json:"description"`
+		} `json:"events"`
+		Relationships []struct {
+			From string `json:"from"`
+		} `json:"relationships"`
+		WorldState []struct {
+			Entity string `json:"entity"`
+		} `json:"world_state"`
+		Hooks []struct {
+			Description string `json:"description"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(resp.Body, &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(result.Events))
+	}
+	if len(result.Relationships) != 1 {
+		t.Fatalf("expected 1 relationship, got %d", len(result.Relationships))
+	}
+	if len(result.WorldState) != 1 {
+		t.Fatalf("expected 1 world_state, got %d", len(result.WorldState))
+	}
+	if len(result.Hooks) != 1 {
+		t.Fatalf("expected 1 hook, got %d", len(result.Hooks))
+	}
+
+	// Verify the pending hook was persisted to the foreshadow tracker.
+	// POST detect with a different chapter_index (99) so it does not overwrite
+	// the chapter-5 hooks added by the extract above; the response includes ALL pending.
+	detectResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "無關章節。",
+		"chapter_index": 99,
+	})
+	if detectResp.StatusCode != http.StatusOK {
+		t.Fatalf("detect failed: %s", string(detectResp.Body))
+	}
+	var detectPayload struct {
+		Pending []struct {
+			Description  string `json:"description"`
+			ChapterIndex int    `json:"chapter_index"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(detectResp.Body, &detectPayload); err != nil {
+		t.Fatalf("decode detect response: %v", err)
+	}
+	found := false
+	for _, p := range detectPayload.Pending {
+		if p.Description == "密函來源" && p.ChapterIndex == 5 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected pending hook '密函來源' at chapter 5 in tracker, got: %+v", detectPayload.Pending)
 	}
 }

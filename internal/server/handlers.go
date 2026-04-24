@@ -8,6 +8,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/exporter"
@@ -16,11 +22,7 @@ import (
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
+	"novel-assistant/internal/worldstate"
 
 	"github.com/gin-gonic/gin"
 )
@@ -1649,6 +1651,112 @@ func (s *Server) handleStaleForeshadow(c *gin.Context) {
 		stale = []*tracker.Foreshadowing{}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": stale})
+}
+
+// ─── narrative memory ─────────────────────────────────────────────────────────
+
+func (s *Server) handleNarrativePage(c *gin.Context) {
+	c.HTML(http.StatusOK, "narrative.html", gin.H{
+		"Title": "敘事記憶抽取",
+	})
+}
+
+func (s *Server) handleNarrativeExtract(c *gin.Context) {
+	var req struct {
+		Chapter      string `json:"chapter"`
+		ChapterIndex int    `json:"chapter_index"`
+		ChapterFile  string `json:"chapter_file"`
+	}
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Chapter) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
+		return
+	}
+	if len(req.Chapter) > 20000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可超過 20000 字元"})
+		return
+	}
+	if req.ChapterIndex < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter_index 必須為正整數"})
+		return
+	}
+
+	mem, err := s.checker.ExtractNarrativeMemory(c.Request.Context(), req.Chapter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, ev := range mem.Events {
+		s.timeline.Add(&tracker.TimelineEvent{
+			Chapter:      req.ChapterIndex,
+			Scene:        ev.Scene,
+			Description:  ev.Description,
+			Characters:   ev.Characters,
+			Consequences: ev.Consequences,
+		})
+	}
+	if len(mem.Events) > 0 {
+		if err := s.timeline.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存時間軸失敗"})
+			return
+		}
+	}
+
+	for _, rel := range mem.Relationships {
+		s.relationships.Upsert(&tracker.Relationship{
+			From:         rel.From,
+			To:           rel.To,
+			Status:       rel.Status,
+			Note:         rel.Note,
+			TriggerEvent: rel.TriggerEvent,
+		})
+	}
+	if len(mem.Relationships) > 0 {
+		if err := s.relationships.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存角色關係失敗"})
+			return
+		}
+	}
+
+	if len(mem.WorldState) > 0 {
+		s.worldstate.Upsert(&worldstate.Snapshot{
+			ChapterFile:  req.ChapterFile,
+			ChapterIndex: req.ChapterIndex,
+			Changes:      mem.WorldState,
+		})
+		if err := s.worldstate.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存世界觀狀態失敗"})
+			return
+		}
+	}
+
+	if len(mem.Hooks) > 0 {
+		hooks := make([]tracker.PendingHook, len(mem.Hooks))
+		for i, h := range mem.Hooks {
+			hooks[i] = tracker.PendingHook{
+				Description:  h.Description,
+				Context:      h.Context,
+				Confidence:   h.Confidence,
+				ChapterIndex: req.ChapterIndex,
+			}
+		}
+		s.foreshadow.AddPending(hooks)
+		if err := s.foreshadow.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存伏筆失敗"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"events":        mem.Events,
+		"relationships": mem.Relationships,
+		"world_state":   mem.WorldState,
+		"hooks":         mem.Hooks,
+	})
 }
 
 // ─── export ───────────────────────────────────────────────────────────────────

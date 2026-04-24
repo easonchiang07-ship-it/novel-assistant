@@ -223,3 +223,32 @@ func (t *ForeshadowTracker) StaleForeshadows(currentChapter, threshold int) []*F
 	}
 	return out
 }
+
+// TouchLastSeen updates LastSeenChapter for each unresolved item whose ID
+// appears in ids, but only when chapterIndex is greater than the current value.
+// Returns the number of items actually updated.
+func (t *ForeshadowTracker) TouchLastSeen(chapterIndex int, ids []string) int {
+	if len(ids) == 0 || chapterIndex < 1 {
+		return 0
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	updated := 0
+	for _, item := range t.Items {
+		if item.Status == "已回收" {
+			continue
+		}
+		if _, ok := set[item.ID]; !ok {
+			continue
+		}
+		if chapterIndex > item.LastSeenChapter {
+			item.LastSeenChapter = chapterIndex
+			updated++
+		}
+	}
+	return updated
+}

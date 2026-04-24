@@ -1336,18 +1336,18 @@ func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
 func TestNarrativeExtract(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
+	var callCount atomic.Int32
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/generate" {
 			http.NotFound(w, r)
 			return
 		}
-		callCount++
+		n := callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		// First call: narrative extract → full NarrativeMemory JSON
 		// Subsequent calls (foreshadow detect): empty hooks array
 		var body string
-		if callCount == 1 {
+		if n == 1 {
 			body = `{"response":"{\"events\":[{\"scene\":\"書房\",\"description\":\"林昊發現密函\",\"characters\":[\"林昊\"],\"consequences\":\"決定出城\"}],\"relationships\":[{\"from\":\"林昊\",\"to\":\"陳司長\",\"status\":\"敵對\",\"note\":\"發現背叛\",\"trigger_event\":\"密函事件\"}],\"world_state\":[{\"entity\":\"夜港城\",\"change_type\":\"政治\",\"description\":\"城主位置動搖\"}],\"hooks\":[{\"description\":\"密函來源\",\"context\":\"信封背面印記\",\"confidence\":\"高\"}]}","done":true}`
 		} else {
 			body = `{"response":"[]","done":true}`

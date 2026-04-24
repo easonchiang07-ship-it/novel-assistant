@@ -1226,3 +1226,103 @@ func TestForeshadowDetectConfirmDismissStale(t *testing.T) {
 		t.Fatalf("expected 1 stale item, got %d: %s", len(stalePayload.Items), string(staleResp.Body))
 	}
 }
+
+func TestForeshadowDetectUpdatesLastSeenChapter(t *testing.T) {
+	t.Parallel()
+
+	// First LLM call returns a candidate; subsequent calls return no candidates
+	// so the second detect only triggers TouchLastSeen without adding new pending.
+	var callCount int32
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if atomic.AddInt32(&callCount, 1) == 1 {
+			_, _ = w.Write([]byte(`{"response":"[{\"description\":\"神秘信封\",\"context\":\"桌上\",\"confidence\":\"高\"}]","done":true}` + "\n"))
+		} else {
+			_, _ = w.Write([]byte(`{"response":"[]","done":true}` + "\n"))
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	// Step 1: detect at ch3 → get pending "神秘信封".
+	detectResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "林昊看到桌上的信封，沒有打開。",
+		"chapter_index": 3,
+	})
+	if detectResp.StatusCode != http.StatusOK {
+		t.Fatalf("detect failed: %s", string(detectResp.Body))
+	}
+	var detectPayload struct {
+		Pending []struct {
+			ID string `json:"id"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(detectResp.Body, &detectPayload); err != nil {
+		t.Fatalf("decode detect: %v", err)
+	}
+	if len(detectPayload.Pending) != 1 {
+		t.Fatalf("expected 1 pending, got %d", len(detectPayload.Pending))
+	}
+
+	// Step 2: confirm → item planted at ch3, LastSeenChapter=0.
+	confirmResp := performJSONRequest(t, app.URL, "POST", "/foreshadow/confirm", map[string]any{
+		"id": detectPayload.Pending[0].ID, "chapter": 3, "planted_in": "桌上的信",
+	})
+	if confirmResp.StatusCode != http.StatusOK {
+		t.Fatalf("confirm failed: %s", string(confirmResp.Body))
+	}
+
+	// Step 3: stale at current=7, threshold=3 → stale (baseline=ch3, 7-3=4 ≥ 3).
+	stale1 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=7&threshold=3", nil)
+	var stalePayload1 struct {
+		Items []struct{ Description string `json:"description"` } `json:"items"`
+	}
+	if err := json.Unmarshal(stale1.Body, &stalePayload1); err != nil {
+		t.Fatalf("decode stale1: %v", err)
+	}
+	if len(stalePayload1.Items) != 1 {
+		t.Fatalf("expected item to be stale before touch, got %d items", len(stalePayload1.Items))
+	}
+
+	// Step 4: detect ch6 containing the description → TouchLastSeen fires, LastSeenChapter=6.
+	detectResp2 := performJSONRequest(t, app.URL, "POST", "/foreshadow/detect", map[string]any{
+		"chapter":       "林昊再次翻開神秘信封，讀完後將它燒掉。",
+		"chapter_index": 6,
+	})
+	if detectResp2.StatusCode != http.StatusOK {
+		t.Fatalf("second detect failed: %s", string(detectResp2.Body))
+	}
+
+	// Step 5: stale at current=8, threshold=3 → not stale (baseline=ch6, 8-6=2 < 3).
+	stale2 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=8&threshold=3", nil)
+	var stalePayload2 struct {
+		Items []struct{ Description string `json:"description"` } `json:"items"`
+	}
+	if err := json.Unmarshal(stale2.Body, &stalePayload2); err != nil {
+		t.Fatalf("decode stale2: %v", err)
+	}
+	if len(stalePayload2.Items) != 0 {
+		t.Fatalf("expected no stale items after touch (baseline moved to ch6), got %d: %s",
+			len(stalePayload2.Items), string(stale2.Body))
+	}
+
+	// Step 6: stale at current=10, threshold=3 → stale again (10-6=4 ≥ 3).
+	stale3 := performJSONRequest(t, app.URL, "GET", "/foreshadow/stale?current_chapter=10&threshold=3", nil)
+	var stalePayload3 struct {
+		Items []struct{ Description string `json:"description"` } `json:"items"`
+	}
+	if err := json.Unmarshal(stale3.Body, &stalePayload3); err != nil {
+		t.Fatalf("decode stale3: %v", err)
+	}
+	if len(stalePayload3.Items) != 1 {
+		t.Fatalf("expected item stale again at ch10 (10-6=4 ≥ 3), got %d items", len(stalePayload3.Items))
+	}
+}

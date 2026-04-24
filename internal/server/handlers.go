@@ -1802,11 +1802,11 @@ func (s *Server) computeAdjustments(ctx context.Context, chapterIndex, staleThre
 	if s.consistency != nil && chapter != "" {
 		conflicts, err := s.consistency.Check(ctx, chapter, worldContext)
 		if err == nil {
-			cap := 3
-			if len(conflicts) < cap {
-				cap = len(conflicts)
+			maxConflicts := 3
+			if len(conflicts) < maxConflicts {
+				maxConflicts = len(conflicts)
 			}
-			for i := 0; i < cap; i++ {
+			for i := 0; i < maxConflicts; i++ {
 				adj := ScoreAdjustment{Label: fmt.Sprintf("世界觀衝突：%s", conflicts[i].Description), Delta: -3}
 				adjustments = append(adjustments, adj)
 				total += adj.Delta
@@ -1834,7 +1834,6 @@ func (s *Server) handleEvaluateStream(c *gin.Context) {
 
 	type evalEvent struct {
 		kind    string
-		run     int
 		payload any
 	}
 
@@ -1848,7 +1847,7 @@ func (s *Server) handleEvaluateStream(c *gin.Context) {
 		defer close(msgChan)
 
 		onProgress := func(run, total int) {
-			msgChan <- evalEvent{kind: "progress", run: run, payload: gin.H{"run": run, "total": total}}
+			msgChan <- evalEvent{kind: "progress", payload: gin.H{"run": run, "total": total}}
 		}
 
 		stability, err := s.checker.EvaluateChapter(ctx, req.Chapter, worldPrefix, onProgress)

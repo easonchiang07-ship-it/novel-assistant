@@ -1447,13 +1447,11 @@ func TestEvaluateStreamReturnsResult(t *testing.T) {
 
 	evalJSON := `{"plot":4,"character":4,"style":4,"pacing":4,"hook":4,"reasons":{"plot":"情節流暢","character":"角色鮮明","style":"文風優美","pacing":"節奏適中","hook":"鉤子到位"}}`
 
-	var callCount atomic.Int32
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/embeddings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2}})
 		case "/api/generate":
-			callCount.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			chunk, _ := json.Marshal(map[string]any{"response": evalJSON, "done": true})
 			w.Write(chunk)

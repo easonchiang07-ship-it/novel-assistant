@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // EvaluationScores holds raw 1–5 scores per dimension.
@@ -124,6 +125,7 @@ func (c *Checker) EvaluateChapter(ctx context.Context, chapter, systemPrefix str
 	results := make([]runResult, total)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var completed atomic.Int32
 
 	systemPrompt := evalSystem
 	if systemPrefix != "" {
@@ -145,7 +147,7 @@ func (c *Checker) EvaluateChapter(ctx context.Context, chapter, systemPrefix str
 			results[idx] = runResult{resp: resp, err: err}
 			mu.Unlock()
 			if onProgress != nil {
-				onProgress(idx+1, total)
+				onProgress(int(completed.Add(1)), total)
 			}
 		}(i)
 	}

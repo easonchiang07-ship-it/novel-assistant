@@ -37,8 +37,8 @@ type foreshadowStore struct {
 
 type ForeshadowTracker struct {
 	mu      sync.RWMutex
-	Items   []*Foreshadowing `json:"items"`
-	Pending []*PendingHook   `json:"pending,omitempty"`
+	Items   []*Foreshadowing
+	Pending []*PendingHook
 	path    string
 }
 
@@ -120,7 +120,8 @@ func (t *ForeshadowTracker) GetAll() []*Foreshadowing {
 
 // AddPending replaces any existing pending hooks for the same ChapterIndex
 // and appends the new suggestions. If ChapterIndex == 0 all previous pending
-// hooks are cleared before appending.
+// hooks are cleared before appending. All hooks in the batch must share the
+// same ChapterIndex; only hooks[0].ChapterIndex is used to determine scope.
 func (t *ForeshadowTracker) AddPending(hooks []PendingHook) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -164,14 +165,15 @@ func (t *ForeshadowTracker) ConfirmPending(id string, chapter int, plantedIn str
 	for _, p := range t.Pending {
 		if p.ID == id {
 			found = true
+			now := time.Now()
 			f := &Foreshadowing{
-				ID:          fmt.Sprintf("fs_%d", time.Now().UnixNano()),
+				ID:          fmt.Sprintf("fs_%d", now.UnixNano()),
 				Chapter:     chapter,
 				Description: p.Description,
 				PlantedIn:   plantedIn,
 				Status:      "未回收",
 				Confidence:  p.Confidence,
-				CreatedAt:   time.Now(),
+				CreatedAt:   now,
 			}
 			t.Items = append(t.Items, f)
 		} else {

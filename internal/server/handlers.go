@@ -1549,6 +1549,10 @@ func (s *Server) handleDetectForeshadow(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可為空"})
 		return
 	}
+	if len(req.Chapter) > 20000 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節內容不可超過 20000 字元"})
+		return
+	}
 	if req.ChapterIndex < 1 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter_index 必須為正整數"})
 		return
@@ -1624,9 +1628,12 @@ func (s *Server) handleStaleForeshadow(c *gin.Context) {
 	}
 	threshold := 3
 	if t := c.Query("threshold"); t != "" {
-		if v, err := parsePositiveChapter(t); err == nil {
-			threshold = v
+		v, err := parsePositiveChapter(t)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "threshold 必須為正整數"})
+			return
 		}
+		threshold = v
 	}
 	stale := s.foreshadow.StaleForeshadows(currentChapter, threshold)
 	if stale == nil {

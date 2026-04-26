@@ -147,6 +147,40 @@ func TestIngestStoresMultipleChapterChunks(t *testing.T) {
 	}
 }
 
+func TestIngestSkipsSummaryForEmptyChapter(t *testing.T) {
+	t.Parallel()
+
+	var generateCalled bool
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			generateCalled = true
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第01章.md"), "   \n\n  ")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+	if err := s.Ingest(context.Background()); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if generateCalled {
+		t.Error("SummarizeChapter was called for an empty chapter — expected it to be skipped")
+	}
+
+	raw, _ := os.ReadFile(filepath.Join(dir, "store.json"))
+	if strings.Contains(string(raw), "chapter_summary") {
+		t.Error("expected no chapter_summary document for an empty chapter")
+	}
+}
+
 func TestCheckStreamSourcesExposeChunkMetadata(t *testing.T) {
 	t.Parallel()
 

@@ -379,7 +379,8 @@ func (s *Server) Ingest(ctx context.Context) error {
 		}
 		chapterText := string(content)
 		chapterIdx := extractChapterIndex(file.Name())
-		for _, chunk := range chunkChapter(file.Name(), chapterText) {
+		chunks := chunkChapter(file.Name(), chapterText)
+		for _, chunk := range chunks {
 			vec, err := s.embedder.Embed(ctx, chunk.Content)
 			if err != nil {
 				return fmt.Errorf("embed chapter chunk %s: %w", chunk.ID, err)
@@ -387,6 +388,9 @@ func (s *Server) Ingest(ctx context.Context) error {
 			chunk.Embedding = vec
 			st.store.Upsert(chunk)
 			log.Printf("indexed chapter chunk: %s", chunk.ID)
+		}
+		if len(chunks) == 0 {
+			continue
 		}
 		summary, err := s.checker.SummarizeChapter(ctx, chapterText)
 		if err != nil {

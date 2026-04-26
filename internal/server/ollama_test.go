@@ -147,6 +147,27 @@ func TestHandleOllamaStatus_LatestNormalize(t *testing.T) {
 	}
 }
 
+func TestHandleOllamaStatus_Non200TagsResponse(t *testing.T) {
+	t.Parallel()
+	// Ollama or a proxy returns 500 with a JSON error body.
+	// running should remain false, not be set to true with empty models.
+	mock := ollamaMockServer(t, 500, `{"error":"internal server error"}`)
+	defer mock.Close()
+
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
+
+	var resp ollamaStatusResponse
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+
+	if resp.Running {
+		t.Error("expected running=false when /api/tags returns non-200")
+	}
+	if resp.LLMReady || resp.EmbedReady {
+		t.Error("expected both ready=false when /api/tags returns non-200")
+	}
+}
+
 func TestHandleOllamaStatus_EntryAlias(t *testing.T) {
 	t.Parallel()
 	mock := ollamaMockServer(t, 200, `{"models":[{"name":"llama3.2:latest"},{"name":"nomic-embed-text"}]}`)

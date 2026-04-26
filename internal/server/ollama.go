@@ -92,6 +92,11 @@ func (s *Server) handleOllamaStatus(c *gin.Context) {
 	}
 	defer httpResp.Body.Close()
 
+	if httpResp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
 	var tags ollamaTagsResponse
 	if err := json.NewDecoder(httpResp.Body).Decode(&tags); err != nil {
 		c.JSON(http.StatusOK, resp)

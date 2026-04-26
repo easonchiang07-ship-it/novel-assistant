@@ -202,14 +202,21 @@ function renderOllamaBanner(s) {
 function missingModelRow(displayModel, pullModel, key) {
   const btnId = `pull-btn-${key}`;
   const progId = `pull-prog-${key}`;
-  return `
+  // Use escH for HTML content; JSON.stringify for data-* attributes used by JS.
+  const html = `
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem 1rem;background:#1c1917;border:1px solid #78350f;border-radius:8px;margin-bottom:0.5rem">
       <span style="color:#fbbf24;font-weight:600;font-size:0.85rem">⚠ 缺少模型</span>
-      <span style="color:#94a3b8;font-size:0.85rem">需要 <code>${escHTMLInline(displayModel)}</code></span>
+      <span style="color:#94a3b8;font-size:0.85rem">需要 <code>${escH(displayModel)}</code></span>
       <button id="${btnId}" class="btn" style="margin-left:auto;padding:0.3rem 0.8rem;font-size:0.8rem"
-        onclick="pullModel('${escHTMLInline(pullModel)}','${key}')">下載 ${escHTMLInline(pullModel)}</button>
+        data-model=${JSON.stringify(pullModel)} data-key="${escH(key)}">下載 ${escH(pullModel)}</button>
       <span id="${progId}" style="font-size:0.8rem;color:#94a3b8"></span>
     </div>`;
+  // Attach click handler after rendering so the model name never touches inline JS.
+  setTimeout(() => {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.addEventListener('click', () => pullModel(btn.dataset.model, key));
+  }, 0);
+  return html;
 }
 
 async function pullModel(model, key) {

@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>章節健康評分 — 小說助手</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
 </head>
 <body>
 <div class="layout">
@@ -56,6 +57,7 @@
             <div style="font-size:1.8rem;font-weight:600" id="compare-final-score">—</div>
             <div style="font-size:0.8rem;color:#94a3b8">比較版本</div>
           </div>
+          <button id="export-card-btn" class="btn" style="margin-left:auto;display:none;padding:0.4rem 0.9rem;font-size:0.85rem" onclick="exportCard()">匯出分享卡片</button>
         </div>
       </div>
 
@@ -77,6 +79,24 @@
     </div>
   </main>
 </div>
+
+<!-- Share card: rendered off-screen by html2canvas, never shown in page flow -->
+<div id="share-card" style="position:fixed;left:-9999px;top:0;width:600px;background:#0f172a;padding:36px 40px;font-family:system-ui,sans-serif;color:#f1f5f9;box-sizing:border-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+    <span style="font-size:0.8rem;color:#64748b;letter-spacing:0.08em;text-transform:uppercase">Novel Assistant · Story Health</span>
+    <span id="sc-confidence" style="font-size:0.75rem;padding:3px 10px;border-radius:99px;background:#1e293b;color:#94a3b8"></span>
+  </div>
+  <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:28px">
+    <span id="sc-score" style="font-size:4rem;font-weight:700;line-height:1;color:#f8fafc"></span>
+    <span style="font-size:1.1rem;color:#475569">/ 100</span>
+  </div>
+  <div id="sc-issues" style="margin-bottom:20px"></div>
+  <div id="sc-strengths" style="margin-bottom:28px"></div>
+  <div style="border-top:1px solid #1e293b;padding-top:14px;font-size:0.72rem;color:#334155">
+    novel-assistant · Local-first · MIT · github.com/easonchiang07-ship-it/novel-assistant
+  </div>
+</div>
+
 <script>
 const DIM_LABELS = {
   plot:      '情節',
@@ -157,9 +177,80 @@ function handleEvent(name, data, status) {
   }
 }
 
+let _lastResultData = null;
+
+function exportCard() {
+  if (!_lastResultData) return;
+  const d = _lastResultData;
+  const scores = d.stability?.median_scores || {};
+  const reasons = d.stability?.median_reasons || {};
+
+  // Build issues: explicit adjustments first, then lowest-score dimensions
+  const issues = [];
+  (d.adjustments || []).forEach(a => { if (issues.length < 3) issues.push(a.label); });
+  if (issues.length < 3) {
+    DIMS.slice()
+      .sort((a, b) => (scores[a] ?? 5) - (scores[b] ?? 5))
+      .forEach(dim => {
+        if (issues.length < 3 && (scores[dim] ?? 5) <= 3 && reasons[dim]) {
+          issues.push(reasons[dim]);
+        }
+      });
+  }
+
+  // Build strengths: highest-score dimensions
+  const strengths = [];
+  DIMS.slice()
+    .sort((a, b) => (scores[b] ?? 0) - (scores[a] ?? 0))
+    .forEach(dim => {
+      if (strengths.length < 2 && (scores[dim] ?? 0) >= 4 && reasons[dim]) {
+        strengths.push(reasons[dim]);
+      }
+    });
+
+  // Confidence label
+  const confLabels = { High: '穩定度：高', Medium: '穩定度：中', Low: '穩定度：低' };
+  const confLabel = confLabels[d.stability?.confidence] || '—';
+
+  // Populate card
+  document.getElementById('sc-score').textContent = d.final_score ?? '—';
+  document.getElementById('sc-confidence').textContent = confLabel;
+  document.getElementById('sc-issues').innerHTML = issues.length
+    ? issues.map(t => `<div style="font-size:0.82rem;color:#fca5a5;margin-bottom:6px;padding-left:4px">⚠ ${escapeHTML(t)}</div>`).join('')
+    : '';
+  document.getElementById('sc-strengths').innerHTML = strengths.length
+    ? strengths.map(t => `<div style="font-size:0.82rem;color:#86efac;margin-bottom:6px;padding-left:4px">✓ ${escapeHTML(t)}</div>`).join('')
+    : '';
+
+  const btn = document.getElementById('export-card-btn');
+  btn.disabled = true;
+  btn.textContent = '產生中…';
+
+  html2canvas(document.getElementById('share-card'), {
+    backgroundColor: '#0f172a',
+    scale: 2,
+    useCORS: true,
+    logging: false,
+  }).then(canvas => {
+    const a = document.createElement('a');
+    a.download = 'story-health.png';
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  }).catch(err => {
+    alert('匯出失敗：' + err.message);
+  }).finally(() => {
+    btn.disabled = false;
+    btn.textContent = '匯出分享卡片';
+  });
+}
+
 function renderResult(data) {
+  _lastResultData = data;
   const area = document.getElementById('result-area');
   area.style.display = 'block';
+
+  // Show export button
+  document.getElementById('export-card-btn').style.display = '';
 
   // Final score
   document.getElementById('final-score').textContent = data.final_score;

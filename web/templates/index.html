@@ -16,6 +16,8 @@
       <p>你的小說專案總覽</p>
     </div>
 
+    <div id="ollama-banner" style="display:none;margin-bottom:1.5rem"></div>
+
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-num">{{.CharCount}}</div>
@@ -155,6 +157,59 @@
   </main>
 </div>
 <script>
+// ─── Ollama status banner ─────────────────────────────────────────────────────
+
+async function refreshOllamaStatus() {
+  try {
+    const resp = await fetch('/api/ollama/status');
+    if (!resp.ok) return;
+    renderOllamaBanner(await resp.json());
+  } catch (_) {}
+}
+
+function renderOllamaBanner(s) {
+  const banner = document.getElementById('ollama-banner');
+  const rows = [];
+
+  if (!s.running) {
+    rows.push(`
+      <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem 1rem;background:#431407;border:1px solid #c2410c;border-radius:8px;margin-bottom:0.5rem">
+        <span style="color:#fb923c;font-weight:600;font-size:0.85rem">⚠ Ollama 未啟動</span>
+        <span style="color:#94a3b8;font-size:0.85rem">請先安裝並啟動 Ollama，才能使用 AI 審查功能。</span>
+        <a href="https://ollama.com/download" target="_blank" rel="noopener" class="btn" style="margin-left:auto;padding:0.3rem 0.8rem;font-size:0.8rem">下載 Ollama</a>
+        <button class="btn" style="padding:0.3rem 0.8rem;font-size:0.8rem" onclick="navigator.clipboard.writeText('ollama serve').then(()=>alert('已複製'))">複製啟動指令</button>
+      </div>`);
+  } else {
+    if (!s.llm_ready) rows.push(missingModelRow(s.llm_model, s.llm_pull_model, 'llm'));
+    if (!s.embed_ready) rows.push(missingModelRow(s.embed_model, s.embed_pull_model, 'embed'));
+  }
+
+  if (rows.length === 0) {
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+  } else {
+    banner.innerHTML = rows.join('');
+    banner.style.display = 'block';
+  }
+}
+
+function escH(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// missingModelRow: shows which model is missing; pull button added in a later PR.
+function missingModelRow(displayModel, pullModel, key) {
+  return `
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem 1rem;background:#1c1917;border:1px solid #78350f;border-radius:8px;margin-bottom:0.5rem">
+      <span style="color:#fbbf24;font-weight:600;font-size:0.85rem">⚠ 缺少模型</span>
+      <span style="color:#94a3b8;font-size:0.85rem">需要 <code>${escH(displayModel)}</code>，請在設定頁或終端機執行 <code>ollama pull ${escH(pullModel)}</code></span>
+    </div>`;
+}
+
+refreshOllamaStatus();
+
+// ─── template helper ──────────────────────────────────────────────────────────
+
 async function applyTemplate(template) {
   const status = document.getElementById('template-status');
   status.textContent = '套用模板中...';

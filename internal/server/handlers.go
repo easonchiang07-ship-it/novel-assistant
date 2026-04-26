@@ -1958,14 +1958,13 @@ func (s *Server) handleFilmExport(c *gin.Context) {
 		format = exporter.FilmFormatYAML
 	}
 
-	content, err := os.ReadFile(filepath.Join(chapterDirFor(s.cfg.DataDir), name))
+	cf, err := s.loadChapterFile(name)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "找不到章節檔案：" + name})
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
 
-	chapterFile := strings.TrimSuffix(name, ".md")
-	scenes, err := s.checker.ExtractFilmScenes(c.Request.Context(), chapterFile, string(content))
+	scenes, err := s.checker.ExtractFilmScenes(c.Request.Context(), strings.TrimSuffix(cf.Name, ".md"), cf.Content)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1981,7 +1980,7 @@ func (s *Server) handleFilmExport(c *gin.Context) {
 	if format == exporter.FilmFormatJSON {
 		ext = "json"
 	}
-	filename := fmt.Sprintf("film_%s.%s", chapterFile, ext)
+	filename := fmt.Sprintf("film_%s.%s", strings.TrimSuffix(cf.Name, ".md"), ext)
 	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", out)
 }

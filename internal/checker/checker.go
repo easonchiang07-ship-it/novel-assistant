@@ -549,3 +549,15 @@ func ExtractNames(text string, knownNames []string) []string {
 	}
 	return found
 }
+
+// SummarizeChapter generates a 100–200 character summary of the chapter,
+// capturing key events, character dynamics, and open hooks.
+// Used during indexing to build a compressed per-chapter memory layer.
+func (c *Checker) SummarizeChapter(ctx context.Context, content string) (string, error) {
+	prompt := fmt.Sprintf("以下是小說章節內容，請用100字以內的繁體中文摘要本章節的核心事件、角色動態與關鍵伏筆。只輸出摘要，不要標題或說明。\n\n%s", content)
+	var buf strings.Builder
+	if err := c.llm.Stream(ctx, "你是專業小說編輯，只輸出純文字摘要，不加任何說明或標題。", prompt, &buf); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(buf.String()), nil
+}

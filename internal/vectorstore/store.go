@@ -10,13 +10,14 @@ import (
 
 type Document struct {
 	ID           string    `json:"id"`
-	Type         string    `json:"type"` // "character" | "world" | "style" | "chapter"
+	Type         string    `json:"type"` // "character" | "world" | "style" | "chapter" | "chapter_summary"
 	Content      string    `json:"content"`
 	Embedding    []float64 `json:"embedding"`
 	ChapterFile  string    `json:"chapter_file,omitempty"`
 	ChapterIndex int       `json:"chapter_index,omitempty"`
 	SceneIndex   int       `json:"scene_index,omitempty"`
 	ChunkType    string    `json:"chunk_type,omitempty"`
+	Summary      string    `json:"summary,omitempty"` // populated for chapter_summary docs
 }
 
 type Store struct {
@@ -207,6 +208,27 @@ func (s *Store) QueryFilteredBeforeChapter(queryVec []float64, topK int, types [
 			Score:    results[i].score,
 		})
 	}
+	return out
+}
+
+// QueryChapterSummaries returns all chapter_summary documents with
+// ChapterIndex < beforeChapter, sorted by ChapterIndex ascending.
+// beforeChapter <= 0 returns all summaries.
+func (s *Store) QueryChapterSummaries(beforeChapter int) []Document {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var out []Document
+	for _, d := range s.docs {
+		if d.Type != "chapter_summary" {
+			continue
+		}
+		if beforeChapter > 0 && d.ChapterIndex >= beforeChapter {
+			continue
+		}
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ChapterIndex < out[j].ChapterIndex })
 	return out
 }
 

@@ -23,6 +23,17 @@ Novel Assistant combines both directions:
 - `novelWriter / Manuskript` inspired workflow structure for characters, worldbuilding, relationships, timelines, and foreshadowing
 - `AnythingLLM` inspired local knowledge-base behavior for retrieval-assisted review
 
+## The Tool Grows With Your Story
+
+Every chapter you write makes the tool more useful — not because of a cloud model or shared database, but because your story's memory accumulates locally:
+
+- More chapters → richer RAG context → more accurate reviews
+- More character profiles → fewer false positives in consistency checks
+- Hook Tracker builds history across chapters — the further you write, the further back it can look
+- Chapter summaries layer up into a compressed memory of your entire manuscript
+
+After 30 chapters, your instance of Novel Assistant knows your world, your characters, and your unresolved threads. That knowledge lives entirely in your `data/` folder. It travels with your story, not with a subscription.
+
 ## Highlights
 
 - Character behavior review with streaming output

@@ -159,6 +159,8 @@
 <script>
 // ─── Ollama status banner ─────────────────────────────────────────────────────
 
+let _ollamaPulling = {};
+
 async function refreshOllamaStatus() {
   try {
     const resp = await fetch('/api/ollama/status');
@@ -177,11 +179,15 @@ function renderOllamaBanner(s) {
         <span style="color:#fb923c;font-weight:600;font-size:0.85rem">⚠ Ollama 未啟動</span>
         <span style="color:#94a3b8;font-size:0.85rem">請先安裝並啟動 Ollama，才能使用 AI 審查功能。</span>
         <a href="https://ollama.com/download" target="_blank" rel="noopener" class="btn" style="margin-left:auto;padding:0.3rem 0.8rem;font-size:0.8rem">下載 Ollama</a>
-        <button class="btn" style="padding:0.3rem 0.8rem;font-size:0.8rem" onclick="navigator.clipboard.writeText('ollama serve').then(()=>alert('已複製'))">複製啟動指令</button>
+        <button class="btn" style="padding:0.3rem 0.8rem;font-size:0.8rem" onclick="copyCmd('ollama serve')">複製啟動指令</button>
       </div>`);
   } else {
-    if (!s.llm_ready) rows.push(missingModelRow(s.llm_model, s.llm_pull_model, 'llm'));
-    if (!s.embed_ready) rows.push(missingModelRow(s.embed_model, s.embed_pull_model, 'embed'));
+    if (!s.llm_ready) {
+      rows.push(missingModelRow(s.llm_model, s.llm_pull_model, 'llm'));
+    }
+    if (!s.embed_ready) {
+      rows.push(missingModelRow(s.embed_model, s.embed_pull_model, 'embed'));
+    }
   }
 
   if (rows.length === 0) {
@@ -193,17 +199,85 @@ function renderOllamaBanner(s) {
   }
 }
 
-function escH(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// missingModelRow: shows which model is missing; pull button added in a later PR.
 function missingModelRow(displayModel, pullModel, key) {
-  return `
+  const btnId = `pull-btn-${key}`;
+  const progId = `pull-prog-${key}`;
+  // Use escH for HTML content; JSON.stringify for data-* attributes used by JS.
+  const html = `
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.75rem 1rem;background:#1c1917;border:1px solid #78350f;border-radius:8px;margin-bottom:0.5rem">
       <span style="color:#fbbf24;font-weight:600;font-size:0.85rem">⚠ 缺少模型</span>
-      <span style="color:#94a3b8;font-size:0.85rem">需要 <code>${escH(displayModel)}</code>，請在設定頁或終端機執行 <code>ollama pull ${escH(pullModel)}</code></span>
+      <span style="color:#94a3b8;font-size:0.85rem">需要 <code>${escH(displayModel)}</code></span>
+      <button id="${btnId}" class="btn" style="margin-left:auto;padding:0.3rem 0.8rem;font-size:0.8rem"
+        data-model=${JSON.stringify(pullModel)} data-key="${escH(key)}">下載 ${escH(pullModel)}</button>
+      <span id="${progId}" style="font-size:0.8rem;color:#94a3b8"></span>
     </div>`;
+  // Attach click handler after rendering so the model name never touches inline JS.
+  setTimeout(() => {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.addEventListener('click', () => pullModel(btn.dataset.model, key));
+  }, 0);
+  return html;
+}
+
+async function pullModel(model, key) {
+  if (_ollamaPulling[key]) return;
+  _ollamaPulling[key] = true;
+  const btn = document.getElementById(`pull-btn-${key}`);
+  const prog = document.getElementById(`pull-prog-${key}`);
+  if (btn) btn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/ollama/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model }),
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      if (prog) prog.textContent = '下載失敗：' + err;
+      return;
+    }
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      let event = '';
+      for (const line of lines) {
+        if (line.startsWith('event:')) { event = line.slice(6).trim(); continue; }
+        if (!line.startsWith('data:')) continue;
+        const data = JSON.parse(line.slice(5).trim());
+        if (event === 'error') {
+          if (prog) prog.textContent = '下載失敗：' + (data.error || '未知錯誤');
+          return;
+        }
+        if (event === 'progress' && prog) {
+          const pct = data.total > 0 ? Math.round(data.completed / data.total * 100) : null;
+          prog.textContent = pct !== null ? `${pct}%` : (data.status || '下載中…');
+        }
+        if (event === 'done') break;
+      }
+    }
+    if (prog) prog.textContent = '下載完成';
+    await refreshOllamaStatus();
+  } catch (e) {
+    if (prog) prog.textContent = '下載失敗：' + e.message;
+  } finally {
+    _ollamaPulling[key] = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function copyCmd(cmd) {
+  navigator.clipboard.writeText(cmd).then(() => alert('已複製：' + cmd));
+}
+
+function escHTMLInline(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 refreshOllamaStatus();

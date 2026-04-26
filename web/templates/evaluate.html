@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>章節健康評分 — 小說助手</title>
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+  <script src="/static/html2canvas.min.js" defer></script>
 </head>
 <body>
 <div class="layout">
@@ -223,6 +223,12 @@ function exportCard() {
     : '';
 
   const btn = document.getElementById('export-card-btn');
+
+  if (typeof window.html2canvas !== 'function') {
+    alert('html2canvas 尚未載入，請確認 /static/html2canvas.min.js 可存取後重新整理頁面。');
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = '產生中…';
 

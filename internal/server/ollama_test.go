@@ -255,6 +255,35 @@ func TestHandleOllamaPull_ForwardsError(t *testing.T) {
 	}
 }
 
+func TestHandleOllamaPull_Non200ReturnsError(t *testing.T) {
+	t.Parallel()
+	// Ollama returns 404 with plain-text body (not a JSON frame).
+	// The handler must not emit event:done after reading unparseable lines.
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/pull" {
+			http.Error(w, "model not found", http.StatusNotFound)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mock.Close()
+
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	body := strings.NewReader(`{"model":"non200model"}`)
+	req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), "event: done") {
+		t.Errorf("non-200 pull should not emit event:done, got: %s", rec.Body.String())
+	}
+	// Should return a JSON error (not SSE), indicating the upstream failure
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 for non-200 /api/pull, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleOllamaPull_DuplicateReturns409(t *testing.T) {
 	t.Parallel()
 	started := make(chan struct{})

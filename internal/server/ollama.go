@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -182,6 +183,13 @@ func (s *Server) handleOllamaPull(c *gin.Context) {
 		return
 	}
 	defer pullResp.Body.Close()
+
+	if pullResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(pullResp.Body, 4096))
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("Ollama pull 失敗（%d）：%s",
+			pullResp.StatusCode, strings.TrimSpace(string(body)))})
+		return
+	}
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")

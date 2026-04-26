@@ -377,7 +377,9 @@ func (s *Server) Ingest(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
 		}
-		for _, chunk := range chunkChapter(file.Name(), string(content)) {
+		chapterText := string(content)
+		chapterIdx := extractChapterIndex(file.Name())
+		for _, chunk := range chunkChapter(file.Name(), chapterText) {
 			vec, err := s.embedder.Embed(ctx, chunk.Content)
 			if err != nil {
 				return fmt.Errorf("embed chapter chunk %s: %w", chunk.ID, err)
@@ -386,6 +388,26 @@ func (s *Server) Ingest(ctx context.Context) error {
 			st.store.Upsert(chunk)
 			log.Printf("indexed chapter chunk: %s", chunk.ID)
 		}
+		summary, err := s.checker.SummarizeChapter(ctx, chapterText)
+		if err != nil {
+			log.Printf("summarize chapter %s: %v (skipped)", file.Name(), err)
+			continue
+		}
+		summaryVec, err := s.embedder.Embed(ctx, summary)
+		if err != nil {
+			log.Printf("embed summary %s: %v (skipped)", file.Name(), err)
+			continue
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:           "summary_" + file.Name(),
+			Type:         "chapter_summary",
+			Content:      summary,
+			Summary:      summary,
+			Embedding:    summaryVec,
+			ChapterFile:  file.Name(),
+			ChapterIndex: chapterIdx,
+		})
+		log.Printf("indexed chapter summary: %s", file.Name())
 	}
 
 	return st.store.Save()

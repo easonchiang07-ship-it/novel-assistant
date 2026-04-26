@@ -91,6 +91,7 @@
             <button class="btn btn-ghost btn-sm" type="button" onclick="exportChapterBundle('{{.Name}}')">匯出完整報告</button>
             <button class="btn btn-ghost btn-sm" type="button" onclick="createWorldstateSnapshot('{{.Name}}')">產生狀態快照</button>
             <a class="btn btn-ghost btn-sm" href="/check?chapter={{.Name}}">載入到審查頁</a>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="exportFilm('{{.Name}}','yaml')">匯出影片格式</button>
           </div>
         </div>
 
@@ -239,6 +240,37 @@ async function createCandidateDraft(type, name) {
     alert(data.message + '：' + data.file);
   } catch (e) {
     alert('建立草稿失敗：' + e.message);
+  }
+}
+
+async function exportFilm(name, format) {
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '分析中…';
+  try {
+    const resp = await fetch(`/api/chapters/${encodeURIComponent(name)}/film-export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: resp.statusText }));
+      alert('匯出失敗：' + (err.error || resp.statusText));
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `film_${name.replace(/\.md$/, '')}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('匯出失敗：' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
   }
 }
 

@@ -157,6 +157,7 @@ func (s *Server) setupRoutes() {
 	protected.GET("/api/backups/:name/preview", s.handleGetBackupPreview)
 	protected.GET("/api/projects", s.handleListProjects)
 	protected.GET("/api/chapters/:name/analysis", s.handleAnalyzeChapter)
+	protected.POST("/api/chapters/:name/film-export", s.handleFilmExport)
 	protected.GET("/api/chapters", s.handleListChapters)
 	protected.GET("/api/chapters/:name", s.handleGetChapter)
 	protected.GET("/api/settings", s.handleGetSettings)

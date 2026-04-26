@@ -12,6 +12,7 @@ import (
 )
 
 // LLMStreamer 是 LLM 呼叫的抽象，寫入 w 並在完成時 return。
+// 實作必須對並行呼叫是安全的（EvaluateChapter 會從多個 goroutine 呼叫同一個實例）。
 type LLMStreamer interface {
 	Stream(ctx context.Context, system, prompt string, w io.Writer) error
 }

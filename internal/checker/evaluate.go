@@ -138,7 +138,7 @@ func (c *Checker) EvaluateChapter(ctx context.Context, chapter, systemPrefix str
 		go func(idx int) {
 			defer wg.Done()
 			var buf strings.Builder
-			err := c.stream(ctx, systemPrompt, prompt, &buf)
+			err := c.llm.Stream(ctx, systemPrompt, prompt, &buf)
 			var resp *EvaluationResponse
 			if err == nil {
 				resp, err = parseEvalResponse(buf.String())

@@ -3,7 +3,6 @@ package checker
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -20,9 +19,9 @@ func TestStreamReturnsErrorOnNonOKStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, "mock")
+	o := &OllamaStreamer{BaseURL: srv.URL, Model: "mock"}
 	var out bytes.Buffer
-	err := c.stream(context.Background(), "system", "prompt", &out)
+	err := o.Stream(context.Background(), "system", "prompt", &out)
 	if err == nil {
 		t.Fatal("expected error for non-200 response")
 	}
@@ -46,23 +45,17 @@ func TestExtractNamesFindsMentionedCharacters(t *testing.T) {
 func TestCheckWorldConflictStreamUsesWorldPrompt(t *testing.T) {
 	t.Parallel()
 
-	var captured genReq
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	cs := &captureStreamer{response: "ok"}
+	c := NewWithStreamer(cs)
 	var out bytes.Buffer
 	if err := c.CheckWorldConflictStream(context.Background(), "世界規則", "章節內容", &out); err != nil {
 		t.Fatalf("expected stream success, got error: %v", err)
 	}
-	if !strings.Contains(captured.Prompt, "世界觀與規則設定") {
-		t.Fatalf("expected world prompt marker, got %q", captured.Prompt)
+	if len(cs.calls) == 0 {
+		t.Fatal("expected at least one stream call")
+	}
+	if !strings.Contains(cs.calls[0].prompt, "世界觀與規則設定") {
+		t.Fatalf("expected world prompt marker, got %q", cs.calls[0].prompt)
 	}
 	if !strings.Contains(out.String(), "ok") {
 		t.Fatalf("expected output to contain response, got %q", out.String())
@@ -72,59 +65,41 @@ func TestCheckWorldConflictStreamUsesWorldPrompt(t *testing.T) {
 func TestCheckBehaviorStreamUsesPronounGuidance(t *testing.T) {
 	t.Parallel()
 
-	var captured genReq
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	cs := &captureStreamer{response: "ok"}
+	c := NewWithStreamer(cs)
 	var out bytes.Buffer
 	if err := c.CheckBehaviorStream(context.Background(), "角色設定", "章節內容", &out); err != nil {
 		t.Fatalf("expected stream success, got error: %v", err)
 	}
-	if !strings.Contains(captured.Prompt, "他 / 她") {
-		t.Fatalf("expected pronoun guidance in prompt, got %q", captured.Prompt)
+	if len(cs.calls) == 0 {
+		t.Fatal("expected at least one stream call")
+	}
+	if !strings.Contains(cs.calls[0].prompt, "他 / 她") {
+		t.Fatalf("expected pronoun guidance in prompt, got %q", cs.calls[0].prompt)
 	}
 }
 
 func TestCheckBehaviorWithSystemStreamPrependsWorldState(t *testing.T) {
 	t.Parallel()
 
-	var captured genReq
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"ok\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	cs := &captureStreamer{response: "ok"}
+	c := NewWithStreamer(cs)
 	var out bytes.Buffer
 	if err := c.CheckBehaviorWithSystemStream(context.Background(), "【當前世界狀態】\n- 林昊：已失去傳家寶劍", "角色設定", "章節內容", &out); err != nil {
 		t.Fatalf("expected stream success, got error: %v", err)
 	}
-	if !strings.Contains(captured.System, "【當前世界狀態】") {
-		t.Fatalf("expected system prefix in request, got %q", captured.System)
+	if len(cs.calls) == 0 {
+		t.Fatal("expected at least one stream call")
+	}
+	if !strings.Contains(cs.calls[0].system, "【當前世界狀態】") {
+		t.Fatalf("expected system prefix in request, got %q", cs.calls[0].system)
 	}
 }
 
 func TestGenerateWorldStateChangesParsesJSONArray(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"[{\\\"entity\\\":\\\"林昊\\\",\\\"change_type\\\":\\\"status\\\",\\\"description\\\":\\\"已失去傳家寶劍\\\"}]\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	c := NewWithStreamer(&fixedStreamer{response: `[{"entity":"林昊","change_type":"status","description":"已失去傳家寶劍"}]`})
 	changes, err := c.GenerateWorldStateChanges(context.Background(), "章節內容")
 	if err != nil {
 		t.Fatalf("expected parse success, got error: %v", err)
@@ -160,23 +135,15 @@ func TestSplitTextWithOverlapEdgeCases(t *testing.T) {
 func TestCheckBehaviorStreamChunksLongTextAndMergesResponses(t *testing.T) {
 	t.Parallel()
 
-	callCount := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"1. 行為一致性：符合\\n\",\"done\":false}\n"))
-		_, _ = w.Write([]byte("{\"response\":\"2. 具體問題：無明顯衝突\\n\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	cs := &captureStreamer{response: "1. 行為一致性：符合\n2. 具體問題：無明顯衝突\n"}
+	c := NewWithStreamer(cs)
 	var out bytes.Buffer
 	longText := strings.Repeat("他在夜裡持續觀察四周。", behaviorChunkRuneLimit/4+50)
 	if err := c.CheckBehaviorStream(context.Background(), "角色設定", longText, &out); err != nil {
 		t.Fatalf("expected chunked stream success, got error: %v", err)
 	}
-	if callCount < 2 {
-		t.Fatalf("expected multiple chunk calls, got %d", callCount)
+	if len(cs.calls) < 2 {
+		t.Fatalf("expected multiple chunk calls, got %d", len(cs.calls))
 	}
 	if strings.Count(out.String(), "1. 行為一致性：符合") != 1 {
 		t.Fatalf("expected merged output to dedupe repeated lines, got %q", out.String())
@@ -186,13 +153,8 @@ func TestCheckBehaviorStreamChunksLongTextAndMergesResponses(t *testing.T) {
 func TestAnalyzeStyleParsesJSONResponse(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"{\\\"dialogue_ratio\\\":\\\"高\\\",\\\"sensory_freq\\\":\\\"中\\\",\\\"avg_sentence_len\\\":\\\"綿長\\\",\\\"tone\\\":\\\"詩意\\\",\\\"summary\\\":\\\"意象濃厚，句子拉長\\\"}\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	response := `{"dialogue_ratio":"高","sensory_freq":"中","avg_sentence_len":"綿長","tone":"詩意","summary":"意象濃厚，句子拉長"}`
+	c := NewWithStreamer(&fixedStreamer{response: response})
 	got, err := c.AnalyzeStyle(context.Background(), "一段文字")
 	if err != nil {
 		t.Fatalf("expected analyze style success, got error: %v", err)
@@ -213,13 +175,7 @@ func TestAnalyzeStyleParsesJSONResponse(t *testing.T) {
 func TestAnalyzeStyleRejectsMalformedJSON(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte("{\"response\":\"not-json\",\"done\":true}\n"))
-	}))
-	defer srv.Close()
-
-	c := New(srv.URL, "mock")
+	c := NewWithStreamer(&fixedStreamer{response: "not-json"})
 	if _, err := c.AnalyzeStyle(context.Background(), "一段文字"); err == nil {
 		t.Fatal("expected malformed JSON error")
 	} else if !errors.Is(err, ErrStyleParseFailure) {

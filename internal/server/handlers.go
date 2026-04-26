@@ -1914,3 +1914,30 @@ func (s *Server) handleExport(c *gin.Context) {
 	}
 	c.FileAttachment(path, fmt.Sprintf("report_%s.md", c.PostForm("chapter")))
 }
+
+// handleDemoData serves the pre-generated demo chapter and Story Health result
+// from examples/demo/ so the evaluate page can show a demo without Ollama.
+func (s *Server) handleDemoData(c *gin.Context) {
+	chapterPath := filepath.Join("examples", "demo", "chapters", "第一章_抵達.md")
+	healthPath := filepath.Join("examples", "demo", "health.json")
+
+	chapterBytes, err := os.ReadFile(chapterPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "demo chapter not found"})
+		return
+	}
+	healthBytes, err := os.ReadFile(healthPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "demo health result not found"})
+		return
+	}
+	var health json.RawMessage
+	if err := json.Unmarshal(healthBytes, &health); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid demo health json"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"chapter": string(chapterBytes),
+		"health":  health,
+	})
+}

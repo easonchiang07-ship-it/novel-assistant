@@ -16,7 +16,17 @@
       <p>並行 3 次 AI 評分取中位數，結合情節、人物、文風、節奏、鉤子五維度換算 100 分制，並自動偵測過期伏筆與世界觀衝突扣分。</p>
     </div>
 
+    <div id="demo-banner" style="display:none;background:#1e3a5f;border:1px solid #3b82f6;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;display:none;align-items:center;gap:0.75rem;flex-wrap:wrap">
+      <span style="color:#93c5fd;font-size:0.85rem;font-weight:600">⚡ Demo 模式</span>
+      <span style="color:#94a3b8;font-size:0.85rem">以下結果為預先生成的示範，非即時 AI 運算。</span>
+      <button class="btn" style="margin-left:auto;padding:0.3rem 0.8rem;font-size:0.8rem" onclick="exitDemo()">用自己的故事</button>
+    </div>
+
     <div class="card" style="margin-bottom:1.5rem">
+      <div style="display:flex;gap:0.75rem;margin-bottom:1rem;align-items:center">
+        <button class="btn" style="background:#1e3a5f;border:1px solid #3b82f6;color:#93c5fd;padding:0.4rem 0.9rem;font-size:0.85rem" onclick="loadDemo()">⚡ 試用 Demo 章節</button>
+        <span class="helper-text">不需要 Ollama，立即查看範例結果</span>
+      </div>
       <div style="display:grid;grid-template-columns:120px 180px 1fr;gap:1rem;align-items:end">
         <div class="form-group" style="margin:0">
           <label>章節編號</label>
@@ -87,6 +97,32 @@ const DIM_LABELS = {
 };
 const DIM_WEIGHTS = { plot: 5, character: 5, style: 4, pacing: 3, hook: 3 };
 const DIMS = ['plot','character','style','pacing','hook'];
+
+async function loadDemo() {
+  try {
+    const resp = await fetch('/api/demo');
+    if (!resp.ok) { alert('Demo 資料載入失敗'); return; }
+    const data = await resp.json();
+    document.getElementById('chapter-content').value = data.chapter;
+    document.getElementById('chapter-index').value = '1';
+    document.getElementById('chapter-file').value = '第一章_抵達.md';
+    document.getElementById('demo-banner').style.display = 'flex';
+    document.getElementById('result-area').style.display = 'none';
+    renderResult(data.health);
+    document.getElementById('eval-status').textContent = 'Demo 結果已載入。';
+  } catch (e) {
+    alert('Demo 載入錯誤：' + e.message);
+  }
+}
+
+function exitDemo() {
+  document.getElementById('demo-banner').style.display = 'none';
+  document.getElementById('chapter-content').value = '';
+  document.getElementById('chapter-index').value = '';
+  document.getElementById('chapter-file').value = '';
+  document.getElementById('result-area').style.display = 'none';
+  document.getElementById('eval-status').textContent = '';
+}
 
 async function runEvaluate() {
   const chapter = document.getElementById('chapter-content').value.trim();

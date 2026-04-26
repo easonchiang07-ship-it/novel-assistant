@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -178,4 +179,117 @@ func newTestRequest(t *testing.T, s *Server, method, path string, body interface
 	req := httptest.NewRequest(method, path, nil)
 	s.router.ServeHTTP(rec, req)
 	return rec
+}
+
+// ─── handleOllamaPull ────────────────────────────────────────────────────────��
+
+func TestHandleOllamaPull_ForwardsProgress(t *testing.T) {
+	t.Parallel()
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/pull" {
+			fmt.Fprintln(w, `{"status":"pulling manifest","completed":0,"total":100}`)
+			fmt.Fprintln(w, `{"status":"success"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mock.Close()
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	body := strings.NewReader(`{"model":"llama3.2:3b"}`)
+	req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+	resp := rec.Body.String()
+	if !strings.Contains(resp, "event: progress") {
+		t.Errorf("expected progress event, got: %s", resp)
+	}
+	if !strings.Contains(resp, "event: done") {
+		t.Errorf("expected done event, got: %s", resp)
+	}
+}
+
+func TestHandleOllamaPull_ForwardsError(t *testing.T) {
+	t.Parallel()
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/pull" {
+			fmt.Fprintln(w, `{"error":"model not found"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mock.Close()
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	body := strings.NewReader(`{"model":"nosuchmodel"}`)
+	req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+	resp := rec.Body.String()
+	if !strings.Contains(resp, "event: error") {
+		t.Errorf("expected error event, got: %s", resp)
+	}
+	if strings.Contains(resp, "event: done") {
+		t.Errorf("should not emit done after error, got: %s", resp)
+	}
+}
+
+func TestHandleOllamaPull_DuplicateReturns409(t *testing.T) {
+	t.Parallel()
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/pull" {
+			close(started)
+			<-unblock
+			fmt.Fprintln(w, `{"status":"success"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mock.Close()
+	defer close(unblock)
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	go func() {
+		body := strings.NewReader(`{"model":"slowmodel"}`)
+		req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+		req.Header.Set("Content-Type", "application/json")
+		s.router.ServeHTTP(httptest.NewRecorder(), req)
+	}()
+	<-started
+	body := strings.NewReader(`{"model":"slowmodel"}`)
+	req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", rec.Code)
+	}
+}
+
+func TestHandleOllamaPull_ReleasesLockAfterCompletion(t *testing.T) {
+	t.Parallel()
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/pull" {
+			w.WriteHeader(http.StatusOK)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			fmt.Fprintln(w, `{"status":"success"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mock.Close()
+	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
+	body := strings.NewReader(`{"model":"lockmodel"}`)
+	req := httptest.NewRequest("POST", "/api/ollama/pull", body)
+	req.Header.Set("Content-Type", "application/json")
+	s.router.ServeHTTP(httptest.NewRecorder(), req)
+	inflightMu.Lock()
+	_, locked := inflight["lockmodel"]
+	inflightMu.Unlock()
+	if locked {
+		t.Error("inflight lock not released after handler completion")
+	}
 }

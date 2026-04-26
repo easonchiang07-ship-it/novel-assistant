@@ -134,6 +134,9 @@ async function runEvaluate() {
 
   if (!chapter) { alert('請輸入章節內容'); return; }
 
+  // Clear demo state so the banner never misrepresents a live result
+  document.getElementById('demo-banner').style.display = 'none';
+
   document.getElementById('eval-btn').disabled = true;
   document.getElementById('result-area').style.display = 'none';
   status.textContent = '評估中…';

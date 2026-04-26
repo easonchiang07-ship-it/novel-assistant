@@ -195,12 +195,20 @@ function onTierChange(tier) {
   document.getElementById('llm-model').readOnly = (tier !== 'custom');
 })();
 
+// settingsPullTarget resolves Entry aliases to the concrete pull target
+// (llama3.2 → llama3.2:3b) so the pull endpoint always receives a specific tag.
+function settingsPullTarget(model) {
+  if (ENTRY_ALIASES.includes(model)) return TIER_MODELS.entry;
+  return model;
+}
+
 let _settingsPulling = {};
 
 async function pullSettingsModel(key) {
   if (_settingsPulling[key]) return;
-  const model = document.getElementById('llm-model').value.trim();
-  if (!model) { alert('請先輸入模型名稱'); return; }
+  const rawModel = document.getElementById('llm-model').value.trim();
+  if (!rawModel) { alert('請先輸入模型名稱'); return; }
+  const model = settingsPullTarget(rawModel);
 
   _settingsPulling[key] = true;
   const btn = document.getElementById(`pull-${key}-btn`);

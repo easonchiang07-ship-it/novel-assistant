@@ -1941,3 +1941,46 @@ func (s *Server) handleDemoData(c *gin.Context) {
 		"health":  health,
 	})
 }
+
+func (s *Server) handleFilmExport(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "章節名稱不可為空"})
+		return
+	}
+
+	var req struct {
+		Format string `json:"format"` // "yaml" | "json"; defaults to "yaml"
+	}
+	_ = c.ShouldBindJSON(&req)
+	format := exporter.FilmFormat(req.Format)
+	if format != exporter.FilmFormatJSON {
+		format = exporter.FilmFormatYAML
+	}
+
+	cf, err := s.loadChapterFile(name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	scenes, err := s.checker.ExtractFilmScenes(c.Request.Context(), strings.TrimSuffix(cf.Name, ".md"), cf.Content)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	out, err := exporter.ExportFilmScenes(scenes, format)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ext := "yaml"
+	if format == exporter.FilmFormatJSON {
+		ext = "json"
+	}
+	filename := fmt.Sprintf("film_%s.%s", strings.TrimSuffix(cf.Name, ".md"), ext)
+	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", out)
+}

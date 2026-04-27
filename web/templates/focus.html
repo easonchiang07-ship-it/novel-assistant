@@ -1,0 +1,265 @@
+{{define "focus.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Focus Chat Mode — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    .focus-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      height: calc(100vh - 160px);
+      min-height: 500px;
+    }
+    .focus-panel { display: flex; flex-direction: column; overflow: hidden; }
+    .focus-panel .card { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px; }
+    .focus-panel h2 { margin-bottom: 10px; font-size: 1rem; flex-shrink: 0; }
+
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 12px;
+      background: #0f0d14; border: 1px solid #2d2540;
+      border-radius: 8px; margin-bottom: 10px;
+    }
+    .chat-bubble { margin-bottom: 10px; max-width: 85%; }
+    .chat-bubble.user { margin-left: auto; text-align: right; }
+    .chat-bubble.assistant { margin-right: auto; }
+    .bubble-inner {
+      display: inline-block; padding: 9px 13px; border-radius: 10px;
+      font-size: 0.88rem; line-height: 1.65; white-space: pre-wrap;
+    }
+    .user .bubble-inner { background: #3b82f6; color: #fff; border-bottom-right-radius: 3px; }
+    .assistant .bubble-inner { background: #1a1628; border: 1px solid #2d2540; color: #e2e8f0; border-bottom-left-radius: 3px; }
+    .bubble-meta { font-size: 0.72rem; color: #64748b; margin-bottom: 3px; }
+    .insert-btn {
+      display: block; margin-top: 5px; padding: 3px 10px;
+      background: transparent; border: 1px solid #3b82f6; color: #3b82f6;
+      border-radius: 5px; font-size: 0.75rem; cursor: pointer;
+    }
+    .insert-btn:hover { background: rgba(59,130,246,0.08); }
+    .sources-bar {
+      font-size: 0.75rem; color: #64748b; padding: 4px 0 6px;
+      border-bottom: 1px solid #2d2540; margin-bottom: 6px; flex-shrink: 0;
+    }
+    .chat-input-row { display: flex; gap: 8px; flex-shrink: 0; }
+    .chat-input-row textarea { flex: 1; min-height: 50px; max-height: 110px; resize: vertical; }
+    .chat-hint { margin-top: 6px; font-size: 0.75rem; color: #64748b; flex-shrink: 0; }
+
+    .editor-toolbar {
+      display: flex; gap: 8px; align-items: center;
+      margin-bottom: 10px; flex-wrap: wrap; flex-shrink: 0;
+    }
+    .editor-toolbar input[type="text"] { flex: 1; min-width: 160px; }
+    .save-status { font-size: 0.75rem; color: #64748b; }
+    #manuscript-editor { flex: 1; resize: none; width: 100%; font-family: monospace; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+<div class="layout">
+  {{template "nav" .}}
+  <main class="main-content">
+    <div class="page-header" style="margin-bottom:12px">
+      <h1>Focus Chat Mode</h1>
+      <p>左側與 AI 寫作夥伴對話，右側直接編輯稿件。點「▼ 插入稿件」可將 AI 回覆貼入游標位置。</p>
+    </div>
+
+    <div class="focus-layout">
+      <!-- 左側：AI 對話 -->
+      <div class="focus-panel">
+        <div class="card">
+          <h2>AI 寫作夥伴</h2>
+          <div id="sources-bar" class="sources-bar" style="display:none"></div>
+          <div class="chat-messages" id="chat-messages">
+            <p style="color:#94a3b8;text-align:center;font-size:0.85rem">開始輸入，AI 將自動參考角色設定、章節摘要、伏筆清單與右側稿件</p>
+          </div>
+          <div class="chat-input-row">
+            <textarea id="chat-input" placeholder="輸入你的問題或創作需求…" onkeydown="handleKey(event)"></textarea>
+            <button class="btn" id="send-btn" type="button" onclick="sendMessage()">送出</button>
+          </div>
+          <div class="chat-hint">Enter 送出，Shift+Enter 換行</div>
+        </div>
+      </div>
+
+      <!-- 右側：稿件編輯器 -->
+      <div class="focus-panel">
+        <div class="card">
+          <h2>稿件編輯器</h2>
+          <div class="editor-toolbar">
+            <select id="chapter-select" onchange="loadChapter()">
+              <option value="">— 新稿件 —</option>
+              {{range .Chapters}}
+              <option value="{{.Name}}">{{.Title}}</option>
+              {{end}}
+            </select>
+            <input type="text" id="chapter-name" placeholder="章節檔名（例：第二章-主角覺醒.md）">
+            <button class="btn btn-ghost btn-sm" type="button" onclick="saveChapter()">儲存</button>
+            <span class="save-status" id="save-status"></span>
+          </div>
+          <textarea id="manuscript-editor" placeholder="在此撰寫或貼入章節內容…"></textarea>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const chatHistory = [];
+let isStreaming = false;
+
+function escHTML(t) {
+  return String(t || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showSources(items) {
+  const bar = document.getElementById('sources-bar');
+  if (!items || items.length === 0) { bar.style.display = 'none'; return; }
+  const names = items.map(i => i.name || i.id || '').filter(Boolean).join('、');
+  bar.textContent = `本次參考：${names}`;
+  bar.style.display = 'block';
+}
+
+function addInsertButton(bubbleWrap, text) {
+  const btn = document.createElement('button');
+  btn.className = 'insert-btn';
+  btn.textContent = '▼ 插入稿件';
+  btn.onclick = () => insertAtCursor(text);
+  bubbleWrap.appendChild(btn);
+}
+
+async function sendMessage() {
+  if (isStreaming) return;
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+
+  // 使用者泡泡
+  const box = document.getElementById('chat-messages');
+  box.querySelector('p')?.remove();
+  const userWrap = document.createElement('div');
+  userWrap.className = 'chat-bubble user';
+  userWrap.innerHTML = `<div class="bubble-meta">作者</div><div class="bubble-inner">${escHTML(message)}</div>`;
+  box.appendChild(userWrap);
+  box.scrollTop = box.scrollHeight;
+
+  const chapterFile = document.getElementById('chapter-select').value;
+  const chapterContent = document.getElementById('manuscript-editor').value;
+
+  isStreaming = true;
+  document.getElementById('send-btn').disabled = true;
+
+  // AI 泡泡（串流中）
+  const aiWrap = document.createElement('div');
+  aiWrap.className = 'chat-bubble assistant';
+  aiWrap.innerHTML = '<div class="bubble-meta">AI助理</div><div class="bubble-inner"></div>';
+  box.appendChild(aiWrap);
+  box.scrollTop = box.scrollHeight;
+  const bubbleEl = aiWrap.querySelector('.bubble-inner');
+  let replyText = '';
+
+  try {
+    const resp = await fetch('/focus/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: chatHistory, chapter_file: chapterFile, chapter_content: chapterContent })
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      let eventType = '';
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          try {
+            const payload = JSON.parse(line.slice(5).trim());
+            if (eventType === 'chunk') {
+              replyText += payload.text || '';
+              bubbleEl.textContent = replyText;
+              box.scrollTop = box.scrollHeight;
+            } else if (eventType === 'sources') {
+              showSources(payload.items);
+            }
+          } catch (_) {}
+          eventType = '';
+        }
+      }
+    }
+
+    chatHistory.push({ role: 'user', content: message });
+    chatHistory.push({ role: 'assistant', content: replyText });
+    addInsertButton(aiWrap, replyText);
+  } catch (e) {
+    bubbleEl.textContent = '⚠️ 發生錯誤：' + e.message;
+  } finally {
+    isStreaming = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function insertAtCursor(text) {
+  const ta = document.getElementById('manuscript-editor');
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  ta.setRangeText(text, start, end, 'end');
+  ta.focus();
+}
+
+async function loadChapter() {
+  const name = document.getElementById('chapter-select').value;
+  if (!name) {
+    document.getElementById('chapter-name').value = '';
+    document.getElementById('manuscript-editor').value = '';
+    document.getElementById('save-status').textContent = '';
+    return;
+  }
+  document.getElementById('chapter-name').value = name;
+  try {
+    const resp = await fetch('/api/chapters/' + encodeURIComponent(name));
+    const data = await resp.json();
+    document.getElementById('manuscript-editor').value = data.content || '';
+  } catch (e) {
+    alert('載入失敗：' + e.message);
+  }
+}
+
+async function saveChapter() {
+  const name = document.getElementById('chapter-name').value.trim();
+  const content = document.getElementById('manuscript-editor').value;
+  if (!name) { alert('請輸入章節檔名'); return; }
+  const status = document.getElementById('save-status');
+  status.textContent = '儲存中…';
+  try {
+    const resp = await fetch('/api/chapters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, content })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '儲存失敗');
+    status.textContent = `已儲存：${data.title || name}`;
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (e) {
+    status.textContent = '錯誤：' + e.message;
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

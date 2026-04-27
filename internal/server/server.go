@@ -209,6 +209,8 @@ func (s *Server) setupRoutes() {
 
 	protected.GET("/evaluate", s.handleEvaluatePage)
 	protected.POST("/evaluate/stream", s.handleEvaluateStream)
+	protected.GET("/focus", s.handleFocusPage)
+	protected.POST("/focus/stream", s.handleFocusStream)
 	protected.GET("/api/demo", s.handleDemoData)
 	protected.GET("/api/ollama/status", s.handleOllamaStatus)
 	protected.POST("/api/ollama/pull", s.handleOllamaPull)

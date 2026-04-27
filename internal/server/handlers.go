@@ -1441,6 +1441,133 @@ func (s *Server) handleChatStream(c *gin.Context) {
 	}
 }
 
+// ─── focus chat ───────────────────────────────────────────────────────────────
+
+type focusMessage struct {
+	Role    string `json:"role"` // "user" | "assistant"
+	Content string `json:"content"`
+}
+
+type focusRequest struct {
+	Message        string         `json:"message"`
+	History        []focusMessage `json:"history"`
+	ChapterFile    string         `json:"chapter_file"`    // optional，用於 beforeChapter 篩選
+	ChapterContent string         `json:"chapter_content"` // optional，右側 textarea 當前內容
+}
+
+func (s *Server) handleFocusPage(c *gin.Context) {
+	chapters, err := s.listChapterFiles()
+	if err != nil {
+		log.Printf("focus: list chapters: %v", err)
+	}
+	c.HTML(http.StatusOK, "focus.html", gin.H{
+		"Title":    "Focus Chat Mode",
+		"Chapters": chapters,
+	})
+}
+
+func (s *Server) handleFocusStream(c *gin.Context) {
+	var req focusRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Message) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "訊息不可為空"})
+		return
+	}
+
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel()
+	msgChan := make(chan streamEvent, 256)
+
+	go func() {
+		defer close(msgChan)
+
+		// 1. RAG 參考（query = message + 當前稿件片段，讓 retrieval 能命中稿件內的角色/地名）
+		defaultOpts := retrievalOptions{}
+		ragQuery := req.Message
+		if trimmed := strings.TrimSpace(req.ChapterContent); trimmed != "" {
+			ragQuery = req.Message + "\n" + trimmed
+		}
+		references, refErr := s.buildReferenceContext(ctx, ragQuery, req.ChapterFile, mergeRetrieval(s.rules.PresetFor("rewrite"), defaultOpts))
+		if refErr != nil {
+			msgChan <- streamEvent{Event: "chunk", Text: fmt.Sprintf("\n> RAG 載入失敗，使用基礎模式：%s\n", refErr.Error())}
+		} else {
+			msgChan <- streamEvent{Event: "sources", Sources: summarizeReferences(references)}
+		}
+
+		// 2. 章節摘要
+		beforeChapter := resolveBeforeChapter(req.ChapterFile, defaultOpts)
+		summaryDocs := s.store.QueryChapterSummaries(beforeChapter)
+		var summaryLines []string
+		for _, d := range summaryDocs {
+			summaryLines = append(summaryLines, fmt.Sprintf("- 第%d章：%s", d.ChapterIndex, d.Content))
+		}
+
+		// 3. 待解決伏筆
+		pendingHooks := s.foreshadow.GetPending()
+		var hookLines []string
+		for _, h := range pendingHooks {
+			hookLines = append(hookLines, fmt.Sprintf("- %s（偵測：第%d章）", h.Description, h.ChapterIndex))
+		}
+
+		// 4. contextBlock
+		var parts []string
+		if len(references) > 0 {
+			parts = append(parts, "【角色／世界觀／風格參考】\n"+joinProfiles(references))
+		}
+		if len(summaryLines) > 0 {
+			parts = append(parts, "【章節摘要】\n"+strings.Join(summaryLines, "\n"))
+		}
+		if len(hookLines) > 0 {
+			parts = append(parts, "【待解決伏筆】\n"+strings.Join(hookLines, "\n"))
+		}
+		if strings.TrimSpace(req.ChapterContent) != "" {
+			parts = append(parts, "【當前稿件】\n"+req.ChapterContent)
+		}
+		contextBlock := strings.Join(parts, "\n\n")
+
+		// 5. 對話歷史
+		var histLines []string
+		for _, h := range req.History {
+			role := "使用者"
+			if h.Role == "assistant" {
+				role = "AI助理"
+			}
+			histLines = append(histLines, role+"："+h.Content)
+		}
+		historyText := strings.Join(histLines, "\n")
+
+		// 6. 串流
+		cw := &chanWriter{ch: msgChan}
+		if err := s.checker.FocusChatStream(ctx, contextBlock, historyText, req.Message, cw); err != nil {
+			if ctx.Err() == nil {
+				msgChan <- streamEvent{Event: "chunk", Text: fmt.Sprintf("\n> 錯誤：%s\n", err.Error())}
+			}
+		}
+	}()
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg, ok := <-msgChan:
+			if !ok {
+				return
+			}
+			switch msg.Event {
+			case "sources":
+				c.SSEvent("sources", gin.H{"items": msg.Sources})
+			case "chunk":
+				c.SSEvent("chunk", gin.H{"text": msg.Text})
+			}
+			c.Writer.Flush()
+		}
+	}
+}
+
 // ─── relationships ────────────────────────────────────────────────────────────
 
 func (s *Server) handleAddRelationship(c *gin.Context) {

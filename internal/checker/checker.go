@@ -316,6 +316,25 @@ func (c *Checker) ChatWithCharacterStream(ctx context.Context, characterProfile,
 	return c.llm.Stream(ctx, system, prompt, w)
 }
 
+func (c *Checker) FocusChatStream(ctx context.Context, contextBlock, history, userMessage string, w io.Writer) error {
+	prompt := fmt.Sprintf(`【參考資料】
+%s
+
+【對話歷史】
+%s
+
+【使用者訊息】
+%s`, contextBlock, history, userMessage)
+
+	system := `你是小說創作助理。請根據提供的角色設定、世界觀、章節摘要與伏筆清單，協助作者發想、討論或生成段落。
+規則：
+- 直接針對使用者訊息回覆，不重複引用資料來源
+- 若生成段落，請確保與設定一致
+- 回覆使用繁體中文`
+
+	return c.llm.Stream(ctx, system, prompt, w)
+}
+
 func (c *Checker) GenerateWorldStateChanges(ctx context.Context, chapter string) ([]worldstate.Change, error) {
 	prompt := fmt.Sprintf(`
 分析以下章節內容，列出本章造成的「世界狀態變更」。

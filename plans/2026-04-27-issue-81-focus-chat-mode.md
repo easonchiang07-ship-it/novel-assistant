@@ -7,7 +7,7 @@
 
 - 新路由 `/focus`（GET）和 `/focus/stream`（POST），獨立於現有 `/chat/stream`（角色對談室）
 - Focus chat 是「寫作夥伴模式」：context 自動注入，不需使用者指定
-- Context 來源：`buildReferenceContext`（傳入 message 作為 query）+ `QueryChapterSummaries` + `foreshadow.GetPending()`
+- Context 來源：`buildReferenceContext`（傳入 message 作為 query）+ `QueryChapterSummaries` + `foreshadow.GetPending()` + 前端送來的當前稿件內容（`ChapterContent`）
 - SSE 格式與現有 `check/stream` 相同（`streamEvent` + `msgChan` + inline SSE loop），支援 `chunk` / `sources` 事件
 - 右側編輯器用 `<textarea>`，儲存直接呼叫現有 `POST /api/chapters` endpoint
 - 「插入稿件」按鈕在每條 AI 回覆下方，點擊後用 `setRangeText` 插入 textarea 游標位置
@@ -19,10 +19,11 @@ GET /focus
   → 讀取 listChapterFiles() 供右側選擇章節
   → 渲染 focus.html
 
-POST /focus/stream { message, history[], chapter_file? }
+POST /focus/stream { message, history[], chapter_file?, chapter_content? }
   → buildReferenceContext(ctx, message, chapter_file, defaultOpts) → []vectorProfile
   → store.QueryChapterSummaries(beforeChapter) → chapter summaries
   → foreshadow.GetPending() → pending hooks
+  → 若 chapter_content 非空，加入 contextBlock【當前稿件】區段
   → 組 contextBlock 字串
   → SSE: sources event（vectorProfile 摘要）
   → checker.FocusChatStream(ctx, contextBlock, historyText, message, cw)
@@ -36,7 +37,8 @@ POST /focus/stream { message, history[], chapter_file? }
 - [ ] **Task 3** `internal/server/server.go`：路由註冊
 - [ ] **Task 4** `web/templates/focus.html`：新增分割畫面模板
 - [ ] **Task 5** `web/templates/_nav.html`：新增導航連結
-- [ ] **Task 6** `go build ./...` + `go test ./...`
+- [ ] **Task 6** e2e 測試（`internal/server/e2e_test.go`）
+- [ ] **Task 7** `go build ./...` + `go test ./...`
 
 ---
 
@@ -78,9 +80,10 @@ type focusMessage struct {
 }
 
 type focusRequest struct {
-	Message     string         `json:"message"`
-	History     []focusMessage `json:"history"`
-	ChapterFile string         `json:"chapter_file"` // optional，用於 beforeChapter 篩選
+	Message        string         `json:"message"`
+	History        []focusMessage `json:"history"`
+	ChapterFile    string         `json:"chapter_file"`    // optional，用於 beforeChapter 篩選
+	ChapterContent string         `json:"chapter_content"` // optional，右側 textarea 當前內容
 }
 ```
 
@@ -88,7 +91,10 @@ type focusRequest struct {
 
 ```go
 func (s *Server) handleFocusPage(c *gin.Context) {
-	chapters, _ := s.listChapterFiles()
+	chapters, err := s.listChapterFiles()
+	if err != nil {
+		log.Printf("focus: list chapters: %v", err)
+	}
 	c.HTML(http.StatusOK, "focus.html", gin.H{
 		"Title":    "Focus Chat Mode",
 		"Chapters": chapters,
@@ -115,7 +121,7 @@ func (s *Server) handleFocusStream(c *gin.Context) {
 
 		// 1. 建立 RAG 參考（傳入 message 作為 embedding query）
 		defaultOpts := retrievalOptions{}
-		references, refErr := s.buildReferenceContext(ctx, req.Message, req.ChapterFile, mergeRetrieval(s.rules.PresetFor("check"), defaultOpts))
+		references, refErr := s.buildReferenceContext(ctx, req.Message, req.ChapterFile, mergeRetrieval(s.rules.PresetFor("rewrite"), defaultOpts))
 		if refErr != nil {
 			msgChan <- streamEvent{Event: "chunk", Text: fmt.Sprintf("\n> RAG 載入失敗，使用基礎模式：%s\n", refErr.Error())}
 		} else {
@@ -134,7 +140,7 @@ func (s *Server) handleFocusStream(c *gin.Context) {
 		pendingHooks := s.foreshadow.GetPending()
 		var hookLines []string
 		for _, h := range pendingHooks {
-			hookLines = append(hookLines, fmt.Sprintf("- %s（植入：第%d章）", h.Description, h.PlantedChapter))
+			hookLines = append(hookLines, fmt.Sprintf("- %s（偵測：第%d章）", h.Description, h.ChapterIndex))
 		}
 
 		// 4. 組 contextBlock
@@ -147,6 +153,9 @@ func (s *Server) handleFocusStream(c *gin.Context) {
 		}
 		if len(hookLines) > 0 {
 			parts = append(parts, "【待解決伏筆】\n"+strings.Join(hookLines, "\n"))
+		}
+		if strings.TrimSpace(req.ChapterContent) != "" {
+			parts = append(parts, "【當前稿件】\n"+req.ChapterContent)
 		}
 		contextBlock := strings.Join(parts, "\n\n")
 
@@ -366,6 +375,7 @@ async function sendMessage() {
 
   appendBubble('user', message);
   const chapterFile = document.getElementById('chapter-select').value;
+  const chapterContent = document.getElementById('manuscript-editor').value;
 
   isStreaming = true;
   document.getElementById('send-btn').disabled = true;
@@ -386,7 +396,7 @@ async function sendMessage() {
     const resp = await fetch('/focus/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history: chatHistory, chapter_file: chapterFile })
+      body: JSON.stringify({ message, history: chatHistory, chapter_file: chapterFile, chapter_content: chapterContent })
     });
     if (!resp.ok) throw new Error(await resp.text());
 
@@ -490,6 +500,30 @@ async function saveChapter() {
 
 ---
 
+## Task 6：`internal/server/e2e_test.go`
+
+參照現有 e2e 測試模式（mock LLM streamer），新增以下測試案例：
+
+```
+TestFocusPage
+  - GET /focus → 200，body 含 "Focus Chat Mode"
+
+TestFocusStreamEmptyMessage
+  - POST /focus/stream body={"message":""} → 400
+
+TestFocusStreamBasic
+  - POST /focus/stream body={"message":"test"} → 200
+  - SSE 回應包含至少一個 event: chunk
+  - SSE 回應包含 event: sources（即使 sources 為空陣列）
+
+TestFocusStreamWithChapterContent
+  - POST /focus/stream body={"message":"繼續寫","chapter_content":"第一段已完成"}
+  - mock LLM 收到的 prompt 應包含「當前稿件」字串
+  - （在 mock streamer 裡 assert system/prompt 參數）
+```
+
+---
+
 ## Task 5：`web/templates/_nav.html`
 
 在現有導航清單中，找到 `/chat` 連結的 `<li>` 之後加入：
@@ -517,7 +551,7 @@ async function saveChapter() {
 
 2. **`QueryChapterSummaries` 回傳的 `Content`**：文件類型為 `chapter_summary`，`Content` 是章節摘要文字，`ChapterIndex` 是章節序號。若欄位名稱不符，以實際 `vectorstore.Document` 結構為準。
 
-3. **`foreshadow.GetPending()` 回傳的 `PendingHook`**：欄位有 `Description` 和 `PlantedChapter`。若欄位名稱不符，以 `tracker/foreshadow.go` 的 `PendingHook` struct 為準。
+3. **`foreshadow.GetPending()` 回傳的 `PendingHook`**：使用 `h.Description`（描述）與 `h.ChapterIndex`（偵測章節序號）。欄位定義以 `tracker/foreshadow.go` 的 `PendingHook` struct 為準。
 
 4. **SSE chunk 格式**：前端期待 `event: chunk\ndata: {"text":"..."}\n\n`。確認現有 `c.SSEvent("chunk", gin.H{"text": msg.Text})` 輸出格式一致。
 

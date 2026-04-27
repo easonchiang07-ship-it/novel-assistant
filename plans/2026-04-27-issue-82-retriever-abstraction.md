@@ -12,6 +12,7 @@
 - `buildReferenceContext` 的 `s.store.QueryFilteredBeforeChapter` 替換為 `s.retriever.Retrieve`
 - `s.store.Len() == 0` 的早退邏輯移入 `VectorRetriever.Retrieve`，handler 不再直接存取 store
 - `server.go` 在 `setProjectState` 與 `applyProjectSettings` 兩個位置同步更新 `s.retriever`
+- `settings.go` 的 `handleSaveSettings` 在呼叫 `applyProjectSettings()` 後會再次重新指派 `s.embedder`，因此必須在最後一次 `s.embedder = ...` 之後再重建 `s.retriever`，否則 retriever 持有的是已被替換的舊 embedder
 
 ## 呼叫路徑（重構前 vs 後）
 
@@ -37,6 +38,8 @@ buildReferenceContext
 | 新增 | `internal/retriever/vector_test.go` |
 | 修改 | `internal/server/server.go` |
 | 修改 | `internal/server/handlers.go` |
+| 修改 | `internal/server/handlers_test.go` |
+| 修改 | `internal/server/settings.go` |
 
 ## 待實作 Checklist
 
@@ -44,6 +47,8 @@ buildReferenceContext
 - [ ] **Task 2** `internal/retriever/vector.go`：VectorRetriever 實作
 - [ ] **Task 3** `internal/retriever/vector_test.go`：單元測試
 - [ ] **Task 4** `internal/server/server.go`：Server struct + 初始化 + 同步更新
+- [ ] **Task 4-F** `internal/server/handlers_test.go`：修正 `TestBuildReferenceContextReturnsNilWhenStoreIsEmpty`
+- [ ] **Task 4-G** `internal/server/settings.go`：`handleSaveSettings` 末尾同步更新 retriever
 - [ ] **Task 5** `internal/server/handlers.go`：替換 buildReferenceContext
 - [ ] **Task 6** `go build ./...` + `go test ./...`
 
@@ -155,13 +160,34 @@ func (s *stubEmbedder) Embed(_ context.Context, _ string) ([]float64, error) {
 	return s.vec, nil
 }
 
-// stubStore 模擬 VectorStorer。
+// stubStore 僅回傳固定文件，不記錄參數（用於基本行為測試）。
 type stubStore struct {
 	docs []vectorstore.ScoredDocument
 }
 
 func (s *stubStore) Len() int { return len(s.docs) }
 func (s *stubStore) QueryFilteredBeforeChapter(_ []float64, topK int, _ []string, _ float64, _ int) []vectorstore.ScoredDocument {
+	if topK < len(s.docs) {
+		return s.docs[:topK]
+	}
+	return s.docs
+}
+
+// recordingStore 記錄 QueryFilteredBeforeChapter 收到的所有參數，用於驗證轉送正確性。
+type recordingStore struct {
+	docs         []vectorstore.ScoredDocument
+	gotTopK      int
+	gotTypes     []string
+	gotThreshold float64
+	gotBefore    int
+}
+
+func (s *recordingStore) Len() int { return len(s.docs) }
+func (s *recordingStore) QueryFilteredBeforeChapter(_ []float64, topK int, types []string, threshold float64, beforeChapter int) []vectorstore.ScoredDocument {
+	s.gotTopK = topK
+	s.gotTypes = types
+	s.gotThreshold = threshold
+	s.gotBefore = beforeChapter
 	if topK < len(s.docs) {
 		return s.docs[:topK]
 	}
@@ -202,23 +228,41 @@ func TestVectorRetrieverReturnsChunks(t *testing.T) {
 	}
 }
 
-func TestVectorRetrieverTopKRespected(t *testing.T) {
-	docs := make([]vectorstore.ScoredDocument, 5)
-	for i := range docs {
-		docs[i] = vectorstore.ScoredDocument{
-			Document: vectorstore.Document{ID: "doc", Type: "character"},
-			Score:    float64(i),
-		}
+// TestVectorRetrieverPassesRequestParams 驗證 Types / Threshold / BeforeChapter / TopK
+// 全部被原樣轉送給 QueryFilteredBeforeChapter，這是「行為等價」的核心保證。
+func TestVectorRetrieverPassesRequestParams(t *testing.T) {
+	doc := vectorstore.ScoredDocument{
+		Document: vectorstore.Document{ID: "char_X", Type: "character"},
+		Score:    0.5,
 	}
-	store := &stubStore{docs: docs}
+	store := &recordingStore{docs: []vectorstore.ScoredDocument{doc, doc, doc, doc, doc}}
 	r := retriever.NewVector(&stubEmbedder{vec: []float64{1}}, store)
 
-	chunks, err := r.Retrieve(context.Background(), retriever.Request{Query: "x", TopK: 3})
+	req := retriever.Request{
+		Query:         "test",
+		Types:         []string{"character", "world"},
+		TopK:          2,
+		Threshold:     0.3,
+		BeforeChapter: 4,
+	}
+	chunks, err := r.Retrieve(context.Background(), req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(chunks) != 3 {
-		t.Errorf("expected 3 chunks (topK=3), got %d", len(chunks))
+	if len(chunks) != 2 {
+		t.Errorf("expected 2 chunks (topK=2), got %d", len(chunks))
+	}
+	if store.gotTopK != 2 {
+		t.Errorf("topK not forwarded: got %d, want 2", store.gotTopK)
+	}
+	if len(store.gotTypes) != 2 || store.gotTypes[0] != "character" || store.gotTypes[1] != "world" {
+		t.Errorf("types not forwarded: got %v", store.gotTypes)
+	}
+	if store.gotThreshold != 0.3 {
+		t.Errorf("threshold not forwarded: got %f, want 0.3", store.gotThreshold)
+	}
+	if store.gotBefore != 4 {
+		t.Errorf("beforeChapter not forwarded: got %d, want 4", store.gotBefore)
 	}
 }
 ```
@@ -306,6 +350,82 @@ if st := s.currentState(); st != nil {         // ← 新增
 
 ```go
 s.retriever = retriever.NewVector(s.embedder, s.store)
+```
+
+---
+
+## Task 4-F：`internal/server/handlers_test.go`
+
+`buildReferenceContext` 重構後不再呼叫 `s.store.Len()`，改呼叫 `s.rules.Get()` 和 `s.retriever.Retrieve()`。原本的 `TestBuildReferenceContextReturnsNilWhenStoreIsEmpty` 只初始化了 `s.store`，重構後會 panic（nil rules / nil retriever）。
+
+**重寫此測試**，改用完整初始化的 retriever 和 rules：
+
+```go
+func TestBuildReferenceContextReturnsNilWhenStoreIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// reviewrules.New 未 Load 時 Get() 回傳零值預設，不會 panic
+	rules := reviewrules.New(filepath.Join(dir, "rules.json"))
+	// vectorstore.New 未 Load 時 Len() == 0，Retrieve 會直接回傳 nil,nil
+	store := vectorstore.New(filepath.Join(dir, "store.json"))
+	// embedder URL 不可達，但 store 為空所以不會被呼叫
+	emb := embedder.New("http://127.0.0.1:1", "mock")
+
+	s := &Server{
+		rules:     rules,
+		retriever: retriever.NewVector(emb, store),
+	}
+
+	refs, err := s.buildReferenceContext(context.Background(), "chapter", "", retrievalOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error with empty store: %v", err)
+	}
+	if refs != nil {
+		t.Fatalf("expected nil refs for empty store, got %#v", refs)
+	}
+}
+```
+
+需在 `handlers_test.go` import 加入：
+```
+"novel-assistant/internal/embedder"
+"novel-assistant/internal/retriever"
+"novel-assistant/internal/vectorstore"
+```
+（若已存在則略過。）
+
+---
+
+## Task 4-G：`internal/server/settings.go`
+
+`handleSaveSettings` 在 `applyProjectSettings()` 之後直接重新指派 `s.embedder` 和 `s.checker`：
+
+```go
+s.applyProjectSettings()
+s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)  // ← 替換了 applyProjectSettings 裡建立的 embedder
+s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+```
+
+若照計畫在 `applyProjectSettings` 裡重建 retriever，此時 retriever 已綁定舊 embedder，不變式被破壞。
+
+在 `s.checker = checker.New(...)` 之後加入：
+
+```go
+if st := s.currentState(); st != nil {
+    s.retriever = retriever.NewVector(s.embedder, st.store)
+}
+```
+
+完整段落（settings.go handleSaveSettings 末尾）：
+
+```go
+s.applyProjectSettings()
+s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
+s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+if st := s.currentState(); st != nil {                          // ← 新增
+    s.retriever = retriever.NewVector(s.embedder, st.store)     // ← 新增
+}                                                               // ← 新增
 ```
 
 ---
@@ -402,3 +522,7 @@ import 加入 `"novel-assistant/internal/retriever"`。
 3. **`s.store.Len() == 0` 判斷移位**：原本 `buildReferenceContext` 最前面的 `if s.store.Len() == 0 { return nil, nil }` 移入 `VectorRetriever.Retrieve`。`buildReferenceContext` 改為在 `len(chunks) == 0` 時回傳 `nil, nil`，行為等價。
 
 4. **`s.store.QueryChapterSummaries` 不在本票範圍**：`handleFocusStream` 中的 `s.store.QueryChapterSummaries(beforeChapter)` 不屬於 `QueryFilteredBeforeChapter` call site，保持不變。
+
+5. **`handleSaveSettings` 的 embedder 重複指派（P2 根因）**：`settings.go` 的 `handleSaveSettings` 在 `applyProjectSettings()` 之後又直接重新 `s.embedder = embedder.New(...)`，導致 retriever 持有過期的 embedder 實例。Task 4-G 修正此路徑；Task 4-D 的 `applyProjectSettings` 更新雖然仍保留（邏輯對稱），但 handleSaveSettings 使用時必須以 Task 4-G 的最終更新為準。
+
+6. **`TestBuildReferenceContextReturnsNilWhenStoreIsEmpty` 初始化缺口（P1 根因）**：重構後 `buildReferenceContext` 的第一行改為 `s.rules.Get()`（nil panic），不再是 `s.store.Len()`。Task 4-F 的修法是把 `s.rules` 和 `s.retriever` 都初始化為空值版本（unloaded rules + empty vectorstore）；因為 store 為空，embed 不會被呼叫，所以 embedder URL 指向不可達位址也不影響測試。

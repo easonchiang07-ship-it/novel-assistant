@@ -1649,3 +1649,94 @@ func TestEvaluateStreamStaleForeshadowPenalty(t *testing.T) {
 		t.Errorf("expected final_score=base_score-5, got final=%d base=%d", finalEval.FinalScore, finalEval.BaseScore)
 	}
 }
+
+// ─── focus chat ───────────────────────────────────────────────────────────────
+
+func TestFocusStreamEmptyMessage(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/focus/stream", map[string]any{"message": ""})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST /focus/stream with empty message: want 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestFocusStreamBasic(t *testing.T) {
+	t.Parallel()
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2}})
+		case "/api/generate":
+			_, _ = w.Write([]byte("{\"response\":\"好的，我來幫你。\",\"done\":true}\n"))
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/focus/stream", map[string]any{
+		"message": "請幫我繼續寫下一段",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /focus/stream: want 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+	body := string(resp.Body)
+	if !strings.Contains(body, "event:chunk") {
+		t.Errorf("expected event:chunk in SSE stream, got: %s", body)
+	}
+	if !strings.Contains(body, "event:sources") {
+		t.Errorf("expected event:sources in SSE stream, got: %s", body)
+	}
+}
+
+func TestFocusStreamWithChapterContent(t *testing.T) {
+	t.Parallel()
+
+	var capturedPrompt string
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2}})
+		case "/api/generate":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if p, ok := body["prompt"].(string); ok {
+				capturedPrompt = p
+			}
+			_, _ = w.Write([]byte("{\"response\":\"繼續。\",\"done\":true}\n"))
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	s := newE2ETestServer(t, dir, ollama.URL)
+	app := httptest.NewServer(s.router)
+	defer app.Close()
+
+	resp := performJSONRequest(t, app.URL, "POST", "/focus/stream", map[string]any{
+		"message":         "繼續寫",
+		"chapter_content": "第一段已完成：林昊踏入雨夜的長廊。",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /focus/stream: want 200, got %d: %s", resp.StatusCode, resp.Body)
+	}
+	if !strings.Contains(capturedPrompt, "當前稿件") {
+		t.Errorf("expected prompt to contain '當前稿件', got: %s", capturedPrompt)
+	}
+	if !strings.Contains(capturedPrompt, "第一段已完成") {
+		t.Errorf("expected prompt to contain chapter content, got: %s", capturedPrompt)
+	}
+}

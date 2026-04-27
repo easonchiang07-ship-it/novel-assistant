@@ -1444,7 +1444,7 @@ func (s *Server) handleChatStream(c *gin.Context) {
 // ─── focus chat ───────────────────────────────────────────────────────────────
 
 type focusMessage struct {
-	Role    string `json:"role"`    // "user" | "assistant"
+	Role    string `json:"role"` // "user" | "assistant"
 	Content string `json:"content"`
 }
 
@@ -1480,9 +1480,13 @@ func (s *Server) handleFocusStream(c *gin.Context) {
 	go func() {
 		defer close(msgChan)
 
-		// 1. RAG 參考（傳入 message 作為 embedding query）
+		// 1. RAG 參考（query = message + 當前稿件片段，讓 retrieval 能命中稿件內的角色/地名）
 		defaultOpts := retrievalOptions{}
-		references, refErr := s.buildReferenceContext(ctx, req.Message, req.ChapterFile, mergeRetrieval(s.rules.PresetFor("rewrite"), defaultOpts))
+		ragQuery := req.Message
+		if trimmed := strings.TrimSpace(req.ChapterContent); trimmed != "" {
+			ragQuery = req.Message + "\n" + trimmed
+		}
+		references, refErr := s.buildReferenceContext(ctx, ragQuery, req.ChapterFile, mergeRetrieval(s.rules.PresetFor("rewrite"), defaultOpts))
 		if refErr != nil {
 			msgChan <- streamEvent{Event: "chunk", Text: fmt.Sprintf("\n> RAG 載入失敗，使用基礎模式：%s\n", refErr.Error())}
 		} else {

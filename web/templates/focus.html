@@ -223,7 +223,12 @@ function insertAtCursor(text) {
 
 async function loadChapter() {
   const name = document.getElementById('chapter-select').value;
-  if (!name) return;
+  if (!name) {
+    document.getElementById('chapter-name').value = '';
+    document.getElementById('manuscript-editor').value = '';
+    document.getElementById('save-status').textContent = '';
+    return;
+  }
   document.getElementById('chapter-name').value = name;
   try {
     const resp = await fetch('/api/chapters/' + encodeURIComponent(name));

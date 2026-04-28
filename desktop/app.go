@@ -71,3 +71,21 @@ func (a *App) Startup(ctx context.Context) {
 func (a *App) Handler() http.Handler {
 	return a.srv.Handler()
 }
+
+// LoadChapter returns the raw text content of a chapter by filename.
+func (a *App) LoadChapter(name string) (string, error) {
+	return a.srv.ChapterContent(name)
+}
+
+// SaveChapter writes a chapter file and returns the normalised title.
+func (a *App) SaveChapter(name, content string) (string, error) {
+	return a.srv.SaveChapterContent(name, content)
+}
+
+// Reindex triggers a full re-index and returns a summary message.
+func (a *App) Reindex() (string, error) {
+	if err := a.srv.Ingest(a.ctx); err != nil {
+		return "", err
+	}
+	return "索引完成", nil
+}

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/vectorstore"
 	"os"
@@ -165,8 +167,14 @@ func TestRewriteInstructionRejectsUnknownMode(t *testing.T) {
 func TestBuildReferenceContextReturnsNilWhenStoreIsEmpty(t *testing.T) {
 	t.Parallel()
 
+	dir := t.TempDir()
+	rules := reviewrules.New(filepath.Join(dir, "rules.json"))
+	store := vectorstore.New(filepath.Join(dir, "store.json"))
+	emb := embedder.New("http://127.0.0.1:1", "mock")
+
 	s := &Server{
-		store: &vectorstore.Store{},
+		rules:     rules,
+		retriever: retriever.NewVector(emb, store),
 	}
 
 	refs, err := s.buildReferenceContext(context.Background(), "chapter", "", retrievalOptions{})

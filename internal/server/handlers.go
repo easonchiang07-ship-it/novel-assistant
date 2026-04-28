@@ -19,6 +19,7 @@ import (
 	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/extractor"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
@@ -424,15 +425,6 @@ func resolveBeforeChapter(chapterFile string, opts retrievalOptions) int {
 }
 
 func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile string, opts retrievalOptions) ([]vectorProfile, error) {
-	if s.store.Len() == 0 {
-		return nil, nil
-	}
-
-	queryVec, err := s.embedder.Embed(ctx, chapter)
-	if err != nil {
-		return nil, err
-	}
-
 	rules := s.rules.Get()
 	topK := opts.TopK
 	if topK < 1 {
@@ -448,28 +440,41 @@ func (s *Server) buildReferenceContext(ctx context.Context, chapter, chapterFile
 	}
 
 	beforeChapter := resolveBeforeChapter(chapterFile, opts)
-	docs := s.store.QueryFilteredBeforeChapter(queryVec, topK, sources, threshold, beforeChapter)
-	results := make([]vectorProfile, 0, len(docs))
-	for _, doc := range docs {
-		if doc.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && doc.ChapterFile == chapterFile {
+	chunks, err := s.retriever.Retrieve(ctx, retriever.Request{
+		Query:         chapter,
+		Types:         sources,
+		TopK:          topK,
+		Threshold:     threshold,
+		BeforeChapter: beforeChapter,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(chunks) == 0 {
+		return nil, nil
+	}
+
+	results := make([]vectorProfile, 0, len(chunks))
+	for _, c := range chunks {
+		if c.Type == "chapter" && strings.TrimSpace(chapterFile) != "" && c.ChapterFile == chapterFile {
 			continue
 		}
-		name := strings.TrimPrefix(doc.ID, "char_")
+		name := strings.TrimPrefix(c.ID, "char_")
 		name = strings.TrimPrefix(name, "world_")
 		name = strings.TrimPrefix(name, "style_")
 		name = strings.TrimPrefix(name, "chapter_")
-		reason, snippet := referenceMatchDetail(chapter, name, doc.Content)
+		reason, snippet := referenceMatchDetail(chapter, name, c.Content)
 		results = append(results, vectorProfile{
 			Name:         name,
-			Type:         doc.Type,
-			Content:      doc.Content,
-			Score:        doc.Score,
+			Type:         c.Type,
+			Content:      c.Content,
+			Score:        c.Score,
 			MatchReason:  reason,
 			ChapterMatch: snippet,
-			ChapterFile:  doc.ChapterFile,
-			ChapterIndex: doc.ChapterIndex,
-			SceneIndex:   doc.SceneIndex,
-			ChunkType:    doc.ChunkType,
+			ChapterFile:  c.ChapterFile,
+			ChapterIndex: c.ChapterIndex,
+			SceneIndex:   c.SceneIndex,
+			ChunkType:    c.ChunkType,
 		})
 	}
 	return results, nil

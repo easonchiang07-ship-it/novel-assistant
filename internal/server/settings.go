@@ -6,6 +6,7 @@ import (
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/projectsettings"
+	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/reviewrules"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,9 @@ func (s *Server) handleSaveSettings(c *gin.Context) {
 	s.applyProjectSettings()
 	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
 	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
+	if st := s.currentState(); st != nil {
+		s.retriever = retriever.NewVector(s.embedder, st.store)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "規則與專案設定已更新；若你修改了 Port，需重啟服務後才會生效"})
 }

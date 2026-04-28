@@ -20,6 +20,7 @@ import (
 	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/projectsettings"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
@@ -945,6 +946,7 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		worldstate:    worldstate.New(filepath.Join(dataDir, "worldstate.json")),
 	}
 	s.consistency = consistency.New(s.checker)
+	s.retriever = retriever.NewVector(s.embedder, s.store)
 	if err := s.profiles.Load(); err != nil {
 		t.Fatalf("load profiles: %v", err)
 	}

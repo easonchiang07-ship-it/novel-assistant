@@ -11,6 +11,7 @@ import (
 	"novel-assistant/internal/consistency"
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
+	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/projectsettings"
 	"novel-assistant/internal/reviewhistory"
 	"novel-assistant/internal/reviewrules"
@@ -59,6 +60,7 @@ type Server struct {
 	timeline       *tracker.TimelineTracker
 	foreshadow     *tracker.ForeshadowTracker
 	worldstate     *worldstate.Store
+	retriever      retriever.Retriever
 	chapterOrderMu sync.RWMutex
 	scenePlansMu   sync.RWMutex
 }
@@ -310,6 +312,7 @@ func (s *Server) setProjectState(st *projectState) {
 	s.foreshadow = st.foreshadow
 	s.worldstate = st.worldstate
 	s.cfg.DataDir = st.dataDir
+	s.retriever = retriever.NewVector(s.embedder, s.store)
 }
 
 func (s *Server) switchProject(name string) error {
@@ -442,4 +445,7 @@ func (s *Server) applyProjectSettings() {
 	s.embedder = embedder.New(s.cfg.OllamaURL, s.cfg.EmbedModel)
 	s.checker = checker.New(s.cfg.OllamaURL, s.cfg.LLMModel)
 	s.consistency = consistency.New(s.checker)
+	if st := s.currentState(); st != nil {
+		s.retriever = retriever.NewVector(s.embedder, st.store)
+	}
 }

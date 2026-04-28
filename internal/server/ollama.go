@@ -243,3 +243,43 @@ func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func (s *Server) handleSetupPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "setup.html", nil)
+}
+
+// EmbedReady returns true only when the Ollama daemon is reachable AND the
+// configured embedding model is already pulled. Checking the model prevents
+// Ingest() from clearing the live store and then failing mid-way when the
+// model is absent.
+func EmbedReady(ollamaURL, embedModel string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", ollamaURL+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var tags ollamaTagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return false
+	}
+	names := make([]string, 0, len(tags.Models))
+	for _, m := range tags.Models {
+		name := m.Name
+		if name == "" {
+			name = m.Model
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return modelReady(embedModel, names)
+}

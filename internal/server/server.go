@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log"
+	"net/http"
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/consistency"
@@ -102,9 +104,65 @@ func New(cfg *config.Config) (*Server, error) {
 	s.setProjectState(st)
 	s.applyProjectSettings()
 
-	gin.SetMode(gin.ReleaseMode)
-	s.router = gin.Default()
-	s.router.SetFuncMap(template.FuncMap{
+	if err := s.setupRouter(nil); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// NewEmbedded is like New but serves web assets from an embedded FS instead
+// of the filesystem. Used by the desktop build so the binary is self-contained.
+func NewEmbedded(cfg *config.Config, webFS fs.FS) (*Server, error) {
+	idx, err := workspace.EnsureIndex()
+	if err != nil {
+		return nil, fmt.Errorf("load workspace index: %w", err)
+	}
+
+	s := &Server{
+		cfg:           cfg,
+		globalDataDir: cfg.DataDir,
+		embedder:      embedder.New(cfg.OllamaURL, cfg.EmbedModel),
+		checker:       checker.New(cfg.OllamaURL, cfg.LLMModel),
+		auth:          newAuthManager(cfg),
+		diagnostics:   newRetrievalDiagnostics(),
+	}
+	s.consistency = consistency.New(s.checker)
+	if s.globalDataDir == "" {
+		s.globalDataDir = "data"
+	}
+
+	s.project = projectsettings.New(filepath.Join(s.globalDataDir, "project_settings.json"), projectsettings.Settings{
+		OllamaURL:  cfg.OllamaURL,
+		LLMModel:   cfg.LLMModel,
+		EmbedModel: cfg.EmbedModel,
+		Port:       cfg.Port,
+		DataDir:    s.globalDataDir,
+	})
+	if err := s.project.Load(); err != nil {
+		log.Printf("project settings load: %v", err)
+	}
+
+	st, err := s.loadProjectState(idx.Active)
+	if err != nil {
+		return nil, fmt.Errorf("load project state: %w", err)
+	}
+	s.setProjectState(st)
+	s.applyProjectSettings()
+
+	if err := s.setupRouter(webFS); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// Handler returns the underlying HTTP handler (gin.Engine) for use as a
+// Wails AssetServer.Handler so the WebView renders gin-served pages directly.
+func (s *Server) Handler() http.Handler {
+	return s.router
+}
+
+func (s *Server) templateFuncMap() template.FuncMap {
+	return template.FuncMap{
 		"jsonJS": func(v any) template.JS {
 			data, err := json.Marshal(v)
 			if err != nil {
@@ -123,12 +181,40 @@ func New(cfg *config.Config) (*Server, error) {
 		"authEnabled": func() bool {
 			return s.auth != nil && s.auth.Enabled()
 		},
-	})
-	s.router.LoadHTMLGlob("web/templates/*.html")
-	s.router.Static("/static", "web/static")
-	s.setupRoutes()
+	}
+}
 
-	return s, nil
+// setupRouter configures gin routes and template/static serving.
+// webFS non-nil → use embedded FS; nil → load from filesystem.
+func (s *Server) setupRouter(webFS fs.FS) error {
+	gin.SetMode(gin.ReleaseMode)
+	s.router = gin.Default()
+	funcMap := s.templateFuncMap()
+
+	if webFS != nil {
+		tmplFS, err := fs.Sub(webFS, "templates")
+		if err != nil {
+			return fmt.Errorf("embedded templates: %w", err)
+		}
+		tmpl, err := template.New("").Funcs(funcMap).ParseFS(tmplFS, "*.html")
+		if err != nil {
+			return fmt.Errorf("parse embedded templates: %w", err)
+		}
+		s.router.SetHTMLTemplate(tmpl)
+
+		staticFS, err := fs.Sub(webFS, "static")
+		if err != nil {
+			return fmt.Errorf("embedded static: %w", err)
+		}
+		s.router.StaticFS("/static", http.FS(staticFS))
+	} else {
+		s.router.SetFuncMap(funcMap)
+		s.router.LoadHTMLGlob("web/templates/*.html")
+		s.router.Static("/static", "web/static")
+	}
+
+	s.setupRoutes()
+	return nil
 }
 
 func (s *Server) setupRoutes() {
@@ -137,6 +223,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/login", s.handleLoginPage)
 	r.POST("/login", s.handleLogin)
 	r.POST("/logout", s.handleLogout)
+	r.GET("/setup", s.handleSetupPage)
 
 	protected := r.Group("/")
 	protected.Use(s.requireAuth())

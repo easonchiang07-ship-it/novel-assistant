@@ -243,3 +243,23 @@ func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func (s *Server) handleSetupPage(c *gin.Context) {
+	c.HTML(http.StatusOK, "setup.html", nil)
+}
+
+// OllamaRunning performs a quick reachability check against the Ollama API.
+func OllamaRunning(ollamaURL string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", ollamaURL+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}

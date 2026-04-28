@@ -1,0 +1,63 @@
+{{define "setup.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>設定 Ollama — 小說助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#f5f5f5; margin:0; }
+    .setup-card { background:#fff; border-radius:12px; padding:2.5rem 3rem; max-width:520px; width:90%; box-shadow:0 4px 24px rgba(0,0,0,.08); }
+    .setup-card h1 { margin-top:0; font-size:1.6rem; }
+    .setup-card ol { line-height:2; }
+    .setup-card a { color:#4a90e2; }
+    .cmd { background:#1e1e1e; color:#d4d4d4; border-radius:6px; padding:.6rem 1rem; font-family:monospace; font-size:.9rem; margin:.5rem 0; }
+    #retry-btn { margin-top:1.5rem; padding:.7rem 1.8rem; background:#4a90e2; color:#fff; border:none; border-radius:6px; font-size:1rem; cursor:pointer; }
+    #retry-btn:disabled { opacity:.5; cursor:not-allowed; }
+    #status-msg { margin-top:.8rem; font-size:.95rem; min-height:1.2em; }
+  </style>
+</head>
+<body>
+<div class="setup-card">
+  <h1>🦙 需要 Ollama</h1>
+  <p>小說助手需要 <strong>Ollama</strong> 在本機執行才能使用 AI 功能。</p>
+
+  <h2>安裝步驟</h2>
+  <ol>
+    <li>前往 <a href="https://ollama.com/download" target="_blank">ollama.com/download</a> 下載並安裝</li>
+    <li>安裝後 Ollama 會自動在背景執行</li>
+    <li>（可選）拉取推薦模型：
+      <div class="cmd">ollama pull llama3.2<br>ollama pull nomic-embed-text</div>
+    </li>
+    <li>點擊「重新檢測」</li>
+  </ol>
+
+  <button id="retry-btn" onclick="retryOllama()">重新檢測</button>
+  <p id="status-msg"></p>
+</div>
+<script>
+async function retryOllama() {
+  const btn = document.getElementById('retry-btn');
+  const msg = document.getElementById('status-msg');
+  btn.disabled = true;
+  msg.textContent = '檢測中...';
+  try {
+    const r = await fetch('/api/ollama/status');
+    const d = await r.json();
+    if (d.running) {
+      msg.textContent = '✅ Ollama 已就緒，跳轉中…';
+      window.location.href = '/';
+    } else {
+      msg.textContent = '⚠️ 尚未偵測到 Ollama，請確認已安裝並執行';
+      btn.disabled = false;
+    }
+  } catch {
+    msg.textContent = '連線失敗，請稍後再試';
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>
+{{end}}

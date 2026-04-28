@@ -223,6 +223,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/login", s.handleLoginPage)
 	r.POST("/login", s.handleLogin)
 	r.POST("/logout", s.handleLogout)
+	r.GET("/setup", s.handleSetupPage)
 
 	protected := r.Group("/")
 	protected.Use(s.requireAuth())

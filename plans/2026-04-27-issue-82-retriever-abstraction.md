@@ -1,6 +1,6 @@
 # Issue #82 實作計畫：Retriever Abstraction Interface
 
-> 狀態：待實作
+> 狀態：已完成
 > Issue：[#82 Retriever abstraction interface — decouple handlers from vectorstore.Store](https://github.com/easonchiang07-ship-it/novel-assistant/issues/82)
 > 注意：Issue 標記為 Phase 3 地基，Phase 0 / Phase 2 完成前不需要實作。
 

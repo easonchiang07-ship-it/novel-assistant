@@ -56,7 +56,7 @@ func (a *App) Startup(ctx context.Context) {
 	go func() {
 		// Short delay lets the WebView finish its initial load before we navigate.
 		time.Sleep(400 * time.Millisecond)
-		if !server.OllamaRunning(a.cfg.OllamaURL) {
+		if !server.EmbedReady(a.cfg.OllamaURL, a.cfg.EmbedModel) {
 			wailsruntime.WindowExecJS(ctx, `window.location.href='/setup';`)
 			return
 		}

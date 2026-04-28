@@ -1,4 +1,4 @@
-狀態：Phase 1 已完成，Phase 2/3 待實作
+狀態：Phase 1 & 2 已完成，Phase 3 待實作
 Issue：[#93 Wails desktop packaging — single executable, no Docker required](https://github.com/easonchiang07-ship-it/novel-assistant/issues/93)
 
 ## 架構決策

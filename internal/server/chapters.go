@@ -1,8 +1,11 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"novel-assistant/internal/checker"
+	"novel-assistant/internal/exporter"
 	"novel-assistant/internal/vectorstore"
 	"os"
 	"path/filepath"
@@ -263,6 +266,16 @@ func (s *Server) SaveChapterContent(name, content string) (string, error) {
 		return "", err
 	}
 	return f.Title, nil
+}
+
+// PreviewFilmScene extracts film scenes from text and applies the visual guard.
+// Used by the desktop binding layer for real-time sidebar preview.
+func (s *Server) PreviewFilmScene(ctx context.Context, chapterName, text string) ([]checker.FilmScene, error) {
+	scenes, err := s.checker.ExtractFilmScenes(ctx, chapterName, text)
+	if err != nil {
+		return nil, err
+	}
+	return exporter.InjectVisualGuard(scenes, s.profiles.Characters), nil
 }
 
 func (s *Server) handleGetChapter(c *gin.Context) {

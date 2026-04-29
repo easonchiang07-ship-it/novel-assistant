@@ -14,6 +14,25 @@
       height: calc(100vh - 160px);
       min-height: 500px;
     }
+    .focus-layout.with-preview { grid-template-columns: 1fr 1fr 300px; }
+    .film-preview-panel { display: none; flex-direction: column; overflow: hidden; }
+    .focus-layout.with-preview .film-preview-panel { display: flex; }
+    .film-preview-inner {
+      flex: 1; overflow-y: auto; padding: 10px;
+      background: #0f0d14; border: 1px solid #2d2540; border-radius: 8px;
+    }
+    .film-scene-card {
+      border: 1px solid #2d2540; border-radius: 6px;
+      padding: 10px; margin-bottom: 10px; font-size: 0.8rem;
+    }
+    .film-field { margin-bottom: 6px; line-height: 1.5; }
+    .film-label { color: #64748b; font-size: 0.72rem; text-transform: uppercase; margin-right: 4px; }
+    .film-prompt { color: #94a3b8; font-style: italic; }
+    .film-spinner { color: #64748b; font-size: 0.82rem; padding: 12px 0; text-align: center; }
+    .film-error { color: #f87171; font-size: 0.82rem; padding: 12px 0; }
+    .film-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-shrink: 0; }
+    .film-header h2 { margin: 0; font-size: 1rem; }
+    #film-preview-toggle { display: none; font-size: 0.75rem; padding: 2px 8px; cursor: pointer; }
     .focus-panel { display: flex; flex-direction: column; overflow: hidden; }
     .focus-panel .card { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 14px; }
     .focus-panel h2 { margin-bottom: 10px; font-size: 1rem; flex-shrink: 0; }
@@ -82,10 +101,13 @@
         </div>
       </div>
 
-      <!-- 右側：稿件編輯器 -->
+      <!-- 中：稿件編輯器 -->
       <div class="focus-panel">
         <div class="card">
-          <h2>稿件編輯器</h2>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0">
+            <h2 style="margin:0">稿件編輯器</h2>
+            <button id="film-preview-toggle" class="btn btn-ghost btn-sm" type="button" onclick="toggleFilmPreview()">▶ Film Preview</button>
+          </div>
           <div class="editor-toolbar">
             <select id="chapter-select" onchange="loadChapter()">
               <option value="">— 新稿件 —</option>
@@ -98,6 +120,21 @@
             <span class="save-status" id="save-status"></span>
           </div>
           <textarea id="manuscript-editor" placeholder="在此撰寫或貼入章節內容…"></textarea>
+        </div>
+      </div>
+      <!-- 右：Film Preview（桌面版） -->
+      <div class="film-preview-panel">
+        <div class="card" style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:14px">
+          <div class="film-header">
+            <h2>Film Preview</h2>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="toggleFilmPreview()">◀ 隱藏</button>
+          </div>
+          <div class="film-preview-inner">
+            <div id="film-spinner" class="film-spinner" style="display:none">正在分析…</div>
+            <div id="film-error" class="film-error" style="display:none"></div>
+            <div id="film-content" style="display:none"></div>
+            <p id="film-placeholder" style="color:#64748b;font-size:0.82rem;text-align:center">停止輸入 1.5 秒後自動預覽</p>
+          </div>
         </div>
       </div>
     </div>
@@ -271,6 +308,79 @@ async function saveChapter() {
     status.textContent = '錯誤：' + e.message;
   }
 }
+
+// ── Film Preview（桌面版限定）────────────────────────────────────────────────
+let filmTimer = null;
+let filmReqId = 0;
+
+function initFilmPreview() {
+  if (!window.go?.desktop?.App) return;
+  document.getElementById('film-preview-toggle').style.display = 'inline-block';
+  document.getElementById('manuscript-editor').addEventListener('input', () => {
+    clearTimeout(filmTimer);
+    filmTimer = setTimeout(triggerFilmPreview, 1500);
+  });
+}
+
+function toggleFilmPreview() {
+  const layout = document.querySelector('.focus-layout');
+  layout.classList.toggle('with-preview');
+}
+
+async function triggerFilmPreview() {
+  if (!window.go?.desktop?.App) return;
+  if (!document.querySelector('.focus-layout').classList.contains('with-preview')) return;
+  const text = document.getElementById('manuscript-editor').value.trim();
+  if (!text) return;
+
+  const myId = ++filmReqId;
+  const chapterName = document.getElementById('chapter-select').value || 'preview';
+  document.getElementById('film-placeholder').style.display = 'none';
+  document.getElementById('film-spinner').style.display = 'block';
+  document.getElementById('film-error').style.display = 'none';
+  document.getElementById('film-content').style.display = 'none';
+
+  try {
+    const scenes = await window.go.desktop.App.PreviewFilmScene(chapterName, text);
+    if (myId !== filmReqId) return;
+    renderFilmPreview(scenes);
+  } catch (e) {
+    if (myId !== filmReqId) return;
+    document.getElementById('film-spinner').style.display = 'none';
+    const err = document.getElementById('film-error');
+    err.textContent = '分析失敗：' + (e.message ?? e);
+    err.style.display = 'block';
+  }
+}
+
+function renderFilmPreview(scenes) {
+  document.getElementById('film-spinner').style.display = 'none';
+  const content = document.getElementById('film-content');
+  if (!scenes || scenes.length === 0) {
+    const err = document.getElementById('film-error');
+    err.textContent = '未能解析出場景';
+    err.style.display = 'block';
+    return;
+  }
+  content.innerHTML = scenes.map(s => {
+    const chars = (s.characters || []).map(c => {
+      const parts = [escHTML(c.name)];
+      if (c.appearance) parts.push(escHTML(c.appearance));
+      if (c.action) parts.push(escHTML(c.action));
+      return parts.join(' · ');
+    }).join('<br>');
+    return `<div class="film-scene-card">
+      <div class="film-field"><span class="film-label">場景</span>${escHTML(s.scene_id)}</div>
+      <div class="film-field"><span class="film-label">地點</span>${escHTML(s.location)}</div>
+      <div class="film-field"><span class="film-label">時間</span>${escHTML(s.time)} · ${escHTML(s.mood)}</div>
+      ${chars ? `<div class="film-field"><span class="film-label">角色</span><br>${chars}</div>` : ''}
+      <div class="film-field film-prompt"><span class="film-label">Prompt</span><br>${escHTML(s.video_prompt)}</div>
+    </div>`;
+  }).join('');
+  content.style.display = 'block';
+}
+
+window.addEventListener('DOMContentLoaded', initFilmPreview);
 </script>
 </body>
 </html>

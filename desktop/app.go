@@ -13,6 +13,7 @@ import (
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/server"
 )
@@ -88,4 +89,10 @@ func (a *App) Reindex() (string, error) {
 		return "", err
 	}
 	return "索引完成", nil
+}
+
+// PreviewFilmScene extracts film scenes from the given text and returns them
+// with visual appearance anchors injected. Used by the sidebar preview panel.
+func (a *App) PreviewFilmScene(chapterName, text string) ([]checker.FilmScene, error) {
+	return a.srv.PreviewFilmScene(a.ctx, chapterName, text)
 }

@@ -311,7 +311,8 @@ async function saveChapter() {
 
 // ── Film Preview（桌面版限定）────────────────────────────────────────────────
 let filmTimer = null;
-let filmReqId = 0;
+let filmInFlight = false;
+let filmPending = false;
 
 function initFilmPreview() {
   if (!window.go?.desktop?.App) return;
@@ -324,7 +325,11 @@ function initFilmPreview() {
 
 function toggleFilmPreview() {
   const layout = document.querySelector('.focus-layout');
+  const wasHidden = !layout.classList.contains('with-preview');
   layout.classList.toggle('with-preview');
+  if (wasHidden && document.getElementById('manuscript-editor').value.trim()) {
+    triggerFilmPreview();
+  }
 }
 
 async function triggerFilmPreview() {
@@ -333,7 +338,11 @@ async function triggerFilmPreview() {
   const text = document.getElementById('manuscript-editor').value.trim();
   if (!text) return;
 
-  const myId = ++filmReqId;
+  // If a request is already running, mark as pending and let it retry on completion.
+  if (filmInFlight) { filmPending = true; return; }
+
+  filmInFlight = true;
+  filmPending = false;
   const chapterName = document.getElementById('chapter-select').value || 'preview';
   document.getElementById('film-placeholder').style.display = 'none';
   document.getElementById('film-spinner').style.display = 'block';
@@ -342,14 +351,15 @@ async function triggerFilmPreview() {
 
   try {
     const scenes = await window.go.desktop.App.PreviewFilmScene(chapterName, text);
-    if (myId !== filmReqId) return;
     renderFilmPreview(scenes);
   } catch (e) {
-    if (myId !== filmReqId) return;
     document.getElementById('film-spinner').style.display = 'none';
     const err = document.getElementById('film-error');
     err.textContent = '分析失敗：' + (e.message ?? e);
     err.style.display = 'block';
+  } finally {
+    filmInFlight = false;
+    if (filmPending) triggerFilmPreview();
   }
 }
 

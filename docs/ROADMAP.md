@@ -99,25 +99,9 @@ type Retriever interface {
 
 ---
 
-## ☁️ Phase 4 — Cloud Version
+## Future Direction
 
-> Goal: Build a different product, not a stronger version of the local tool.
-
-- Large-scale Narrative Engine: 1M–10M+ word support, hierarchical memory, multi-stage retrieval
-- Multi-Agent Editorial System: logic / plot / prose editors, structured feedback
-- Series / Show Bible: characters, world, timeline, hooks, arcs
-- Collaboration: multi-user editing, writer's room workflow, cloud sync
-
-**Success criteria:** Users willing to pay. Clear separation from the open-source version.
-
----
-
-## 🧠 Phase 5 — Narrative Operating System
-
-- Audience simulation
-- Style lock
-- Story planning system
-- Publishing pipeline
+A cloud version — large-scale narrative engine, multi-agent editorial system, collaborative writer's room — is planned as a separate project outside this repository.
 
 ---
 

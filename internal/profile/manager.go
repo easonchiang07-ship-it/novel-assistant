@@ -217,6 +217,8 @@ func parseCharacter(content string) *Character {
 			char.GrowthLimit = strings.TrimPrefix(line, "- 成長限制：")
 		case strings.HasPrefix(line, "- 說話風格："):
 			char.SpeechStyle = strings.TrimPrefix(line, "- 說話風格：")
+		case strings.HasPrefix(line, "- 外觀："):
+			char.Appearance = strings.TrimPrefix(line, "- 外觀：")
 		}
 	}
 	return char

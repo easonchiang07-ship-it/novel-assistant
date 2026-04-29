@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Add MinGW to PATH
+        shell: bash
+        run: echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
+
+      - name: Build Windows executable
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags desktop -ldflags "-H windowsgui" -o novel-assistant.exe ./cmd/desktop/
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: novel-assistant.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build macOS binary
+        env:
+          CGO_ENABLED: "1"
+        run: go build -tags desktop -o novel-assistant ./cmd/desktop/
+
+      - name: Package as .app bundle
+        run: |
+          APP="Novel Assistant.app"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+          cp novel-assistant "$APP/Contents/MacOS/novel-assistant"
+          chmod +x "$APP/Contents/MacOS/novel-assistant"
+          cat > "$APP/Contents/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>novel-assistant</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.novel-assistant.app</string>
+            <key>CFBundleName</key>
+            <string>小說助手</string>
+            <key>CFBundleDisplayName</key>
+            <string>小說助手</string>
+            <key>CFBundleVersion</key>
+            <string>1.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          printf 'APPL????' > "$APP/Contents/PkgInfo"
+          zip -r novel-assistant-macos.zip "$APP"
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: novel-assistant-macos.zip

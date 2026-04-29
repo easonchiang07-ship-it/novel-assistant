@@ -11,6 +11,23 @@ The only local-first AI writing system that tracks your foreshadowing, detects i
 
 It runs entirely on your machine. Your manuscript never leaves your computer.
 
+---
+
+## Download
+
+| Platform | Download |
+|---|---|
+| 🪟 Windows 10 / 11 | [**novel-assistant.exe**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant.exe) |
+| 🍎 macOS | [**novel-assistant-macos.zip**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos.zip) |
+
+**Windows:** Download and double-click to run. Requires Windows 10 / 11 (WebView2 is pre-installed).
+
+**macOS:** Unzip, then right-click the app > Open. You'll need to click "Open" once to allow the app (standard Gatekeeper prompt for apps outside the App Store).
+
+> **Prerequisite:** [Ollama](https://ollama.com/) must be installed and running. The app will guide you through the rest on first launch.
+
+---
+
 ## Why This Project Exists
 
 Most writing tools are either:

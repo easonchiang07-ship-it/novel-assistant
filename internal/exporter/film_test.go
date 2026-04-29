@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"novel-assistant/internal/checker"
+	"novel-assistant/internal/profile"
 )
 
 func TestExportFilmScenes_YAML(t *testing.T) {
@@ -52,6 +53,73 @@ func TestExportFilmScenes_JSON(t *testing.T) {
 	}
 	if !strings.Contains(body, `"video_prompt"`) {
 		t.Error("expected video_prompt in JSON output")
+	}
+}
+
+func TestInjectVisualGuard_FillsAppearanceAndPrependsPrompt(t *testing.T) {
+	t.Parallel()
+
+	scenes := []checker.FilmScene{
+		{
+			SceneID:     "CH01-S01",
+			VideoPrompt: "A tired man stands in a rain-soaked alley.",
+			Characters: []checker.FilmCharacter{
+				{Name: "林逸", Action: "低下頭"},
+			},
+		},
+	}
+	characters := []*profile.Character{
+		{Name: "林逸", Appearance: "黑色長外套；黑框眼鏡"},
+	}
+
+	out := InjectVisualGuard(scenes, characters)
+
+	if out[0].Characters[0].Appearance != "黑色長外套；黑框眼鏡" {
+		t.Fatalf("expected appearance injected into character, got %q", out[0].Characters[0].Appearance)
+	}
+	if !strings.HasPrefix(out[0].VideoPrompt, "[林逸: 黑色長外套；黑框眼鏡]") {
+		t.Fatalf("expected appearance anchor prepended to video_prompt, got %q", out[0].VideoPrompt)
+	}
+	if !strings.Contains(out[0].VideoPrompt, "A tired man") {
+		t.Fatalf("expected original prompt preserved, got %q", out[0].VideoPrompt)
+	}
+}
+
+func TestInjectVisualGuard_SkipsCharacterWithoutAppearance(t *testing.T) {
+	t.Parallel()
+
+	scenes := []checker.FilmScene{
+		{
+			SceneID:     "CH01-S01",
+			VideoPrompt: "A woman walks alone.",
+			Characters:  []checker.FilmCharacter{{Name: "陳靜", Action: "走路"}},
+		},
+	}
+	characters := []*profile.Character{
+		{Name: "陳靜", Appearance: ""},
+	}
+
+	out := InjectVisualGuard(scenes, characters)
+
+	if out[0].Characters[0].Appearance != "" {
+		t.Fatalf("expected empty appearance unchanged, got %q", out[0].Characters[0].Appearance)
+	}
+	if out[0].VideoPrompt != "A woman walks alone." {
+		t.Fatalf("expected video_prompt unchanged when no appearance, got %q", out[0].VideoPrompt)
+	}
+}
+
+func TestInjectVisualGuard_NoProfilesReturnsOriginal(t *testing.T) {
+	t.Parallel()
+
+	scenes := []checker.FilmScene{
+		{SceneID: "S01", VideoPrompt: "A man runs.", Characters: []checker.FilmCharacter{{Name: "志明"}}},
+	}
+
+	out := InjectVisualGuard(scenes, nil)
+
+	if out[0].VideoPrompt != "A man runs." {
+		t.Fatalf("expected original scenes returned unchanged, got %q", out[0].VideoPrompt)
 	}
 }
 

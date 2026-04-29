@@ -11,6 +11,23 @@
 
 全程在你的電腦上執行。你的稿件永遠不會離開你的裝置。
 
+---
+
+## 下載
+
+| 平台 | 下載 |
+|---|---|
+| 🪟 Windows 10 / 11 | [**novel-assistant.exe**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant.exe) |
+| 🍎 macOS | [**novel-assistant-macos.zip**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos.zip) |
+
+**Windows：** 下載後直接雙擊執行。需要 Windows 10 / 11（已內建 WebView2）。
+
+**macOS：** 解壓縮後，右鍵點擊 app > 「打開」。第一次執行需點「打開」允許（macOS Gatekeeper 限制，非來自 App Store 的 app 皆需此步驟）。
+
+> **前置需求：** 需要先安裝並執行 [Ollama](https://ollama.com/)，啟動後 app 會引導你完成其餘設定。
+
+---
+
 ## 這個專案想解決什麼
 
 多數寫作工具通常落在兩端：

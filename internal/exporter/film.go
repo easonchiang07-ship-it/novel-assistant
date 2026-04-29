@@ -36,6 +36,9 @@ func InjectVisualGuard(scenes []checker.FilmScene, characters []*profile.Charact
 
 	out := make([]checker.FilmScene, len(scenes))
 	for i, scene := range scenes {
+		chars := make([]checker.FilmCharacter, len(scene.Characters))
+		copy(chars, scene.Characters)
+		scene.Characters = chars
 		for j := range scene.Characters {
 			if app, ok := lookup[scene.Characters[j].Name]; ok {
 				scene.Characters[j].Appearance = app

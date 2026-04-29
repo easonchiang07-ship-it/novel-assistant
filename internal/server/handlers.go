@@ -2089,7 +2089,8 @@ func (s *Server) handleFilmExport(c *gin.Context) {
 	}
 
 	var req struct {
-		Format string `json:"format"` // "yaml" | "json"; defaults to "yaml"
+		Format        string `json:"format"`          // "yaml" | "json"; defaults to "yaml"
+		NoVisualGuard bool   `json:"no_visual_guard"` // set true to skip appearance injection
 	}
 	_ = c.ShouldBindJSON(&req)
 	format := exporter.FilmFormat(req.Format)
@@ -2107,6 +2108,10 @@ func (s *Server) handleFilmExport(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if !req.NoVisualGuard {
+		scenes = exporter.InjectVisualGuard(scenes, s.profiles.Characters)
 	}
 
 	out, err := exporter.ExportFilmScenes(scenes, format)

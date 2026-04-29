@@ -231,9 +231,15 @@ async function loadChapter() {
   }
   document.getElementById('chapter-name').value = name;
   try {
-    const resp = await fetch('/api/chapters/' + encodeURIComponent(name));
-    const data = await resp.json();
-    document.getElementById('manuscript-editor').value = data.content || '';
+    let content = '';
+    if (window.go && window.go.desktop && window.go.desktop.App) {
+      content = await window.go.desktop.App.LoadChapter(name);
+    } else {
+      const resp = await fetch('/api/chapters/' + encodeURIComponent(name));
+      const data = await resp.json();
+      content = data.content || '';
+    }
+    document.getElementById('manuscript-editor').value = content;
   } catch (e) {
     alert('載入失敗：' + e.message);
   }
@@ -246,14 +252,20 @@ async function saveChapter() {
   const status = document.getElementById('save-status');
   status.textContent = '儲存中…';
   try {
-    const resp = await fetch('/api/chapters', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, content })
-    });
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '儲存失敗');
-    status.textContent = `已儲存：${data.title || name}`;
+    let title = name;
+    if (window.go && window.go.desktop && window.go.desktop.App) {
+      title = await window.go.desktop.App.SaveChapter(name, content);
+    } else {
+      const resp = await fetch('/api/chapters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, content })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '儲存失敗');
+      title = data.title || name;
+    }
+    status.textContent = `已儲存：${title}`;
     setTimeout(() => { status.textContent = ''; }, 3000);
   } catch (e) {
     status.textContent = '錯誤：' + e.message;

@@ -246,6 +246,25 @@ func (s *Server) handleListChapters(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": files})
 }
 
+// ChapterContent returns the raw text of a chapter. Used by the desktop binding layer.
+func (s *Server) ChapterContent(name string) (string, error) {
+	f, err := s.loadChapterFile(name)
+	if err != nil {
+		return "", err
+	}
+	return f.Content, nil
+}
+
+// SaveChapterContent writes a chapter file and returns the normalised title.
+// Used by the desktop binding layer.
+func (s *Server) SaveChapterContent(name, content string) (string, error) {
+	f, err := s.saveChapterFile(name, content)
+	if err != nil {
+		return "", err
+	}
+	return f.Title, nil
+}
+
 func (s *Server) handleGetChapter(c *gin.Context) {
 	file, err := s.loadChapterFile(c.Param("name"))
 	if err != nil {

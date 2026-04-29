@@ -37,6 +37,12 @@
 <script src="/static/workspace.js"></script>
 <script>
 function reindex() {
+  if (window.go && window.go.desktop && window.go.desktop.App) {
+    window.go.desktop.App.Reindex()
+      .then(msg => alert(msg))
+      .catch(e => alert('索引失敗：' + (e.message ?? e)));
+    return;
+  }
   fetch('/ingest', {method:'POST'})
     .then(async r => {
       const data = await r.json();

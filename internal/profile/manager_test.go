@@ -15,7 +15,8 @@ func TestParseCharacterParsesSupportedFields(t *testing.T) {
 - 行為模式：先觀察再行動
 - 弱點：對家人毫無防備
 - 成長限制：不主動求助
-- 說話風格：話少`)
+- 說話風格：話少
+- 外觀：黑色風衣，左手腕有舊疤`)
 
 	if char.Name != "林昊" {
 		t.Fatalf("expected name 林昊, got %q", char.Name)
@@ -25,6 +26,20 @@ func TestParseCharacterParsesSupportedFields(t *testing.T) {
 	}
 	if char.SpeechStyle != "話少" {
 		t.Fatalf("expected speech style parsed, got %q", char.SpeechStyle)
+	}
+	if char.Appearance != "黑色風衣，左手腕有舊疤" {
+		t.Fatalf("expected appearance parsed, got %q", char.Appearance)
+	}
+}
+
+func TestParseCharacterAppearanceEmptyWhenMissing(t *testing.T) {
+	t.Parallel()
+
+	char := parseCharacter(`# 角色：林昊
+- 個性：沉默寡言`)
+
+	if char.Appearance != "" {
+		t.Fatalf("expected empty appearance when field absent, got %q", char.Appearance)
 	}
 }
 

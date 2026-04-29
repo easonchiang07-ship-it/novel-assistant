@@ -781,7 +781,10 @@ func TestGetSettingsReturnsRetrievalDefaults(t *testing.T) {
 func TestE2EStyleAnalyzeApplyAndRewritePreset(t *testing.T) {
 	t.Parallel()
 
-	var prompts []string
+	var (
+		promptsMu sync.Mutex
+		prompts   []string
+	)
 	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/embeddings":
@@ -792,7 +795,9 @@ func TestE2EStyleAnalyzeApplyAndRewritePreset(t *testing.T) {
 				t.Fatalf("decode generate request: %v", err)
 			}
 			prompt, _ := req["prompt"].(string)
+			promptsMu.Lock()
 			prompts = append(prompts, prompt)
+			promptsMu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
 			switch {
 			case strings.Contains(prompt, "分析以下文字的寫作風格"):

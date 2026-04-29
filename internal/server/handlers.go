@@ -858,8 +858,10 @@ func (s *Server) handleForeshadowPage(c *gin.Context) {
 
 // ─── ingest ───────────────────────────────────────────────────────────────────
 
-func (s *Server) handleIngest(c *gin.Context) {
-	ctx := c.Request.Context()
+// IngestWithDiagnostics runs Ingest and records timing and result to diagnostics.
+// Use this instead of Ingest directly so that any caller (HTTP or Wails binding)
+// keeps the diagnostics page up to date.
+func (s *Server) IngestWithDiagnostics(ctx context.Context) error {
 	startedAt := time.Now()
 	err := s.Ingest(ctx)
 	finishedAt := time.Now()
@@ -883,11 +885,16 @@ func (s *Server) handleIngest(c *gin.Context) {
 	}
 	if err != nil {
 		status.Error = err.Error()
-		s.diagnostics.recordReindex(status)
+	}
+	s.diagnostics.recordReindex(status)
+	return err
+}
+
+func (s *Server) handleIngest(c *gin.Context) {
+	if err := s.IngestWithDiagnostics(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	s.diagnostics.recordReindex(status)
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "索引完成",
 		"characters": len(s.profiles.Characters),

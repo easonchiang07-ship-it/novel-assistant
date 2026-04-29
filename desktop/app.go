@@ -84,7 +84,7 @@ func (a *App) SaveChapter(name, content string) (string, error) {
 
 // Reindex triggers a full re-index and returns a summary message.
 func (a *App) Reindex() (string, error) {
-	if err := a.srv.Ingest(a.ctx); err != nil {
+	if err := a.srv.IngestWithDiagnostics(a.ctx); err != nil {
 		return "", err
 	}
 	return "索引完成", nil

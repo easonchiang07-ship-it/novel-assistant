@@ -1,66 +1,627 @@
-{{define "setup.html"}}
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>設定 Ollama — 小說助手</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <style>
-    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#f5f5f5; margin:0; }
-    .setup-card { background:#fff; border-radius:12px; padding:2.5rem 3rem; max-width:520px; width:90%; box-shadow:0 4px 24px rgba(0,0,0,.08); }
-    .setup-card h1 { margin-top:0; font-size:1.6rem; }
-    .setup-card ol { line-height:2; }
-    .setup-card a { color:#4a90e2; }
-    .cmd { background:#1e1e1e; color:#d4d4d4; border-radius:6px; padding:.6rem 1rem; font-family:monospace; font-size:.9rem; margin:.5rem 0; }
-    #retry-btn { margin-top:1.5rem; padding:.7rem 1.8rem; background:#4a90e2; color:#fff; border:none; border-radius:6px; font-size:1rem; cursor:pointer; }
-    #retry-btn:disabled { opacity:.5; cursor:not-allowed; }
-    #status-msg { margin-top:.8rem; font-size:.95rem; min-height:1.2em; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小說助手 — 安裝精靈</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.wizard {
+  width: 100%;
+  max-width: 680px;
+}
+
+/* ── Step indicator ── */
+.steps {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 2rem;
+}
+.step-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #2d3748;
+  border: 2px solid #4a5568;
+  transition: all .3s;
+  position: relative;
+}
+.step-dot:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 10px; top: 50%;
+  transform: translateY(-50%);
+  width: 32px; height: 2px;
+  background: #2d3748;
+  transition: background .3s;
+}
+.step-dot.done { background: #48bb78; border-color: #48bb78; }
+.step-dot.done::after { background: #48bb78; }
+.step-dot.active { background: #667eea; border-color: #667eea; transform: scale(1.4); }
+
+/* ── Card ── */
+.card {
+  background: #1a202c;
+  border: 1px solid #2d3748;
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+}
+
+h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .5rem; }
+.subtitle { color: #718096; font-size: .95rem; margin-bottom: 2rem; line-height: 1.6; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .75rem 1.75rem;
+  border-radius: 10px;
+  font-size: .95rem; font-weight: 600;
+  cursor: pointer; border: none; transition: all .2s;
+}
+.btn-primary { background: #667eea; color: #fff; }
+.btn-primary:hover { background: #5a67d8; }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-ghost { background: transparent; color: #718096; border: 1px solid #2d3748; }
+.btn-ghost:hover { color: #e2e8f0; border-color: #4a5568; }
+
+.btn-row { display: flex; gap: .75rem; margin-top: 2rem; }
+
+/* ── Spec grid ── */
+.spec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .75rem;
+  margin-bottom: 1.5rem;
+}
+.spec-card {
+  background: #2d3748;
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.spec-label { font-size: .75rem; color: #718096; text-transform: uppercase; letter-spacing: .05em; }
+.spec-value { font-size: 1.1rem; font-weight: 600; color: #e2e8f0; }
+
+.rec-note {
+  background: #1e3a5f;
+  border: 1px solid #2b6cb0;
+  border-radius: 8px;
+  padding: .75rem 1rem;
+  font-size: .875rem;
+  color: #90cdf4;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Model cards ── */
+.model-list { display: flex; flex-direction: column; gap: .75rem; margin-bottom: 1rem; }
+
+.model-card {
+  border: 2px solid #2d3748;
+  border-radius: 10px;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all .2s;
+  display: flex; align-items: flex-start; gap: .75rem;
+}
+.model-card:hover { border-color: #4a5568; }
+.model-card.selected { border-color: #667eea; background: #1a2035; }
+.model-card.disabled { opacity: .4; cursor: not-allowed; }
+
+.model-radio {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid #4a5568;
+  margin-top: 2px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .2s;
+}
+.model-card.selected .model-radio {
+  border-color: #667eea;
+  background: #667eea;
+}
+.model-radio::after {
+  content: "";
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0; transition: opacity .2s;
+}
+.model-card.selected .model-radio::after { opacity: 1; }
+
+.model-info { flex: 1; }
+.model-name {
+  font-weight: 600; font-size: .95rem;
+  display: flex; align-items: center; gap: .5rem;
+}
+.model-desc { font-size: .825rem; color: #718096; margin-top: .2rem; }
+.model-meta { display: flex; gap: .5rem; margin-top: .4rem; }
+
+.badge {
+  font-size: .7rem; font-weight: 600;
+  padding: .15rem .5rem;
+  border-radius: 999px;
+}
+.badge-rec   { background: #2f855a; color: #c6f6d5; }
+.badge-size  { background: #2d3748; color: #a0aec0; }
+.badge-ram   { background: #2d3748; color: #a0aec0; }
+.badge-ultra { background: #553c9a; color: #d6bcfa; }
+.badge-light { background: #2c5282; color: #bee3f8; }
+.badge-bal   { background: #276749; color: #c6f6d5; }
+.badge-hq    { background: #744210; color: #fefcbf; }
+
+/* ── Fixed embed section ── */
+.embed-section {
+  background: #2d3748;
+  border-radius: 10px;
+  padding: .875rem 1rem;
+  display: flex; align-items: center; gap: .75rem;
+  margin-top: .75rem;
+}
+.lock-icon { font-size: 1.1rem; color: #718096; }
+.embed-info { flex: 1; }
+.embed-name { font-weight: 600; font-size: .875rem; }
+.embed-desc { font-size: .8rem; color: #718096; }
+
+/* ── Progress ── */
+.progress-item { margin-bottom: 1.25rem; }
+.progress-header { display: flex; justify-content: space-between; margin-bottom: .4rem; font-size: .875rem; }
+.progress-label { font-weight: 500; }
+.progress-pct   { color: #667eea; }
+.progress-bar-bg {
+  height: 8px; border-radius: 999px;
+  background: #2d3748; overflow: hidden;
+}
+.progress-bar {
+  height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  width: 0%; transition: width .4s;
+}
+.progress-bar.indeterminate {
+  width: 40%;
+  animation: slide 1.5s ease-in-out infinite;
+}
+@keyframes slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+.progress-msg { font-size: .8rem; color: #718096; margin-top: .3rem; min-height: 1.2em; }
+
+.error-box {
+  background: #2d1515;
+  border: 1px solid #c53030;
+  border-radius: 8px;
+  padding: .75rem 1rem;
+  color: #fc8181;
+  font-size: .875rem;
+  margin-top: .75rem;
+}
+
+/* ── Final step ── */
+.success-icon {
+  font-size: 4rem; text-align: center; margin: 1rem 0;
+  animation: pop .4s cubic-bezier(.175,.885,.32,1.275);
+}
+@keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+
+/* ── Loading state ── */
+.loading {
+  display: flex; align-items: center; gap: .75rem;
+  color: #718096; font-size: .9rem;
+  padding: 2rem 0;
+}
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid #2d3748;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Utility ── */
+.hidden { display: none !important; }
+</style>
 </head>
 <body>
-<div class="setup-card">
-  <h1>🦙 需要 Ollama</h1>
-  <p>小說助手需要 <strong>Ollama</strong> 在本機執行才能使用 AI 功能。</p>
+<div class="wizard">
 
-  <h2>安裝步驟</h2>
-  <ol>
-    <li>前往 <a href="https://ollama.com/download" target="_blank">ollama.com/download</a> 下載並安裝</li>
-    <li>安裝後 Ollama 會自動在背景執行</li>
-    <li>（可選）拉取推薦模型：
-      <div class="cmd">ollama pull llama3.2<br>ollama pull nomic-embed-text</div>
-    </li>
-    <li>點擊「重新檢測」</li>
-  </ol>
+  <!-- Step indicator: Welcome / Specs / Models / Ollama / Pull / Done -->
+  <div class="steps" id="stepDots">
+    <div class="step-dot active" id="dot0"></div>
+    <div class="step-dot" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+    <div class="step-dot" id="dot3"></div>
+    <div class="step-dot" id="dot4"></div>
+    <div class="step-dot" id="dot5"></div>
+  </div>
 
-  <button id="retry-btn" onclick="retryOllama()">重新檢測</button>
-  <p id="status-msg"></p>
-</div>
+  <div class="card">
+
+    <!-- ───────── Step 0: Welcome ───────── -->
+    <div id="step0">
+      <h1>歡迎使用小說助手 📖</h1>
+      <p class="subtitle">
+        本精靈將引導你完成一次性環境設定，之後每次啟動都會直接進入主程式。<br><br>
+        安裝過程需要下載 Ollama 及 AI 模型（約 2–5 GB），請確認網路連線正常。
+      </p>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="goStep(1)">開始設定 →</button>
+      </div>
+    </div>
+
+    <!-- ───────── Step 1: Detect specs ───────── -->
+    <div id="step1" class="hidden">
+      <h1>偵測系統規格</h1>
+      <p class="subtitle">分析你的硬體，為你推薦最適合的 AI 模型。</p>
+
+      <div id="specsLoading" class="loading">
+        <div class="spinner"></div>偵測中，請稍候…
+      </div>
+
+      <div id="specsResult" class="hidden">
+        <div class="spec-grid" id="specGrid"></div>
+        <div class="rec-note" id="recNote"></div>
+      </div>
+
+      <div id="specsError" class="hidden error-box"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(0)">← 上一步</button>
+        <button class="btn btn-primary" id="btnSpecsNext" disabled onclick="goStep(2)">選擇模型 →</button>
+      </div>
+    </div>
+
+    <!-- ───────── Step 2: Model selection ───────── -->
+    <div id="step2" class="hidden">
+      <h1>選擇 AI 模型</h1>
+      <p class="subtitle">根據你的規格推薦了以下選項，也可以自行更換。</p>
+
+      <div class="model-list" id="modelList"></div>
+
+      <div class="embed-section">
+        <span class="lock-icon">🔒</span>
+        <div class="embed-info">
+          <div class="embed-name">Nomic Embed Text（274 MB）</div>
+          <div class="embed-desc">向量搜尋核心元件，自動安裝，無需選擇</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-ghost" onclick="goStep(1)">← 上一步</button>
+        <button class="btn btn-primary" id="btnModelsNext" onclick="goStep(3)">開始安裝 →</button>
+      </div>
+    </div>
+
+    <!-- ───────── Step 3: Install Ollama ───────── -->
+    <div id="step3" class="hidden">
+      <h1>安裝 Ollama</h1>
+      <p class="subtitle" id="ollamaSubtitle">正在安裝 AI 執行環境…</p>
+
+      <div class="progress-item">
+        <div class="progress-header">
+          <span class="progress-label">Ollama</span>
+          <span class="progress-pct" id="ollamaPct">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar indeterminate" id="ollamaBar"></div>
+        </div>
+        <div class="progress-msg" id="ollamaMsg">準備中…</div>
+      </div>
+
+      <div id="ollamaError" class="hidden error-box"></div>
+    </div>
+
+    <!-- ───────── Step 4: Pull models ───────── -->
+    <div id="step4" class="hidden">
+      <h1>下載 AI 模型</h1>
+      <p class="subtitle">首次下載需要一些時間，請耐心等待。</p>
+
+      <div id="pullItems"></div>
+
+      <div id="pullError" class="hidden error-box"></div>
+    </div>
+
+    <!-- ───────── Step 5: Done ───────── -->
+    <div id="step5" class="hidden">
+      <div class="success-icon">🎉</div>
+      <h1 style="text-align:center">設定完成！</h1>
+      <p class="subtitle" style="text-align:center">
+        小說助手已準備就緒，即將帶你進入主畫面…
+      </p>
+      <div class="btn-row" style="justify-content:center">
+        <button class="btn btn-primary" onclick="finish()">立即開始使用</button>
+      </div>
+    </div>
+
+  </div><!-- .card -->
+</div><!-- .wizard -->
+
 <script>
-async function retryOllama() {
-  const btn = document.getElementById('retry-btn');
-  const msg = document.getElementById('status-msg');
-  btn.disabled = true;
-  msg.textContent = '檢測中...';
-  try {
-    const r = await fetch('/api/ollama/status');
-    const d = await r.json();
-    if (d.running && d.embed_ready) {
-      msg.textContent = '✅ Ollama 已就緒，跳轉中…';
-      window.location.href = '/';
-    } else if (d.running && !d.embed_ready) {
-      msg.textContent = `⚠️ Ollama 已執行，但尚未下載嵌入模型。請執行：ollama pull ${d.embed_pull_model}`;
-      btn.disabled = false;
-    } else {
-      msg.textContent = '⚠️ 尚未偵測到 Ollama，請確認已安裝並執行';
-      btn.disabled = false;
-    }
-  } catch {
-    msg.textContent = '連線失敗，請稍後再試';
-    btn.disabled = false;
+// ── State ──────────────────────────────────────────────────────────────
+let specsData = null;       // { specs, recommendation, llm_models, embed_models, ollama_installed }
+let selectedLLM = '';
+let currentStep = 0;
+
+// ── Navigation ─────────────────────────────────────────────────────────
+function goStep(n) {
+  document.getElementById('step' + currentStep).classList.add('hidden');
+  currentStep = n;
+  document.getElementById('step' + n).classList.remove('hidden');
+  updateDots(n);
+
+  if (n === 1 && !specsData) fetchSpecs();
+  if (n === 2) renderModels();
+  if (n === 3) runOllamaInstall();
+  if (n === 4) runModelPull();
+}
+
+function updateDots(active) {
+  for (let i = 0; i < 6; i++) {
+    const d = document.getElementById('dot' + i);
+    d.className = 'step-dot';
+    if (i < active) d.classList.add('done');
+    else if (i === active) d.classList.add('active');
   }
 }
+
+// ── Step 1: Specs ──────────────────────────────────────────────────────
+async function fetchSpecs() {
+  document.getElementById('specsLoading').classList.remove('hidden');
+  document.getElementById('specsResult').classList.add('hidden');
+  document.getElementById('specsError').classList.add('hidden');
+  document.getElementById('btnSpecsNext').disabled = true;
+
+  try {
+    const r = await fetch('/api/setup/specs');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    specsData = await r.json();
+    renderSpecs();
+  } catch (e) {
+    document.getElementById('specsLoading').classList.add('hidden');
+    document.getElementById('specsError').classList.remove('hidden');
+    document.getElementById('specsError').textContent = '偵測失敗：' + e.message;
+  }
+}
+
+function renderSpecs() {
+  document.getElementById('specsLoading').classList.add('hidden');
+  document.getElementById('specsResult').classList.remove('hidden');
+
+  const s = specsData.specs;
+  const items = [
+    { label: '記憶體', value: s.ram_gb > 0 ? s.ram_gb.toFixed(1) + ' GB' : '未知' },
+    { label: 'CPU 核心', value: s.cpu_cores > 0 ? s.cpu_cores + ' 核' : '未知' },
+    { label: 'GPU', value: s.gpu_name || '無 / 未偵測' },
+    { label: 'GPU 顯示記憶體', value: s.vram_gb > 0 ? s.vram_gb.toFixed(1) + ' GB' : '無' },
+    { label: '作業系統', value: osLabel(s.os) },
+    { label: '架構', value: s.arch },
+  ];
+
+  const grid = document.getElementById('specGrid');
+  grid.innerHTML = items.map(i =>
+    `<div class="spec-card">
+       <span class="spec-label">${i.label}</span>
+       <span class="spec-value">${i.value}</span>
+     </div>`
+  ).join('');
+
+  document.getElementById('recNote').textContent = '💡 ' + specsData.recommendation.note;
+  selectedLLM = specsData.recommendation.llm_model_name;
+  document.getElementById('btnSpecsNext').disabled = false;
+}
+
+function osLabel(os) {
+  return { windows: 'Windows', darwin: 'macOS', linux: 'Linux' }[os] || os;
+}
+
+// ── Step 2: Model selection ─────────────────────────────────────────────
+function renderModels() {
+  if (!specsData) return;
+  const models = specsData.llm_models;
+  const rec = specsData.recommendation.llm_model_name;
+  const ramGB = specsData.specs.ram_gb;
+
+  const list = document.getElementById('modelList');
+  list.innerHTML = models.map(m => {
+    const isRec = m.name === rec;
+    const tooHeavy = ramGB > 0 && m.min_ram_gb > ramGB + 2; // give 2 GB slack
+    const tierBadge = {
+      ultra_light: '<span class="badge badge-ultra">超輕量</span>',
+      light:       '<span class="badge badge-light">輕量</span>',
+      balanced:    '<span class="badge badge-bal">均衡</span>',
+      high_quality:'<span class="badge badge-hq">高品質</span>',
+    }[m.tier] || '';
+
+    return `<div class="model-card${isRec || m.name === selectedLLM ? ' selected' : ''}${tooHeavy ? ' disabled' : ''}"
+                 onclick="selectModel('${m.name}', ${tooHeavy})"
+                 data-name="${m.name}">
+      <div class="model-radio"></div>
+      <div class="model-info">
+        <div class="model-name">
+          ${m.display_name}
+          ${isRec ? '<span class="badge badge-rec">⭐ 推薦</span>' : ''}
+          ${tierBadge}
+        </div>
+        <div class="model-desc">${m.description}</div>
+        <div class="model-meta">
+          <span class="badge badge-size">📦 ${m.size_gb.toFixed(1)} GB</span>
+          <span class="badge badge-ram">🧠 需 ${m.min_ram_gb} GB RAM</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectModel(name, tooHeavy) {
+  if (tooHeavy) return;
+  selectedLLM = name;
+  document.querySelectorAll('.model-card').forEach(el => {
+    el.classList.toggle('selected', el.dataset.name === name);
+  });
+}
+
+// ── Step 3: Install Ollama ──────────────────────────────────────────────
+async function runOllamaInstall() {
+  // If already installed, skip straight to model pull
+  if (specsData && specsData.ollama_installed) {
+    document.getElementById('ollamaSubtitle').textContent = 'Ollama 已安裝，略過此步驟…';
+    setProgress('ollama', 100, 'Ollama 已安裝 ✓');
+    setTimeout(() => goStep(4), 800);
+    return;
+  }
+
+  document.getElementById('ollamaError').classList.add('hidden');
+  setProgress('ollama', 0, '準備中…');
+
+  const es = new EventSource('/api/setup/install-ollama');
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.error) {
+      es.close();
+      document.getElementById('ollamaError').classList.remove('hidden');
+      document.getElementById('ollamaError').textContent = '安裝失敗：' + d.error;
+      return;
+    }
+    setProgress('ollama', d.percent, d.msg);
+    if (d.percent === 100) {
+      es.close();
+      setTimeout(() => goStep(4), 600);
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    document.getElementById('ollamaError').classList.remove('hidden');
+    document.getElementById('ollamaError').textContent = '連線中斷，請重試。';
+  };
+}
+
+// ── Step 4: Pull models ─────────────────────────────────────────────────
+async function runModelPull() {
+  const modelsToInstall = [
+    { name: selectedLLM, label: selectedLLM },
+    { name: 'nomic-embed-text', label: 'Nomic Embed Text' },
+  ];
+
+  const container = document.getElementById('pullItems');
+  container.innerHTML = modelsToInstall.map(m =>
+    `<div class="progress-item" id="pull-${cssId(m.name)}">
+       <div class="progress-header">
+         <span class="progress-label">${m.label}</span>
+         <span class="progress-pct" id="pct-${cssId(m.name)}">等待中</span>
+       </div>
+       <div class="progress-bar-bg">
+         <div class="progress-bar" id="bar-${cssId(m.name)}"></div>
+       </div>
+       <div class="progress-msg" id="msg-${cssId(m.name)}">排隊中…</div>
+     </div>`
+  ).join('');
+
+  document.getElementById('pullError').classList.add('hidden');
+
+  for (const m of modelsToInstall) {
+    const ok = await pullModel(m.name);
+    if (!ok) return; // error already shown
+  }
+
+  // All done — save choices and mark complete
+  try {
+    await fetch('/api/setup/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ llm_model: selectedLLM, embed_model: 'nomic-embed-text' }),
+    });
+  } catch (_) {}
+
+  goStep(5);
+}
+
+function pullModel(name) {
+  return new Promise(resolve => {
+    const id = cssId(name);
+    document.getElementById('msg-' + id).textContent = '連接中…';
+
+    const es = new EventSource('/api/ollama/pull?model=' + encodeURIComponent(name));
+    es.addEventListener('progress', e => {
+      const d = JSON.parse(e.data);
+      const pct = typeof d.percent === 'number' && d.percent >= 0 ? d.percent + '%' : '…';
+      document.getElementById('pct-' + id).textContent = pct;
+      if (typeof d.percent === 'number' && d.percent >= 0) {
+        document.getElementById('bar-' + id).style.width = d.percent + '%';
+      } else {
+        document.getElementById('bar-' + id).classList.add('indeterminate');
+      }
+      document.getElementById('msg-' + id).textContent = d.status || d.msg || '';
+    });
+    es.addEventListener('done', () => {
+      es.close();
+      document.getElementById('pct-' + id).textContent = '完成 ✓';
+      document.getElementById('bar-' + id).style.width = '100%';
+      document.getElementById('bar-' + id).classList.remove('indeterminate');
+      document.getElementById('msg-' + id).textContent = '下載完成';
+      resolve(true);
+    });
+    es.addEventListener('error', e => {
+      es.close();
+      let msg = '未知錯誤';
+      try { msg = JSON.parse(e.data).error; } catch (_) {}
+      document.getElementById('pullError').classList.remove('hidden');
+      document.getElementById('pullError').textContent = name + ' 下載失敗：' + msg;
+      resolve(false);
+    });
+    es.onerror = () => {
+      // EventSource will retry automatically; show indeterminate
+      document.getElementById('bar-' + id).classList.add('indeterminate');
+    };
+  });
+}
+
+// ── Step 5: Finish ──────────────────────────────────────────────────────
+function finish() {
+  window.location.href = '/';
+}
+
+// Auto-redirect to home after 5 s on the done screen
+function autoRedirect() {
+  setTimeout(() => { window.location.href = '/'; }, 5000);
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+function setProgress(prefix, percent, msg) {
+  const bar = document.getElementById(prefix + 'Bar');
+  const pct = document.getElementById(prefix + 'Pct');
+  const msgEl = document.getElementById(prefix + 'Msg');
+  if (percent >= 0) {
+    bar.style.width = percent + '%';
+    bar.classList.remove('indeterminate');
+    pct.textContent = percent + '%';
+  } else {
+    bar.classList.add('indeterminate');
+    pct.textContent = '…';
+  }
+  if (msgEl) msgEl.textContent = msg;
+}
+
+function cssId(name) {
+  return name.replace(/[^a-z0-9]/gi, '_');
+}
+
+// Start on step 0 — init dot state
+updateDots(0);
+
+// If the page is loaded and we're already on step 5, start auto-redirect
+if (currentStep === 5) autoRedirect();
 </script>
 </body>
 </html>
-{{end}}

@@ -16,6 +16,7 @@ import (
 	"novel-assistant/internal/projectsettings"
 	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/reviewhistory"
+	"novel-assistant/internal/setup"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/tracker"
 	"novel-assistant/internal/vectorstore"
@@ -217,15 +218,42 @@ func (s *Server) setupRouter(webFS fs.FS) error {
 	return nil
 }
 
+// requireSetupComplete redirects browsers to /setup when the one-time wizard
+// has not yet been finished. API callers receive 503 instead.
+func (s *Server) requireSetupComplete() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		dataDir := s.globalDataDir
+		if dataDir == "" {
+			dataDir = "data"
+		}
+		if setup.IsComplete(dataDir) {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "setup not complete"})
+			return
+		}
+		c.Redirect(http.StatusFound, "/setup")
+		c.Abort()
+	}
+}
+
 func (s *Server) setupRoutes() {
 	r := s.router
 
 	r.GET("/login", s.handleLoginPage)
 	r.POST("/login", s.handleLogin)
 	r.POST("/logout", s.handleLogout)
+
+	// Setup wizard — public, no auth or setup-complete check required.
 	r.GET("/setup", s.handleSetupPage)
+	r.GET("/api/setup/specs", s.handleSetupSpecs)
+	r.POST("/api/setup/install-ollama", s.handleSetupInstallOllama)
+	r.POST("/api/setup/complete", s.handleSetupComplete)
 
 	protected := r.Group("/")
+	protected.Use(s.requireSetupComplete())
 	protected.Use(s.requireAuth())
 
 	protected.GET("/", s.handleIndex)

@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            runner: ubuntu-latest
+            asset_name: novel-assistant-windows-amd64
+            ext: .exe
+
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+            asset_name: novel-assistant-macos-amd64
+            ext: ""
+
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+            asset_name: novel-assistant-macos-arm64
+            ext: ""
+
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            asset_name: novel-assistant-linux-amd64
+            ext: ""
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o dist/${{ matrix.asset_name }}${{ matrix.ext }} \
+            ./cmd
+
+      # ── Windows: wrap with Inno Setup installer ──────────────────────
+      - name: Package Windows installer
+        if: matrix.goos == 'windows'
+        run: |
+          # Install Inno Setup via wine
+          sudo apt-get install -y wine-stable
+          wget -q "https://jrsoftware.org/download.php/is.exe" -O /tmp/is.exe
+          wine /tmp/is.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          # Copy binary for the .iss script
+          cp dist/${{ matrix.asset_name }}.exe scripts/novel-assistant.exe
+          wine "$HOME/.wine/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            /DMyAppVersion=${{ github.ref_name }} \
+            scripts/windows.iss
+          mv scripts/Output/NovelAssistantSetup.exe \
+            dist/${{ matrix.asset_name }}-setup.exe
+
+      # ── macOS: create .dmg ────────────────────────────────────────────
+      - name: Package macOS DMG
+        if: matrix.goos == 'darwin'
+        run: |
+          mkdir -p dmg_stage
+          cp dist/${{ matrix.asset_name }} dmg_stage/小說助手
+          chmod +x dmg_stage/小說助手
+          hdiutil create -volname "小說助手" \
+            -srcfolder dmg_stage \
+            -ov -format UDZO \
+            dist/${{ matrix.asset_name }}.dmg
+
+      # ── Linux: create tar.gz ──────────────────────────────────────────
+      - name: Package Linux tarball
+        if: matrix.goos == 'linux'
+        run: |
+          chmod +x dist/${{ matrix.asset_name }}
+          tar -C dist -czf dist/${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }}
+
+      # ── Upload to GitHub Release ──────────────────────────────────────
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/${{ matrix.asset_name }}-setup.exe
+            dist/${{ matrix.asset_name }}.dmg
+            dist/${{ matrix.asset_name }}.tar.gz
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

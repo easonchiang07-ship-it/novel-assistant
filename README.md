@@ -11,6 +11,27 @@ The only local-first AI writing system that tracks your foreshadowing, detects i
 
 It runs entirely on your machine. Your manuscript never leaves your computer.
 
+---
+
+## Download
+
+| Platform | Download |
+|---|---|
+| 🪟 Windows 10 / 11 | [**novel-assistant-windows-amd64-setup.exe**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-windows-amd64-setup.exe) |
+| 🍎 macOS (Apple Silicon) | [**novel-assistant-macos-arm64.dmg**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos-arm64.dmg) |
+| 🍎 macOS (Intel) | [**novel-assistant-macos-amd64.dmg**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos-amd64.dmg) |
+| 🐧 Linux x64 | [**novel-assistant-linux-amd64.tar.gz**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-linux-amd64.tar.gz) |
+
+**Windows:** Run the installer and follow the prompts. Requires Windows 10 / 11 (WebView2 is pre-installed).
+
+**macOS:** Open the DMG, drag the app to Applications, then right-click > Open for the first launch (standard Gatekeeper prompt for apps outside the App Store).
+
+**Linux:** Extract the tarball and run `./novel-assistant-linux-amd64` directly.
+
+> **Prerequisite:** [Ollama](https://ollama.com/) must be installed and running. The app will guide you through model selection on first launch.
+
+---
+
 ## Why This Project Exists
 
 Most writing tools are either:

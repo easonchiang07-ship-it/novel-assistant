@@ -11,7 +11,16 @@ import (
 )
 
 // handleSetupSpecs returns detected system specs, model list, and recommendation.
+// Returns 403 once setup is complete to avoid exposing hardware info unnecessarily.
 func (s *Server) handleSetupSpecs(c *gin.Context) {
+	dataDir := s.globalDataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if setup.IsComplete(dataDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "setup already complete"})
+		return
+	}
 	specs := setup.DetectSpecs()
 	rec := setup.Recommend(specs)
 	c.JSON(http.StatusOK, gin.H{

@@ -11,6 +11,27 @@
 
 全程在你的電腦上執行。你的稿件永遠不會離開你的裝置。
 
+---
+
+## 下載
+
+| 平台 | 下載 |
+|---|---|
+| 🪟 Windows 10 / 11 | [**novel-assistant-windows-amd64-setup.exe**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-windows-amd64-setup.exe) |
+| 🍎 macOS（Apple Silicon）| [**novel-assistant-macos-arm64.dmg**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos-arm64.dmg) |
+| 🍎 macOS（Intel）| [**novel-assistant-macos-amd64.dmg**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-macos-amd64.dmg) |
+| 🐧 Linux x64 | [**novel-assistant-linux-amd64.tar.gz**](https://github.com/easonchiang07-ship-it/novel-assistant/releases/latest/download/novel-assistant-linux-amd64.tar.gz) |
+
+**Windows：** 執行安裝精靈，依提示完成安裝。需要 Windows 10 / 11（已內建 WebView2）。
+
+**macOS：** 開啟 DMG，將 app 拖入 Applications，第一次啟動請右鍵 > 「打開」（macOS Gatekeeper 限制，非來自 App Store 的 app 皆需此步驟）。
+
+**Linux：** 解壓縮後直接執行 `./novel-assistant-linux-amd64`。
+
+> **前置需求：** 需要先安裝 [Ollama](https://ollama.com/)。首次啟動時，app 會引導你選擇並下載 AI 模型。
+
+---
+
 ## 這個專案想解決什麼
 
 多數寫作工具通常落在兩端：

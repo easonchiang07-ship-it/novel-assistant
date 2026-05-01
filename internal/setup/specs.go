@@ -49,20 +49,42 @@ func detectRAMGB() float64 {
 		b, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
 		return roundGB(b / 1024 / 1024 / 1024)
 	case "windows":
-		out, err := exec.Command("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value").Output()
-		if err != nil {
-			return 0
+		// Try wmic first (available on Windows 10 and older).
+		if gb := windowsRAMViaWmic(); gb > 0 {
+			return gb
 		}
-		for _, line := range strings.Split(string(out), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "TotalPhysicalMemory=") {
-				val := strings.TrimPrefix(line, "TotalPhysicalMemory=")
-				b, _ := strconv.ParseFloat(strings.TrimSpace(val), 64)
-				return roundGB(b / 1024 / 1024 / 1024)
-			}
+		// Fallback: PowerShell Get-CimInstance (available when wmic is absent).
+		return windowsRAMViaPowerShell()
+	}
+	return 0
+}
+
+func windowsRAMViaWmic() float64 {
+	out, err := exec.Command("wmic", "ComputerSystem", "get", "TotalPhysicalMemory", "/value").Output()
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "TotalPhysicalMemory=") {
+			val := strings.TrimPrefix(line, "TotalPhysicalMemory=")
+			b, _ := strconv.ParseFloat(strings.TrimSpace(val), 64)
+			return roundGB(b / 1024 / 1024 / 1024)
 		}
 	}
 	return 0
+}
+
+func windowsRAMViaPowerShell() float64 {
+	out, err := exec.Command(
+		"powershell", "-NoProfile", "-NonInteractive", "-Command",
+		"(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
+	).Output()
+	if err != nil {
+		return 0
+	}
+	b, _ := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	return roundGB(b / 1024 / 1024 / 1024)
 }
 
 func detectGPUName() string {

@@ -129,6 +129,10 @@ func downloadWithProgress(url, dest string, startPct, endPct int, progress Progr
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("下載失敗：伺服器回應 %d", resp.StatusCode)
+	}
+
 	f, err := os.Create(dest)
 	if err != nil {
 		return err
@@ -141,7 +145,9 @@ func downloadWithProgress(url, dest string, startPct, endPct int, progress Progr
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			f.Write(buf[:n]) //nolint:errcheck
+			if _, werr := f.Write(buf[:n]); werr != nil {
+				return fmt.Errorf("寫入失敗：%w", werr)
+			}
 			downloaded += int64(n)
 			if total > 0 {
 				pct := startPct + int(float64(downloaded)/float64(total)*float64(endPct-startPct))

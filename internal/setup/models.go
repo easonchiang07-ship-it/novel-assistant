@@ -1,5 +1,20 @@
 package setup
 
+// IsAllowedModel reports whether name is in the known LLM or embed model list.
+func IsAllowedModel(name string) bool {
+	for _, m := range LLMModels {
+		if m.Name == name {
+			return true
+		}
+	}
+	for _, m := range EmbedModels {
+		if m.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ModelRole distinguishes language models from embedding models.
 type ModelRole string
 

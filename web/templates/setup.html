@@ -537,12 +537,23 @@ async function runModelPull() {
 
   // All done — save choices and mark complete
   try {
-    await fetch('/api/setup/complete', {
+    const resp = await fetch('/api/setup/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ llm_model: selectedLLM, embed_model: 'nomic-embed-text' }),
     });
-  } catch (_) {}
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      document.getElementById('pullError').classList.remove('hidden');
+      document.getElementById('pullError').textContent =
+        '完成設定時發生錯誤：' + (data.error || resp.status);
+      return;
+    }
+  } catch (e) {
+    document.getElementById('pullError').classList.remove('hidden');
+    document.getElementById('pullError').textContent = '完成設定時發生錯誤：' + e.message;
+    return;
+  }
 
   goStep(5);
 }

@@ -934,9 +934,16 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		Port:       "8080",
 	}
 
+	// Mark setup as complete so the requireSetupComplete middleware does not
+	// redirect all protected routes to /setup during tests.
+	if err := os.WriteFile(filepath.Join(dataDir, ".setup_complete"), []byte("1"), 0o644); err != nil {
+		t.Fatalf("write setup marker: %v", err)
+	}
+
 	gin.SetMode(gin.TestMode)
 	s := &Server{
 		cfg:           cfg,
+		globalDataDir: dataDir,
 		auth:          newAuthManager(cfg),
 		project:       projectsettings.New(filepath.Join(dataDir, "project_settings.json"), projectsettings.Settings{OllamaURL: cfg.OllamaURL, LLMModel: cfg.LLMModel, EmbedModel: cfg.EmbedModel, Port: cfg.Port, DataDir: cfg.DataDir}),
 		profiles:      profile.NewManager(dataDir),

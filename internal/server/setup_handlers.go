@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"novel-assistant/internal/setup"
 	"strings"
@@ -50,14 +49,27 @@ func (s *Server) handleSetupInstallOllama(c *gin.Context) {
 	}
 }
 
-// handleSetupPullModel is a public (no auth, no setup-complete check) GET
-// endpoint that streams an ollama model pull via SSE. The model name is
-// passed as the "model" query parameter. It shares the same streaming
-// implementation as the protected /api/ollama/pull endpoint.
+// handleSetupPullModel is a public GET endpoint that streams an ollama model
+// pull via SSE during the setup wizard. It is disabled once setup is complete
+// (callers should use the auth-protected /api/ollama/pull instead). The model
+// name must be in the known allowlist to prevent arbitrary pulls.
 func (s *Server) handleSetupPullModel(c *gin.Context) {
+	dataDir := s.globalDataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if setup.IsComplete(dataDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "setup already complete; use /api/ollama/pull"})
+		return
+	}
+
 	model := strings.TrimSpace(c.Query("model"))
 	if model == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "model query param is required"})
+		return
+	}
+	if !setup.IsAllowedModel(model) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown model: " + model})
 		return
 	}
 	s.streamOllamaPull(c, model)
@@ -91,7 +103,8 @@ func (s *Server) handleSetupComplete(c *gin.Context) {
 	existing.EmbedModel = req.EmbedModel
 	s.project.Update(existing)
 	if err := s.project.Save(); err != nil {
-		log.Printf("save project settings: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存設定失敗：" + err.Error()})
+		return
 	}
 	s.applyProjectSettings()
 

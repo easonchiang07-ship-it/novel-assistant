@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/server"
 	"novel-assistant/internal/setup"
 	"time"
+
+	assets "novel-assistant"
 
 	"github.com/pkg/browser"
 )
@@ -23,7 +26,14 @@ func main() {
 		dataDir = "data"
 	}
 
-	srv, err := server.New(cfg)
+	// Serve web assets from the embedded FS so the binary is self-contained
+	// and works from any directory (no web/ folder required at runtime).
+	webFS, err := fs.Sub(assets.FS, "web")
+	if err != nil {
+		log.Fatalf("embed sub: %v", err)
+	}
+
+	srv, err := server.NewEmbedded(cfg, webFS)
 	if err != nil {
 		log.Fatalf("init server: %v", err)
 	}

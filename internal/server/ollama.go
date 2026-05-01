@@ -145,7 +145,12 @@ func (s *Server) handleOllamaPull(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "model 不可為空"})
 		return
 	}
+	s.streamOllamaPull(c, model)
+}
 
+// streamOllamaPull is the shared implementation used by both the protected
+// /api/ollama/pull handler and the public /api/setup/pull-model handler.
+func (s *Server) streamOllamaPull(c *gin.Context, model string) {
 	inflightMu.Lock()
 	if _, ok := inflight[model]; ok {
 		inflightMu.Unlock()

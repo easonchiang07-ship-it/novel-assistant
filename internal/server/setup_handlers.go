@@ -26,6 +26,15 @@ func (s *Server) handleSetupSpecs(c *gin.Context) {
 // handleSetupInstallOllama streams Ollama installation progress via SSE (GET,
 // so it is compatible with the browser's EventSource API).
 func (s *Server) handleSetupInstallOllama(c *gin.Context) {
+	dataDir := s.globalDataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if setup.IsComplete(dataDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "setup already complete"})
+		return
+	}
+
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")

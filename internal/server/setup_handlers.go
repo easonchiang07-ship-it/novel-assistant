@@ -77,6 +77,17 @@ func (s *Server) handleSetupPullModel(c *gin.Context) {
 
 // handleSetupComplete persists the chosen models and marks setup as done.
 func (s *Server) handleSetupComplete(c *gin.Context) {
+	dataDir := s.globalDataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	// Reject once setup is complete — callers should use the auth-protected
+	// settings API to change models after initial setup.
+	if setup.IsComplete(dataDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "setup already complete"})
+		return
+	}
+
 	var req struct {
 		LLMModel   string `json:"llm_model"`
 		EmbedModel string `json:"embed_model"`
@@ -95,6 +106,16 @@ func (s *Server) handleSetupComplete(c *gin.Context) {
 		req.EmbedModel = "nomic-embed-text"
 	}
 
+	// Validate against the known model allowlist.
+	if !setup.IsAllowedModel(req.LLMModel) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown llm_model: " + req.LLMModel})
+		return
+	}
+	if !setup.IsAllowedModel(req.EmbedModel) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown embed_model: " + req.EmbedModel})
+		return
+	}
+
 	// Persist the model choices into the project settings store so they
 	// survive restart. applyProjectSettings() reads from s.project.Get(),
 	// so we must update the store first.
@@ -108,10 +129,6 @@ func (s *Server) handleSetupComplete(c *gin.Context) {
 	}
 	s.applyProjectSettings()
 
-	dataDir := s.globalDataDir
-	if dataDir == "" {
-		dataDir = "data"
-	}
 	if err := setup.MarkComplete(dataDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

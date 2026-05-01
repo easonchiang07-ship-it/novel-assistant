@@ -16,14 +16,16 @@ func main() {
 	loadDotEnv(".env")
 	cfg := config.Default()
 
-	srv, err := server.New(cfg)
-	if err != nil {
-		log.Fatalf("init server: %v", err)
-	}
-
+	// Read the global data directory BEFORE server.New, which calls
+	// setProjectState and mutates cfg.DataDir to the active project dir.
 	dataDir := cfg.DataDir
 	if dataDir == "" {
 		dataDir = "data"
+	}
+
+	srv, err := server.New(cfg)
+	if err != nil {
+		log.Fatalf("init server: %v", err)
 	}
 
 	firstRun := !setup.IsComplete(dataDir)

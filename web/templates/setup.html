@@ -552,7 +552,7 @@ function pullModel(name) {
     const id = cssId(name);
     document.getElementById('msg-' + id).textContent = '連接中…';
 
-    const es = new EventSource('/api/ollama/pull?model=' + encodeURIComponent(name));
+    const es = new EventSource('/api/setup/pull-model?model=' + encodeURIComponent(name));
     es.addEventListener('progress', e => {
       const d = JSON.parse(e.data);
       const pct = typeof d.percent === 'number' && d.percent >= 0 ? d.percent + '%' : '…';

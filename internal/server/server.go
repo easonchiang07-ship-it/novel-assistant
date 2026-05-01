@@ -247,9 +247,12 @@ func (s *Server) setupRoutes() {
 	r.POST("/logout", s.handleLogout)
 
 	// Setup wizard — public, no auth or setup-complete check required.
+	// install-ollama and pull-model are GET so they work with the browser
+	// EventSource API (which only issues GET requests).
 	r.GET("/setup", s.handleSetupPage)
 	r.GET("/api/setup/specs", s.handleSetupSpecs)
-	r.POST("/api/setup/install-ollama", s.handleSetupInstallOllama)
+	r.GET("/api/setup/install-ollama", s.handleSetupInstallOllama)
+	r.GET("/api/setup/pull-model", s.handleSetupPullModel)
 	r.POST("/api/setup/complete", s.handleSetupComplete)
 
 	protected := r.Group("/")

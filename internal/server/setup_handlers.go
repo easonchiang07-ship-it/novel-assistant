@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"novel-assistant/internal/setup"
 	"strings"
@@ -15,15 +16,16 @@ func (s *Server) handleSetupSpecs(c *gin.Context) {
 	specs := setup.DetectSpecs()
 	rec := setup.Recommend(specs)
 	c.JSON(http.StatusOK, gin.H{
-		"specs":          specs,
-		"recommendation": rec,
-		"llm_models":     setup.LLMModels,
-		"embed_models":   setup.EmbedModels,
+		"specs":            specs,
+		"recommendation":   rec,
+		"llm_models":       setup.LLMModels,
+		"embed_models":     setup.EmbedModels,
 		"ollama_installed": setup.IsOllamaInstalled(),
 	})
 }
 
-// handleSetupInstallOllama streams Ollama installation progress via SSE.
+// handleSetupInstallOllama streams Ollama installation progress via SSE (GET,
+// so it is compatible with the browser's EventSource API).
 func (s *Server) handleSetupInstallOllama(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -48,6 +50,19 @@ func (s *Server) handleSetupInstallOllama(c *gin.Context) {
 	}
 }
 
+// handleSetupPullModel is a public (no auth, no setup-complete check) GET
+// endpoint that streams an ollama model pull via SSE. The model name is
+// passed as the "model" query parameter. It shares the same streaming
+// implementation as the protected /api/ollama/pull endpoint.
+func (s *Server) handleSetupPullModel(c *gin.Context) {
+	model := strings.TrimSpace(c.Query("model"))
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "model query param is required"})
+		return
+	}
+	s.streamOllamaPull(c, model)
+}
+
 // handleSetupComplete persists the chosen models and marks setup as done.
 func (s *Server) handleSetupComplete(c *gin.Context) {
 	var req struct {
@@ -68,9 +83,16 @@ func (s *Server) handleSetupComplete(c *gin.Context) {
 		req.EmbedModel = "nomic-embed-text"
 	}
 
-	// Update running config so the next ingest uses the selected models.
-	s.cfg.LLMModel = req.LLMModel
-	s.cfg.EmbedModel = req.EmbedModel
+	// Persist the model choices into the project settings store so they
+	// survive restart. applyProjectSettings() reads from s.project.Get(),
+	// so we must update the store first.
+	existing := s.project.Get()
+	existing.LLMModel = req.LLMModel
+	existing.EmbedModel = req.EmbedModel
+	s.project.Update(existing)
+	if err := s.project.Save(); err != nil {
+		log.Printf("save project settings: %v", err)
+	}
 	s.applyProjectSettings()
 
 	dataDir := s.globalDataDir

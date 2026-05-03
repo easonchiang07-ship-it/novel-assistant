@@ -532,8 +532,9 @@
 
     /* Left: history list */
     .review-history {
-      width: 230px;
-      min-width: 230px;
+      width: 280px;
+      min-width: 220px;
+      max-width: 320px;
       border-right: 1px solid var(--border);
       display: flex;
       flex-direction: column;
@@ -582,7 +583,7 @@
       border-color: var(--border-md);
     }
 
-    .rli-title { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+    .rli-title { font-size: 12px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rli-meta  { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
     .rli-tags  { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
 
@@ -1432,7 +1433,7 @@
 
           <div class="review-list-scroll">
             <div class="review-list-item active">
-              <div class="rli-title">第 03 章 審查 #2</div>
+              <div class="rli-title" title="第 03 章 審查 #2">第 03 章 審查 #2</div>
               <div class="rli-meta">今天 14:32 · llama3.2</div>
               <div class="rli-tags">
                 <span class="badge badge-red">2 錯誤</span>
@@ -1441,24 +1442,24 @@
               </div>
             </div>
             <div class="review-list-item">
-              <div class="rli-title">第 03 章 審查 #1</div>
+              <div class="rli-title" title="第 03 章 審查 #1">第 03 章 審查 #1</div>
               <div class="rli-meta">昨天 09:15 · llama3.2</div>
               <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
             </div>
             <div class="review-list-item">
-              <div class="rli-title">第 02 章 審查 #3</div>
+              <div class="rli-title" title="第 02 章 審查 #3">第 02 章 審查 #3</div>
               <div class="rli-meta">3 天前 · llama3.2</div>
               <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
             </div>
             <div class="review-list-item">
-              <div class="rli-title">第 02 章 審查 #2</div>
+              <div class="rli-title" title="第 02 章 審查 #2">第 02 章 審查 #2</div>
               <div class="rli-meta">4 天前 · llama3.2</div>
               <div class="rli-tags">
                 <span class="badge badge-amber">1 警告</span>
               </div>
             </div>
             <div class="review-list-item">
-              <div class="rli-title">第 01 章 審查 #1</div>
+              <div class="rli-title" title="第 01 章 審查 #1">第 01 章 審查 #1</div>
               <div class="rli-meta">1 週前 · llama3.2</div>
               <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
             </div>

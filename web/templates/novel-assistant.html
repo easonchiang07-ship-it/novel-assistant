@@ -2110,7 +2110,7 @@
         const resp = await fetch('/api/ollama/status');
         if (!resp.ok) throw new Error('http ' + resp.status);
         const data = await resp.json();
-        const online = data && data.status === 'ok';
+        const online = data && data.running === true;
         chip.classList.toggle('offline', !online);
         label.textContent = online ? 'Ollama 已連線' : 'Ollama 未連線';
       } catch (_) {

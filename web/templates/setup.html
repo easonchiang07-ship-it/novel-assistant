@@ -562,6 +562,25 @@ function pullModel(name) {
   return new Promise(resolve => {
     const id = cssId(name);
     document.getElementById('msg-' + id).textContent = '連接中…';
+    let settled = false;
+
+    function settle(val) {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    }
+
+    function showPullError(text) {
+      const errBox = document.getElementById('pullError');
+      errBox.classList.remove('hidden');
+      errBox.textContent = '';
+      errBox.appendChild(document.createTextNode(text + ' '));
+      const btn = document.createElement('button');
+      btn.textContent = '重試';
+      btn.style.cssText = 'margin-left:.75rem;padding:.2rem .75rem;background:#667eea;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.8rem;';
+      btn.onclick = runModelPull;
+      errBox.appendChild(btn);
+    }
 
     const es = new EventSource('/api/setup/pull-model?model=' + encodeURIComponent(name));
     es.addEventListener('progress', e => {
@@ -581,19 +600,20 @@ function pullModel(name) {
       document.getElementById('bar-' + id).style.width = '100%';
       document.getElementById('bar-' + id).classList.remove('indeterminate');
       document.getElementById('msg-' + id).textContent = '下載完成';
-      resolve(true);
+      settle(true);
     });
     es.addEventListener('error', e => {
       es.close();
       let msg = '未知錯誤';
       try { msg = JSON.parse(e.data).error; } catch (_) {}
-      document.getElementById('pullError').classList.remove('hidden');
-      document.getElementById('pullError').textContent = name + ' 下載失敗：' + msg;
-      resolve(false);
+      showPullError(name + ' 下載失敗：' + msg);
+      settle(false);
     });
     es.onerror = () => {
-      // EventSource will retry automatically; show indeterminate
-      document.getElementById('bar-' + id).classList.add('indeterminate');
+      if (settled) return;
+      es.close();
+      showPullError('無法連線 Ollama，請確認 Ollama 已開啟後點「重試」');
+      settle(false);
     };
   });
 }

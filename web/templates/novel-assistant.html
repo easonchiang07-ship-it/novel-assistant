@@ -1,0 +1,2073 @@
+{{define "novel-assistant.html"}}
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novel Assistant</title>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-base:        #f5f4f1;
+      --bg-surface:     #ffffff;
+      --bg-raised:      #fafaf8;
+      --bg-hover:       #f0efe9;
+      --bg-active:      #e8e6de;
+
+      --text-primary:   #1a1916;
+      --text-secondary: #5a584f;
+      --text-muted:     #9b9888;
+      --text-ghost:     #c4c1b4;
+
+      --border:         rgba(30,28,20,.10);
+      --border-md:      rgba(30,28,20,.15);
+      --border-strong:  rgba(30,28,20,.22);
+
+      --accent:         #4a3fa8;
+      --accent-light:   #eeecfb;
+      --accent-text:    #2e2574;
+
+      --teal:           #0d8c65;
+      --teal-light:     #e0f4ec;
+      --teal-text:      #075c42;
+
+      --amber:          #b46e10;
+      --amber-light:    #fef0d6;
+      --amber-text:     #7a4a08;
+
+      --red:            #a0322d;
+      --red-light:      #fbeae9;
+      --red-text:       #6b201c;
+
+      --radius-sm:  5px;
+      --radius-md:  8px;
+      --radius-lg:  12px;
+
+      --font-sans:  "Helvetica Neue", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      --font-mono:  "SF Mono", "Cascadia Code", "Consolas", monospace;
+
+      --sidebar-w: 210px;
+      --panel-w:   240px;
+      --topbar-h:  48px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      background: var(--bg-base);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border: none;
+      background: none;
+    }
+
+    input, textarea, select {
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    /* ── Layout Shell ── */
+    .app {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ════════════════════════════════════
+       SIDEBAR
+    ════════════════════════════════════ */
+    .sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--bg-raised);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-logo {
+      height: var(--topbar-h);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .logo-mark {
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .logo-mark svg { display: block; }
+
+    .logo-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -.2px;
+    }
+
+    .logo-name span {
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+
+    /* Project selector */
+    .project-selector {
+      padding: 10px 10px 6px;
+      flex-shrink: 0;
+    }
+
+    .project-btn {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 500;
+      transition: background .15s;
+    }
+
+    .project-btn:hover { background: var(--bg-hover); }
+
+    .project-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .project-btn-label { flex: 1; text-align: left; }
+
+    .project-btn-chevron {
+      color: var(--text-ghost);
+      font-size: 10px;
+    }
+
+    /* Nav */
+    .nav-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 8px;
+    }
+
+    .nav-scroll::-webkit-scrollbar { width: 4px; }
+    .nav-scroll::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 2px; }
+
+    .nav-group-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      letter-spacing: .7px;
+      padding: 12px 8px 4px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      border-radius: var(--radius-md);
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .12s, color .12s;
+      border: 1px solid transparent;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .nav-item.active {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border-color: var(--border);
+      font-weight: 500;
+    }
+
+    .nav-item .nav-icon {
+      width: 15px;
+      height: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      opacity: .65;
+    }
+
+    .nav-item.active .nav-icon { opacity: 1; }
+
+    .nav-badge {
+      margin-left: auto;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--amber-light);
+      color: var(--amber-text);
+    }
+
+    .nav-badge.ok {
+      background: var(--teal-light);
+      color: var(--teal-text);
+    }
+
+    /* Sidebar bottom */
+    .sidebar-bottom {
+      padding: 8px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .index-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 9px;
+      background: var(--teal-light);
+      border: 1px solid rgba(13,140,101,.2);
+      border-radius: var(--radius-md);
+      font-size: 11px;
+      color: var(--teal-text);
+    }
+
+    .index-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--teal);
+      flex-shrink: 0;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    .index-status-warn { background: var(--amber-light); border-color: rgba(180,110,16,.2); color: var(--amber-text); }
+    .index-status-warn .index-dot { background: var(--amber); animation: none; }
+
+    /* ════════════════════════════════════
+       MAIN AREA
+    ════════════════════════════════════ */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--bg-surface);
+    }
+
+    /* Topbar */
+    .topbar {
+      height: var(--topbar-h);
+      display: flex;
+      align-items: center;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .topbar-title-wrap { flex: 1; min-width: 0; }
+
+    .topbar-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .topbar-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .topbar-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 11px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border-md);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background .12s, border-color .12s, color .12s;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .btn:active { transform: scale(.98); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .btn-primary:hover { background: var(--accent-text); border-color: var(--accent-text); color: #fff; }
+
+    .btn-danger {
+      color: var(--red-text);
+      border-color: rgba(160,50,45,.25);
+    }
+
+    .btn-danger:hover { background: var(--red-light); }
+
+    .btn svg { flex-shrink: 0; }
+
+    /* Page content */
+    .page {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .page.active { display: flex; }
+
+    .page-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    .page-body::-webkit-scrollbar { width: 5px; }
+    .page-body::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 3px; }
+
+    /* ════════════════════════════════════
+       SHARED COMPONENTS
+    ════════════════════════════════════ */
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      border: 1px solid;
+    }
+
+    .badge-purple { background: var(--accent-light); color: var(--accent-text); border-color: rgba(74,63,168,.2); }
+    .badge-teal   { background: var(--teal-light);   color: var(--teal-text);   border-color: rgba(13,140,101,.2); }
+    .badge-amber  { background: var(--amber-light);  color: var(--amber-text);  border-color: rgba(180,110,16,.2); }
+    .badge-red    { background: var(--red-light);    color: var(--red-text);    border-color: rgba(160,50,45,.2); }
+    .badge-ghost  { background: var(--bg-hover);     color: var(--text-muted);  border-color: var(--border); }
+
+    /* Divider */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+
+    /* Section header */
+    .section-hd {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .section-hd-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    /* Stat cards */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .stat-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 12px 14px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -.5px;
+      line-height: 1.2;
+    }
+
+    .stat-sub {
+      font-size: 10px;
+      color: var(--text-ghost);
+      margin-top: 3px;
+    }
+
+    /* ════════════════════════════════════
+       PAGE: 章節總覽
+    ════════════════════════════════════ */
+    .ch-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .ch-table th {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .ch-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+      vertical-align: middle;
+    }
+
+    .ch-table tbody tr:hover td { background: var(--bg-raised); }
+
+    .ch-name { font-weight: 500; color: var(--text-primary); }
+
+    .ch-current td { background: rgba(74,63,168,.03); }
+
+    .signal-list { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    .signal-tag {
+      padding: 1px 6px;
+      border-radius: 20px;
+      font-size: 10px;
+      background: var(--accent-light);
+      color: var(--accent-text);
+      border: 1px solid rgba(74,63,168,.15);
+    }
+
+    .signal-tag.warn {
+      background: var(--amber-light);
+      color: var(--amber-text);
+      border-color: rgba(180,110,16,.2);
+    }
+
+    .signal-tag.err {
+      background: var(--red-light);
+      color: var(--red-text);
+      border-color: rgba(160,50,45,.2);
+    }
+
+    .progress-mini {
+      width: 64px;
+      height: 3px;
+      background: var(--border-md);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-mini-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    /* ════════════════════════════════════
+       PAGE: 審查 / 修改稿
+    ════════════════════════════════════ */
+    .review-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Left: history list */
+    .review-history {
+      width: 230px;
+      min-width: 230px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .review-history-hd {
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .review-history-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    .review-list-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px;
+    }
+
+    .review-list-scroll::-webkit-scrollbar { width: 4px; }
+    .review-list-scroll::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 2px; }
+
+    .review-list-item {
+      padding: 9px 10px;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      border: 1px solid transparent;
+      margin-bottom: 3px;
+      transition: background .12s;
+    }
+
+    .review-list-item:hover { background: var(--bg-hover); }
+
+    .review-list-item.active {
+      background: var(--bg-raised);
+      border-color: var(--border-md);
+    }
+
+    .rli-title { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+    .rli-meta  { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .rli-tags  { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+
+    /* Style selector */
+    .style-selector {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .style-selector-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 7px;
+    }
+
+    .style-check {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 0;
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .style-check input[type="checkbox"] {
+      accent-color: var(--accent);
+      width: 13px;
+      height: 13px;
+    }
+
+    /* Right: review detail */
+    .review-detail {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 20px;
+    }
+
+    .review-detail::-webkit-scrollbar { width: 5px; }
+    .review-detail::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 3px; }
+
+    .check-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .check-item:first-child { padding-top: 0; }
+    .check-item:last-of-type { border-bottom: none; }
+
+    .check-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .ci-err    { background: var(--red-light);   color: var(--red-text); }
+    .ci-warn   { background: var(--amber-light);  color: var(--amber-text); }
+    .ci-ok     { background: var(--teal-light);   color: var(--teal-text); }
+    .ci-info   { background: var(--accent-light); color: var(--accent-text); }
+
+    .check-body { flex: 1; }
+
+    .check-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 3px;
+    }
+
+    .check-desc {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Diff block */
+    .diff-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    .diff-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 10px;
+    }
+
+    .diff-block {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-md);
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.8;
+      margin-bottom: 12px;
+    }
+
+    .diff-del {
+      display: block;
+      background: #fdf0ef;
+      color: #922;
+      padding: 1px 4px;
+      border-radius: 3px;
+      text-decoration: line-through;
+      margin-bottom: 4px;
+    }
+
+    .diff-add {
+      display: block;
+      background: #eef7f2;
+      color: #1a5e3f;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    .diff-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+    /* ════════════════════════════════════
+       PAGE: 伏筆追蹤
+    ════════════════════════════════════ */
+    .fs-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .fs-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-lg);
+      padding: 12px 14px;
+      transition: border-color .15s;
+    }
+
+    .fs-card:hover { border-color: var(--border-strong); }
+
+    .fs-card.closed { opacity: .6; }
+
+    .fs-card-hd {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+
+    .fs-card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.3;
+    }
+
+    .fs-card-body {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .fs-card-meta {
+      font-size: 10px;
+      color: var(--text-ghost);
+      margin-top: 8px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .fs-card-meta span { display: flex; align-items: center; gap: 3px; }
+
+    /* ════════════════════════════════════
+       PAGE: 角色設定
+    ════════════════════════════════════ */
+    .character-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .char-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .char-card:hover { border-color: var(--border-strong); background: var(--bg-surface); }
+
+    .char-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .char-name { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+    .char-role { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; }
+
+    .char-attr {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .char-attr strong { color: var(--text-primary); font-weight: 500; }
+
+    /* ════════════════════════════════════
+       PAGE: 世界觀設定
+    ════════════════════════════════════ */
+    .world-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .world-card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+    }
+
+    .world-card-icon {
+      font-size: 20px;
+      margin-bottom: 8px;
+    }
+
+    .world-card-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 5px; }
+    .world-card-body  { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
+    /* ════════════════════════════════════
+       PAGE: 審查歷史
+    ════════════════════════════════════ */
+    .history-table { width: 100%; border-collapse: collapse; }
+
+    .history-table th {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-table td {
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-secondary);
+      vertical-align: middle;
+    }
+
+    .history-table tbody tr:hover td { background: var(--bg-raised); }
+
+    /* ════════════════════════════════════
+       PAGE: 專案設定
+    ════════════════════════════════════ */
+    .settings-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .settings-nav {
+      width: 180px;
+      min-width: 180px;
+      border-right: 1px solid var(--border);
+      padding: 12px 8px;
+    }
+
+    .settings-nav-item {
+      padding: 7px 10px;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      margin-bottom: 2px;
+      border: 1px solid transparent;
+      transition: background .12s;
+    }
+
+    .settings-nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .settings-nav-item.active { background: var(--bg-raised); border-color: var(--border); color: var(--text-primary); font-weight: 500; }
+
+    .settings-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .settings-group {
+      margin-bottom: 24px;
+    }
+
+    .settings-group-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 12px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      margin-bottom: 6px;
+    }
+
+    .settings-row-label { font-size: 12px; font-weight: 500; color: var(--text-primary); }
+    .settings-row-sub   { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+    .settings-input {
+      padding: 5px 9px;
+      border: 1px solid var(--border-md);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-size: 12px;
+      width: 180px;
+    }
+
+    .settings-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-light);
+    }
+
+    /* Toggle */
+    .toggle {
+      width: 36px;
+      height: 20px;
+      background: var(--border-md);
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+
+    .toggle.on { background: var(--accent); }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px;
+      left: 3px;
+      transition: transform .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+
+    .toggle.on::after { transform: translateX(16px); }
+
+    /* ════════════════════════════════════
+       PAGE: 時間軸
+    ════════════════════════════════════ */
+    .timeline {
+      position: relative;
+      padding-left: 28px;
+    }
+
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 9px;
+      top: 6px;
+      bottom: 0;
+      width: 1px;
+      background: var(--border-md);
+    }
+
+    .timeline-item {
+      position: relative;
+      margin-bottom: 18px;
+    }
+
+    .timeline-dot {
+      position: absolute;
+      left: -23px;
+      top: 4px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 2px solid var(--bg-surface);
+      background: var(--accent);
+    }
+
+    .timeline-dot.teal   { background: var(--teal); }
+    .timeline-dot.amber  { background: var(--amber); }
+    .timeline-dot.red    { background: var(--red); }
+
+    .timeline-ch {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-bottom: 3px;
+    }
+
+    .timeline-title { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+    .timeline-body  { font-size: 12px; color: var(--text-secondary); margin-top: 3px; line-height: 1.6; }
+
+    /* ════════════════════════════════════
+       PAGE: 關係圖 (SVG)
+    ════════════════════════════════════ */
+    .relation-canvas {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-raised);
+    }
+
+    .relation-canvas svg { max-width: 100%; }
+
+    /* ════════════════════════════════════
+       NOTIFICATION TOAST
+    ════════════════════════════════════ */
+    .toast-wrap {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 10px 14px;
+      background: var(--text-primary);
+      color: #fff;
+      border-radius: var(--radius-md);
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0,0,0,.18);
+      pointer-events: all;
+      animation: toastIn .25s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .toast.out { animation: toastOut .2s ease forwards; }
+
+    @keyframes toastOut {
+      to { opacity: 0; transform: translateY(6px); }
+    }
+
+    /* ════════════════════════════════════
+       MISC UTILITIES
+    ════════════════════════════════════ */
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: 8px; }
+    .gap-3 { gap: 12px; }
+    .ml-auto { margin-left: auto; }
+    .mt-4 { margin-top: 16px; }
+    .mb-4 { margin-bottom: 16px; }
+    .text-muted { color: var(--text-muted); }
+    .text-sm { font-size: 11px; }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-ghost);
+    }
+
+    .empty-state-icon { font-size: 32px; margin-bottom: 10px; }
+    .empty-state-title { font-size: 14px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; }
+    .empty-state-sub   { font-size: 12px; }
+
+    /* ════════════════════════════════════
+       SCROLLBAR global
+    ════════════════════════════════════ */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ════════════ SIDEBAR ════════════ -->
+  <aside class="sidebar">
+
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <path d="M2 2.5h11v2H2zM2 6.5h8v2H2zM2 10.5h5.5v2H2z" fill="#fff"/>
+        </svg>
+      </div>
+      <span class="logo-name">Novel <span>Assistant</span></span>
+    </div>
+
+    <div class="project-selector">
+      <button class="project-btn" onclick="toast('切換專案')">
+        <span class="project-dot"></span>
+        <span class="project-btn-label">星際流亡者</span>
+        <span class="project-btn-chevron">⌄</span>
+      </button>
+    </div>
+
+    <nav class="nav-scroll">
+      <div class="nav-group-label">主要功能</div>
+
+      <div class="nav-item active" data-page="overview" onclick="navigate(this,'overview')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <rect x="1" y="1" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="8" y="1" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="1" y="8" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
+            <rect x="8" y="8" width="5" height="5" rx="1.2" stroke="currentColor" stroke-width="1.1"/>
+          </svg>
+        </span>
+        章節總覽
+      </div>
+
+      <div class="nav-item" data-page="review" onclick="navigate(this,'review')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.1"/>
+            <path d="M4.5 7l2 2 3-3.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        審查 / 修改稿
+        <span class="nav-badge">3</span>
+      </div>
+
+      <div class="nav-item" data-page="history" onclick="navigate(this,'history')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.1"/>
+            <path d="M7 3.5V7l2.5 2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+        </span>
+        審查歷史
+      </div>
+
+      <div class="nav-item" data-page="foreshadow" onclick="navigate(this,'foreshadow')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            <circle cx="7" cy="7" r="2.5" stroke="currentColor" stroke-width="1.1"/>
+          </svg>
+        </span>
+        伏筆追蹤
+        <span class="nav-badge">7</span>
+      </div>
+
+      <div class="nav-group-label">故事資產</div>
+
+      <div class="nav-item" data-page="characters" onclick="navigate(this,'characters')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="4.5" r="2.5" stroke="currentColor" stroke-width="1.1"/>
+            <path d="M2 12c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+        </span>
+        角色設定
+      </div>
+
+      <div class="nav-item" data-page="worldbuilding" onclick="navigate(this,'worldbuilding')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.1"/>
+            <path d="M7 1.5v11M1.5 7h11" stroke="currentColor" stroke-width=".9" stroke-linecap="round"/>
+            <path d="M3 4C4.2 5 5.5 5.5 7 5.5S9.8 5 11 4M3 10c1.2-1 2.5-1.5 4-1.5S9.8 9 11 10" stroke="currentColor" stroke-width=".9"/>
+          </svg>
+        </span>
+        世界觀設定
+      </div>
+
+      <div class="nav-item" data-page="style" onclick="navigate(this,'style')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 4h10M2 7h7M2 10h5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+          </svg>
+        </span>
+        寫作風格
+      </div>
+
+      <div class="nav-group-label">分析</div>
+
+      <div class="nav-item" data-page="relation" onclick="navigate(this,'relation')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="2.5" r="1.5" fill="currentColor"/>
+            <circle cx="2.5" cy="10.5" r="1.5" fill="currentColor"/>
+            <circle cx="11.5" cy="10.5" r="1.5" fill="currentColor"/>
+            <path d="M7 4L2.5 9M7 4l4.5 5M2.5 10.5h9" stroke="currentColor" stroke-width=".9"/>
+          </svg>
+        </span>
+        關係圖
+      </div>
+
+      <div class="nav-item" data-page="timeline" onclick="navigate(this,'timeline')">
+        <span class="nav-icon">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 7h10M2 4h10M2 10h6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+            <circle cx="5" cy="7" r="1.5" fill="currentColor"/>
+            <circle cx="9" cy="4" r="1.5" fill="currentColor"/>
+            <circle cx="6" cy="10" r="1.5" fill="currentColor"/>
+          </svg>
+        </span>
+        時間軸
+      </div>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="index-status">
+        <span class="index-dot"></span>
+        <span>知識庫已同步 · 2 分鐘前</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ════════════ MAIN ════════════ -->
+  <div class="main">
+
+    <!-- ══ PAGE: 章節總覽 ══ -->
+    <div id="page-overview" class="page active">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">章節總覽</div>
+          <div class="topbar-sub">星際流亡者 · 12 章 · 42,300 字</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" onclick="navigate(document.querySelector('[data-page=review]'),'review')">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1"/><path d="M4 6l1.5 1.5 2.5-3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            送出審查
+          </button>
+          <button class="btn btn-primary" onclick="toast('重新索引中…')">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 6A4 4 0 1 1 2 6" stroke="white" stroke-width="1.1" stroke-linecap="round"/><path d="M10 3v3h-3" stroke="white" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            重新索引
+          </button>
+        </div>
+      </div>
+
+      <div class="page-body">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label">總字數</div>
+            <div class="stat-value">42,300</div>
+            <div class="stat-sub">目標 120,000 字</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">已審查章節</div>
+            <div class="stat-value">8 <span style="font-size:14px;font-weight:400;color:var(--text-muted)">/ 12</span></div>
+            <div class="stat-sub">3 章待審查</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">未解伏筆</div>
+            <div class="stat-value" style="color:var(--amber)">7</div>
+            <div class="stat-sub">已收線 3 個</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">角色一致性</div>
+            <div class="stat-value" style="color:var(--teal)">94%</div>
+            <div class="stat-sub">本週平均分數</div>
+          </div>
+        </div>
+
+        <div class="section-hd">
+          <span class="section-hd-title">章節列表</span>
+          <button class="btn" onclick="toast('匯出中…')">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v7M2 6l3.5 3.5L9 6" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5h9" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
+            匯出全本報告
+          </button>
+        </div>
+
+        <table class="ch-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>章節名稱</th>
+              <th>字數</th>
+              <th>狀態</th>
+              <th>候選訊號</th>
+              <th>進度</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color:var(--text-ghost)">01</td>
+              <td><span class="ch-name">流亡之始</span></td>
+              <td>3,820</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">Kael</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 1 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">02</td>
+              <td><span class="ch-name">廢棄站台</span></td>
+              <td>4,150</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag warn">伏筆#2</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 2 章報告')">報告</button></td>
+            </tr>
+            <tr class="ch-current">
+              <td style="color:var(--text-ghost)">03</td>
+              <td>
+                <span class="ch-name">晶體的低語</span>
+                <span class="badge badge-purple" style="margin-left:6px;font-size:9px">進行中</span>
+              </td>
+              <td>2,400</td>
+              <td><span class="badge badge-amber">待審查</span></td>
+              <td>
+                <div class="signal-list">
+                  <span class="signal-tag">陳晨</span>
+                  <span class="signal-tag warn">一致性警告</span>
+                  <span class="signal-tag err">新伏筆</span>
+                </div>
+              </td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:58%"></div></div></td>
+              <td>
+                <button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="navigate(document.querySelector('[data-page=review]'),'review')">審查</button>
+              </td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">04</td>
+              <td><span class="ch-name">追蹤者的影子</span></td>
+              <td>3,900</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">Kael</span><span class="signal-tag">追蹤者</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 4 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">05</td>
+              <td><span class="ch-name">星際迷途</span></td>
+              <td>4,600</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">聯盟</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 5 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">06</td>
+              <td><span class="ch-name">裂縫中的訊號</span></td>
+              <td>3,750</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">Kael</span><span class="signal-tag warn">伏筆#5</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 6 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">07</td>
+              <td><span class="ch-name">失落艦隊</span></td>
+              <td>4,200</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">聯盟</span><span class="signal-tag warn">伏筆#2 回收</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 7 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">08</td>
+              <td><span class="ch-name">身份的裂縫</span></td>
+              <td>4,800</td>
+              <td><span class="badge badge-teal">已審查</span></td>
+              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag err">身份謎題</span></div></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:100%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 8 章報告')">報告</button></td>
+            </tr>
+            <tr>
+              <td style="color:var(--text-ghost)">09</td>
+              <td><span class="ch-name" style="opacity:.5">（草稿）</span></td>
+              <td style="color:var(--text-ghost)">—</td>
+              <td><span class="badge badge-ghost">未建立</span></td>
+              <td></td>
+              <td><div class="progress-mini"><div class="progress-mini-fill" style="width:0%"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('新增第 9 章')">+ 新增</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 審查 / 修改稿 ══ -->
+    <div id="page-review" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">審查 / 修改稿</div>
+          <div class="topbar-sub">第 03 章 · 晶體的低語 · 2,400 字</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" onclick="toast('匯出章節報告')">匯出報告</button>
+          <button class="btn btn-primary" onclick="toast('已接受所有修改稿')">接受全部修改</button>
+        </div>
+      </div>
+
+      <div class="review-layout">
+        <!-- History list -->
+        <div class="review-history">
+          <div class="review-history-hd">
+            <span class="review-history-title">審查記錄</span>
+            <button class="btn" style="padding:3px 7px;font-size:11px" onclick="navigate(document.querySelector('[data-page=history]'),'history')">全部</button>
+          </div>
+
+          <div class="review-list-scroll">
+            <div class="review-list-item active">
+              <div class="rli-title">第 03 章 審查 #2</div>
+              <div class="rli-meta">今天 14:32 · llama3.2</div>
+              <div class="rli-tags">
+                <span class="badge badge-red">2 錯誤</span>
+                <span class="badge badge-amber">1 警告</span>
+                <span class="badge badge-purple">1 建議</span>
+              </div>
+            </div>
+            <div class="review-list-item">
+              <div class="rli-title">第 03 章 審查 #1</div>
+              <div class="rli-meta">昨天 09:15 · llama3.2</div>
+              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
+            </div>
+            <div class="review-list-item">
+              <div class="rli-title">第 02 章 審查 #3</div>
+              <div class="rli-meta">3 天前 · llama3.2</div>
+              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
+            </div>
+            <div class="review-list-item">
+              <div class="rli-title">第 02 章 審查 #2</div>
+              <div class="rli-meta">4 天前 · llama3.2</div>
+              <div class="rli-tags">
+                <span class="badge badge-amber">1 警告</span>
+              </div>
+            </div>
+            <div class="review-list-item">
+              <div class="rli-title">第 01 章 審查 #1</div>
+              <div class="rli-meta">1 週前 · llama3.2</div>
+              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
+            </div>
+          </div>
+
+          <div class="style-selector">
+            <div class="style-selector-label">套用風格</div>
+            <label class="style-check">
+              <input type="checkbox" checked> 主線敘事.md
+            </label>
+            <label class="style-check">
+              <input type="checkbox"> 回憶場景.md
+            </label>
+          </div>
+        </div>
+
+        <!-- Detail -->
+        <div class="review-detail">
+          <div class="section-hd-title" style="margin-bottom:12px">審查結果 — 第 03 章 #2</div>
+
+          <div class="check-item">
+            <div class="check-icon ci-err">✕</div>
+            <div class="check-body">
+              <div class="check-title">角色一致性 — 陳晨</div>
+              <div class="check-desc">
+                第 1 章設定「極度信任隊友，不擅獨行」，此處未有鋪陳心理轉折就獨自行動，違反角色設定。
+                建議在第 2 章末埋下她開始懷疑 Kael 的種子，或補充閃回解釋。
+              </div>
+              <div style="margin-top:6px">
+                <span class="badge badge-ghost">第 1 章 · 第 14 段</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="check-item">
+            <div class="check-icon ci-err">✕</div>
+            <div class="check-body">
+              <div class="check-title">伏筆邏輯 — 晶體時間戳</div>
+              <div class="check-desc">
+                晶體顯示陳晨出生前 17 年的影像，但第 5 章已說明「她是第一代星際移民後裔」，
+                時間線出現矛盾。請確認世界觀時間軸後再行確定。
+              </div>
+              <div style="margin-top:6px">
+                <span class="badge badge-ghost">第 5 章 · 第 3 段</span>
+                <span class="badge badge-ghost" style="margin-left:4px">需核對時間軸</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="check-item">
+            <div class="check-icon ci-warn">!</div>
+            <div class="check-body">
+              <div class="check-title">對白風格 — 主線敘事.md</div>
+              <div class="check-desc">
+                第 3 段第 2 句句型偏長（52 字），與風格規範「句式簡短、節奏緊促，禁止超過 30 字複合句」有出入。
+              </div>
+            </div>
+          </div>
+
+          <div class="check-item">
+            <div class="check-icon ci-info">★</div>
+            <div class="check-body">
+              <div class="check-title">伏筆建議 — 失落艦隊銜接</div>
+              <div class="check-desc">
+                晶體符號可與第 7 章「失落艦隊」支線銜接，建議現在加入一個模糊的頻率訊號作為預埋，
+                讀者讀到第 7 章時會恍然大悟。
+              </div>
+            </div>
+          </div>
+
+          <!-- Diff -->
+          <div class="diff-section">
+            <div class="diff-label">修改稿 diff — 第 3 段第 2 句</div>
+            <div class="diff-block">
+              <span class="diff-del">她把晶體握緊，心跳加速，想著是否應該告訴 Kael，但她不確定他是否值得信任，因為昨天他說的那句話還在腦海中盤旋，那個奇怪的停頓讓她無法忽視。</span>
+              <span class="diff-add">她把晶體壓進口袋，稜角嵌進掌心。<em>告訴他，然後呢？</em> 那個停頓。昨天 Kael 說話時那個半秒的停頓。她讓念頭沉下去。</span>
+            </div>
+            <div class="diff-actions">
+              <button class="btn btn-primary" onclick="toast('已接受修改稿')">接受此修改</button>
+              <button class="btn" onclick="toast('已回填至編輯器')">回填編輯器</button>
+              <button class="btn btn-danger" onclick="toast('已略過')">略過</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 審查歷史 ══ -->
+    <div id="page-history" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">審查歷史</div>
+          <div class="topbar-sub">全部章節 · 共 18 筆記錄</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" onclick="toast('備份已建立')">建立備份</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>章節</th>
+              <th>審查次數</th>
+              <th>時間</th>
+              <th>模型</th>
+              <th>結果</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>第 03 章 · 晶體的低語</td>
+              <td>#2</td>
+              <td>今天 14:32</td>
+              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
+              <td><span class="badge badge-red">2 錯誤 · 1 警告</span></td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="navigate(document.querySelector('[data-page=review]'),'review')">查看 diff</button>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
+                  <button class="btn btn-danger" style="padding:3px 7px;font-size:11px" onclick="toast('已刪除')">刪除</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>第 03 章 · 晶體的低語</td>
+              <td>#1</td>
+              <td>昨天 09:15</td>
+              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
+              <td><span class="badge badge-teal">通過</span></td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>第 02 章 · 廢棄站台</td>
+              <td>#3</td>
+              <td>3 天前</td>
+              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
+              <td><span class="badge badge-teal">通過</span></td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>第 02 章 · 廢棄站台</td>
+              <td>#2</td>
+              <td>4 天前</td>
+              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
+              <td><span class="badge badge-amber">1 警告</span></td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>第 01 章 · 流亡之始</td>
+              <td>#1</td>
+              <td>1 週前</td>
+              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
+              <td><span class="badge badge-teal">通過</span></td>
+              <td>
+                <div class="flex gap-2">
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:right">目前共 5 筆記錄</div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 伏筆追蹤 ══ -->
+    <div id="page-foreshadow" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">伏筆追蹤</div>
+          <div class="topbar-sub">7 個未解 · 3 個已收線 · 跨 8 章</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="toast('新增伏筆')">+ 手動新增</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="section-hd">
+          <span class="section-hd-title">未解伏筆</span>
+          <span class="badge badge-amber">7 個待收線</span>
+        </div>
+        <div class="fs-grid">
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">陳晨的身份謎題</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">晶體顯示她出生前 17 年的臉，來源不明，與第 5 章移民設定矛盾，需修正時間線後揭示真相。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 03 章</span>
+              <span>預計第 08–09 章收線</span>
+            </div>
+          </div>
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">失落艦隊訊號</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">晶體內模糊頻率與第 7 章支線相關，尚未給讀者足夠線索，建議第 3 章補強預埋。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 02 章</span>
+              <span>尚未排定收線</span>
+            </div>
+          </div>
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">Kael 的聯盟記錄</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">第 1 章暗示他有在聯盟的過去，角色否認，但否認本身的停頓讓陳晨起疑。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 01 章</span>
+              <span>預計第 10 章收線</span>
+            </div>
+          </div>
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">空間站廢棄原因</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">站台腐蝕痕跡與官方「自然老化」說法矛盾，暗示人為破壞，需在後期章節解釋。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 02 章</span>
+              <span>尚未排定收線</span>
+            </div>
+          </div>
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">陳晨右臂的符文</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">第 6 章陳晨感到右臂灼熱，脫衣後驚見一段不知何時出現的符文，無人知其含義。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 06 章</span>
+              <span>預計第 11 章收線</span>
+            </div>
+          </div>
+          <div class="fs-card">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">神秘廣播「回到家」</span>
+              <span class="badge badge-amber">未解</span>
+            </div>
+            <div class="fs-card-body">第 4 章飛船收到只有陳晨能聽到的廣播，重複播送同一句話，其他人的儀器毫無反應。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 04 章</span>
+              <span>尚未排定收線</span>
+            </div>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="section-hd">
+          <span class="section-hd-title">已收線伏筆</span>
+          <span class="badge badge-teal">3 個完成</span>
+        </div>
+        <div class="fs-grid">
+          <div class="fs-card closed">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">追蹤者的來源</span>
+              <span class="badge badge-teal">已收</span>
+            </div>
+            <div class="fs-card-body">第 1 章埋下追蹤器訊號，第 4 章揭示為聯盟遠程監控裝置，第 4 章結尾已徹底摧毀裝置。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 01 章</span>
+              <span>收於第 04 章</span>
+            </div>
+          </div>
+          <div class="fs-card closed">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">陳晨的舊傷</span>
+              <span class="badge badge-teal">已收</span>
+            </div>
+            <div class="fs-card-body">第 2 章提及右臂舊傷，第 5 章回憶場景交代幼年星際事故，傷疤是唯一留存的記憶。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 02 章</span>
+              <span>收於第 05 章</span>
+            </div>
+          </div>
+          <div class="fs-card closed">
+            <div class="fs-card-hd">
+              <span class="fs-card-title">「第七號艙」塗鴉</span>
+              <span class="badge badge-teal">已收</span>
+            </div>
+            <div class="fs-card-body">廢棄站台牆上的神秘塗鴉，第 7 章揭示是失落艦隊倖存者留下的逃脫路線密碼。</div>
+            <div class="fs-card-meta">
+              <span>埋於第 02 章</span>
+              <span>收於第 07 章</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 角色設定 ══ -->
+    <div id="page-characters" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">角色設定</div>
+          <div class="topbar-sub">data/characters/ · 3 個角色檔</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="toast('新增角色')">+ 新增角色</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="character-grid">
+          <div class="char-card">
+            <div class="char-avatar" style="background:var(--accent-light);color:var(--accent-text)">陳</div>
+            <div class="char-name">陳晨</div>
+            <div class="char-role">主角 · 探索家</div>
+            <div class="char-attr">
+              <strong>個性：</strong>堅毅、孤僻、對真相有執念<br>
+              <strong>核心恐懼：</strong>被最信任的人出賣<br>
+              <strong>說話風格：</strong>簡短直接，極少解釋自己<br>
+              <strong>行為模式：</strong>觀察先於行動，但一旦決定不回頭
+            </div>
+          </div>
+          <div class="char-card">
+            <div class="char-avatar" style="background:var(--teal-light);color:var(--teal-text)">Ka</div>
+            <div class="char-name">Kael</div>
+            <div class="char-role">副角 · 飛行員</div>
+            <div class="char-attr">
+              <strong>個性：</strong>外向樂觀，但隱藏過去<br>
+              <strong>核心恐懼：</strong>失去陳晨的信任<br>
+              <strong>說話風格：</strong>愛用反問，話中有話<br>
+              <strong>行為模式：</strong>用幽默化解緊張，逃避直接回答
+            </div>
+          </div>
+          <div class="char-card">
+            <div class="char-avatar" style="background:var(--amber-light);color:var(--amber-text)">指</div>
+            <div class="char-name">指揮官 Vera</div>
+            <div class="char-role">對手 · 聯盟指揮官</div>
+            <div class="char-attr">
+              <strong>個性：</strong>冷靜、目的導向、不擇手段<br>
+              <strong>核心恐懼：</strong>秘密被揭露<br>
+              <strong>說話風格：</strong>正式、克制，從不直接否認<br>
+              <strong>行為模式：</strong>讓他人認為一切皆在掌控中
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 世界觀設定 ══ -->
+    <div id="page-worldbuilding" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">世界觀設定</div>
+          <div class="topbar-sub">data/worldbuilding/ · 4 個設定檔</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="toast('新增設定')">+ 新增設定</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="world-grid">
+          <div class="world-card">
+            <div class="world-card-icon">🌌</div>
+            <div class="world-card-title">星際聯盟</div>
+            <div class="world-card-body">
+              成立於大崩潰後 200 年，控制已知宇宙 73% 的星際航道。
+              表面維持秩序，實際上透過資訊壟斷鞏固權力。移民後裔被系統性剝奪政治代表權。
+            </div>
+          </div>
+          <div class="world-card">
+            <div class="world-card-icon">🚀</div>
+            <div class="world-card-title">流亡者網絡</div>
+            <div class="world-card-body">
+              由不滿聯盟統治的移民後裔組成的地下網絡。沒有固定基地，靠廢棄站台和黑市交換情報。
+              陳晨是無意間捲入的局外人。
+            </div>
+          </div>
+          <div class="world-card">
+            <div class="world-card-icon">🔮</div>
+            <div class="world-card-title">數據晶體技術</div>
+            <div class="world-card-body">
+              200 年前的失落技術，可儲存「記憶印記」而非普通數據。讀取需要特定基因共鳴，
+              目前聯盟宣稱此技術已不存在。
+            </div>
+          </div>
+          <div class="world-card">
+            <div class="world-card-icon">📅</div>
+            <div class="world-card-title">時間線設定</div>
+            <div class="world-card-body">
+              故事發生於星曆 2387 年。陳晨出生於 2359 年（28 歲）。
+              晶體時間戳顯示 2342 年，即陳晨出生前 17 年，矛盾待解。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 寫作風格 ══ -->
+    <div id="page-style" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">寫作風格</div>
+          <div class="topbar-sub">data/style/ · 2 個風格檔</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn btn-primary" onclick="toast('新增風格檔')">+ 新增風格</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="world-grid">
+          <div class="world-card" style="grid-column: span 2">
+            <div class="world-card-title" style="margin-bottom:10px">主線敘事.md</div>
+            <div class="world-card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              <div>
+                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">敘事視角</strong>
+                第三人稱限知視角，嚴格限定陳晨的感知範圍
+              </div>
+              <div>
+                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">句式風格</strong>
+                簡短直接，節奏緊促，單句不超過 30 字
+              </div>
+              <div>
+                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">節奏感</strong>
+                動作場景：極短句。內心場景：中等長度，偶用破折號
+              </div>
+              <div>
+                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">禁忌</strong>
+                禁止「她感到」「她想到」等直白心理描寫；禁止超過 3 行的景物描寫
+              </div>
+            </div>
+          </div>
+          <div class="world-card">
+            <div class="world-card-title" style="margin-bottom:10px">回憶場景.md</div>
+            <div class="world-card-body">
+              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">敘事視角</strong>
+              第一人稱，破碎片段，允許時序錯亂<br><br>
+              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">句式風格</strong>
+              長短交替，感官細節豐富，允許重複意象<br><br>
+              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">禁忌</strong>
+              禁止明確交代時間地點，讓讀者自行拼湊
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 關係圖 ══ -->
+    <div id="page-relation" class="page" style="flex-direction:column;">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">關係圖</div>
+          <div class="topbar-sub">data/relationships.json · 自動從審查結果更新</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" onclick="toast('已匯出關係圖')">匯出</button>
+        </div>
+      </div>
+      <div class="relation-canvas">
+        <svg width="560" height="360" viewBox="0 0 560 360" xmlns="http://www.w3.org/2000/svg" style="overflow:visible">
+          <!-- Lines -->
+          <line x1="280" y1="120" x2="140" y2="240" stroke="#b0acd4" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <line x1="280" y1="120" x2="420" y2="240" stroke="#b0acd4" stroke-width="1.5"/>
+          <line x1="140" y1="240" x2="420" y2="240" stroke="#d4c8a8" stroke-width="1" stroke-dasharray="4,4"/>
+          <!-- Labels on lines -->
+          <text x="195" y="175" font-size="10" fill="#888" text-anchor="middle" font-family="sans-serif">隊友 / 暗疑</text>
+          <text x="368" y="175" font-size="10" fill="#888" text-anchor="middle" font-family="sans-serif">追捕</text>
+          <text x="280" y="256" font-size="10" fill="#b8a060" text-anchor="middle" font-family="sans-serif">前屬關係 (隱藏)</text>
+          <!-- Node: 陳晨 -->
+          <circle cx="280" cy="110" r="40" fill="#eeecfb" stroke="#7f77dd" stroke-width="1.5"/>
+          <text x="280" y="105" font-size="13" font-weight="600" fill="#2e2574" text-anchor="middle" font-family="sans-serif">陳晨</text>
+          <text x="280" y="122" font-size="10" fill="#534ab7" text-anchor="middle" font-family="sans-serif">主角</text>
+          <!-- Node: Kael -->
+          <circle cx="140" cy="248" r="36" fill="#e0f4ec" stroke="#0d8c65" stroke-width="1.5"/>
+          <text x="140" y="243" font-size="13" font-weight="600" fill="#075c42" text-anchor="middle" font-family="sans-serif">Kael</text>
+          <text x="140" y="259" font-size="10" fill="#0d8c65" text-anchor="middle" font-family="sans-serif">副角</text>
+          <!-- Node: Vera -->
+          <circle cx="420" cy="248" r="36" fill="#fef0d6" stroke="#b46e10" stroke-width="1.5"/>
+          <text x="420" y="243" font-size="13" font-weight="600" fill="#7a4a08" text-anchor="middle" font-family="sans-serif">Vera</text>
+          <text x="420" y="259" font-size="10" fill="#b46e10" text-anchor="middle" font-family="sans-serif">對手</text>
+          <!-- Legend -->
+          <line x1="40" y1="330" x2="65" y2="330" stroke="#b0acd4" stroke-width="1.5"/>
+          <text x="70" y="334" font-size="10" fill="#888" font-family="sans-serif">已確認關係</text>
+          <line x1="160" y1="330" x2="185" y2="330" stroke="#b0acd4" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="190" y="334" font-size="10" fill="#888" font-family="sans-serif">暗示關係</text>
+          <line x1="275" y1="330" x2="300" y2="330" stroke="#d4c8a8" stroke-width="1" stroke-dasharray="4,4"/>
+          <text x="305" y="334" font-size="10" fill="#b8a060" font-family="sans-serif">隱藏關係</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- ══ PAGE: 時間軸 ══ -->
+    <div id="page-timeline" class="page">
+      <div class="topbar">
+        <div class="topbar-title-wrap">
+          <div class="topbar-title">時間軸</div>
+          <div class="topbar-sub">data/timeline.json · 跨 8 章 · 22 個事件</div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn" onclick="toast('已匯出時間軸')">匯出</button>
+        </div>
+      </div>
+      <div class="page-body">
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-ch">第 01 章</div>
+            <div class="timeline-title">陳晨與 Kael 在流亡船上相遇</div>
+            <div class="timeline-body">陳晨因偷渡被 Kael 攔下，兩人達成不公平的交易：她幫助修復引擎，換取一段免費航程。</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot teal"></div>
+            <div class="timeline-ch">第 01 章</div>
+            <div class="timeline-title">Kael 通訊中的奇怪停頓</div>
+            <div class="timeline-body">陳晨無意間聽到 Kael 與不明對象的通訊，話中有話，Kael 察覺後立刻切斷。（伏筆#Kael身份）</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot amber"></div>
+            <div class="timeline-ch">第 02 章</div>
+            <div class="timeline-title">抵達廢棄空間站</div>
+            <div class="timeline-body">補給計劃失敗，被迫停靠廢棄的 X-7 站台。陳晨注意到腐蝕痕跡不像自然老化。</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-ch">第 02 章</div>
+            <div class="timeline-title">發現「第七號艙」塗鴉</div>
+            <div class="timeline-body">牆上的塗鴉被 Kael 斥為廢話，但陳晨暗中拍照存檔。（伏筆#塗鴉 → 已收線，第 07 章）</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot red"></div>
+            <div class="timeline-ch">第 03 章</div>
+            <div class="timeline-title">發現數據晶體</div>
+            <div class="timeline-body">陳晨獨自在廢棄站台深處發現神秘晶體，決定隱瞞 Kael。晶體顯示她出生前 17 年的臉。（伏筆#身份謎題）</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot teal"></div>
+            <div class="timeline-ch">第 04 章</div>
+            <div class="timeline-title">追蹤器揭露</div>
+            <div class="timeline-body">飛船被聯盟鎖定，Kael 找到並摧毀追蹤器，拒絕解釋如何知道其位置。（伏筆#追蹤者 → 已收線）</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot amber"></div>
+            <div class="timeline-ch">第 07 章</div>
+            <div class="timeline-title">失落艦隊殘骸</div>
+            <div class="timeline-body">「第七號艙」塗鴉指引到失落艦隊殘骸，艦隊在 200 年前神秘失蹤，與聯盟的建立時間高度重疊。</div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot red"></div>
+            <div class="timeline-ch">第 08 章</div>
+            <div class="timeline-title">身份的裂縫</div>
+            <div class="timeline-body">在失落艦隊殘骸深處，陳晨找到第二個晶體，裡面的記憶讓她懷疑自己的整個童年記憶都是植入的。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+
+</div><!-- /app -->
+
+<!-- Toast container -->
+<div class="toast-wrap" id="toast-wrap"></div>
+
+<script>
+  /* ── Navigation ── */
+  function navigate(el, pageId) {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+    const navItem = document.querySelector('[data-page="' + pageId + '"]');
+    if (navItem) navItem.classList.add('active');
+
+    const page = document.getElementById('page-' + pageId);
+    if (page) page.classList.add('active');
+  }
+
+  /* ── Toast ── */
+  function toast(msg) {
+    const wrap = document.getElementById('toast-wrap');
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.innerHTML = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="white" stroke-width="1"/><path d="M4.5 7l2 2 3-3" stroke="white" stroke-width="1.1" stroke-linecap="round"/></svg>' + msg;
+    wrap.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('out');
+      setTimeout(() => t.remove(), 220);
+    }, 2200);
+  }
+
+  /* ── Toggle ── */
+  document.querySelectorAll('.toggle').forEach(function(tog) {
+    tog.addEventListener('click', function() {
+      this.classList.toggle('on');
+    });
+  });
+</script>
+</body>
+</html>
+{{end}}

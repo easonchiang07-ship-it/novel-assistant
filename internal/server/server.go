@@ -184,7 +184,7 @@ func (s *Server) templateFuncMap() template.FuncMap {
 			return s.auth != nil && s.auth.Enabled()
 		},
 		"add1": func(i int) int { return i + 1 },
-		"sub": func(a, b int) int { return a - b },
+		"sub":  func(a, b int) int { return a - b },
 		"rune2": func(str string) string {
 			runes := []rune(str)
 			if len(runes) >= 2 {

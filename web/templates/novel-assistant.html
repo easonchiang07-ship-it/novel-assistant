@@ -277,6 +277,32 @@
     .index-status-warn { background: var(--amber-light); border-color: rgba(180,110,16,.2); color: var(--amber-text); }
     .index-status-warn .index-dot { background: var(--amber); animation: none; }
 
+    .ollama-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 9px;
+      border-radius: var(--radius-md);
+      font-size: 11px;
+      margin-top: 4px;
+      background: var(--teal-light);
+      border: 1px solid rgba(13,140,101,.2);
+      color: var(--teal-text);
+    }
+    .ollama-status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--teal);
+      flex-shrink: 0;
+    }
+    .ollama-status.offline {
+      background: var(--red-light);
+      border-color: rgba(200,40,40,.15);
+      color: var(--red-text);
+    }
+    .ollama-status.offline .ollama-status-dot { background: var(--red); }
+
     /* ════════════════════════════════════
        MAIN AREA
     ════════════════════════════════════ */
@@ -1243,6 +1269,10 @@
         <span class="index-dot"></span>
         <span>知識庫已同步 · 2 分鐘前</span>
       </div>
+      <div id="ollama-status" class="ollama-status" title="Ollama 連線狀態">
+        <span class="ollama-status-dot"></span>
+        <span id="ollama-status-text">Ollama 已連線</span>
+      </div>
     </div>
   </aside>
 
@@ -2068,6 +2098,30 @@
       this.classList.toggle('on');
     });
   });
+
+  /* ── Ollama status chip ── */
+  (function pollOllamaStatus() {
+    const chip = document.getElementById('ollama-status');
+    const label = document.getElementById('ollama-status-text');
+    if (!chip || !label) return;
+
+    async function refresh() {
+      try {
+        const resp = await fetch('/api/ollama/status');
+        if (!resp.ok) throw new Error('http ' + resp.status);
+        const data = await resp.json();
+        const online = data && data.status === 'ok';
+        chip.classList.toggle('offline', !online);
+        label.textContent = online ? 'Ollama 已連線' : 'Ollama 未連線';
+      } catch (_) {
+        chip.classList.add('offline');
+        label.textContent = 'Ollama 未連線';
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 30000);
+  })();
 </script>
 </body>
 </html>

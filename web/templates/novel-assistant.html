@@ -1356,7 +1356,9 @@
               <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出報告')">報告</button></td>
             </tr>
             {{end}}
-            {{if not .Chapters}}
+            {{if .ChapterError}}
+            <tr><td colspan="7" style="text-align:center;color:var(--red-text);padding:20px">{{.ChapterError}}</td></tr>
+            {{else if not .Chapters}}
             <tr><td colspan="7" style="text-align:center;color:var(--text-ghost);padding:20px">尚無章節，請先新增章節檔案</td></tr>
             {{end}}
           </tbody>

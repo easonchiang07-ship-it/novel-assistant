@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 
 	"novel-assistant/internal/tracker"
@@ -10,8 +11,10 @@ import (
 
 func (s *Server) handleNovelAssistantPage(c *gin.Context) {
 	chapters, err := s.buildChapterOverviews()
+	var chapterError string
 	if err != nil {
-		chapters = nil
+		log.Printf("novel-assistant: buildChapterOverviews: %v", err)
+		chapterError = "讀取章節失敗：" + err.Error()
 	}
 
 	totalWords := 0
@@ -36,6 +39,7 @@ func (s *Server) handleNovelAssistantPage(c *gin.Context) {
 		"Title":             "小說助手",
 		"Chapters":          chapters,
 		"ChapterCount":      len(chapters),
+		"ChapterError":      chapterError,
 		"TotalWords":        totalWords,
 		"ReviewedCount":     reviewedCount,
 		"Characters":        s.profiles.Characters,

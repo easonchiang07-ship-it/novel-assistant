@@ -1286,7 +1286,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">章節總覽</div>
-          <div class="topbar-sub">星際流亡者 · 12 章 · 42,300 字</div>
+          <div class="topbar-sub">{{.ChapterCount}} 章 · {{.TotalWords}} 字</div>
         </div>
         <div class="topbar-actions">
           <button class="btn" onclick="navigate(document.querySelector('[data-page=review]'),'review')">
@@ -1304,23 +1304,23 @@
         <div class="stat-grid">
           <div class="stat-card">
             <div class="stat-label">總字數</div>
-            <div class="stat-value">42,300</div>
+            <div class="stat-value">{{.TotalWords}}</div>
             <div class="stat-sub">目標 120,000 字</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">已審查章節</div>
-            <div class="stat-value">8 <span style="font-size:14px;font-weight:400;color:var(--text-muted)">/ 12</span></div>
-            <div class="stat-sub">3 章待審查</div>
+            <div class="stat-value">{{.ReviewedCount}} <span style="font-size:14px;font-weight:400;color:var(--text-muted)">/ {{.ChapterCount}}</span></div>
+            <div class="stat-sub">{{sub .ChapterCount .ReviewedCount}} 章待審查</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">未解伏筆</div>
-            <div class="stat-value" style="color:var(--amber)">7</div>
-            <div class="stat-sub">已收線 3 個</div>
+            <div class="stat-value" style="color:var(--amber)">{{len .OpenForeshadows}}</div>
+            <div class="stat-sub">已收線 {{len .ClosedForeshadows}} 個</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">角色一致性</div>
-            <div class="stat-value" style="color:var(--teal)">94%</div>
-            <div class="stat-sub">本週平均分數</div>
+            <div class="stat-label">角色設定</div>
+            <div class="stat-value">{{len .Characters}}</div>
+            <div class="stat-sub">個角色設定檔</div>
           </div>
         </div>
 
@@ -1340,103 +1340,27 @@
               <th>字數</th>
               <th>狀態</th>
               <th>候選訊號</th>
-              <th><abbr title="審查完成度（示範資料）">進度</abbr></th>
+              <th><abbr title="審查完成度">進度</abbr></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
+            {{range $i, $ch := .Chapters}}
             <tr>
-              <td style="color:var(--text-ghost)">01</td>
-              <td><span class="ch-name">流亡之始</span></td>
-              <td>3,820</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">Kael</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 1 章報告')">報告</button></td>
+              <td style="color:var(--text-ghost)">{{printf "%02d" (add1 $i)}}</td>
+              <td><span class="ch-name">{{$ch.Title}}</span></td>
+              <td>{{$ch.WordCount}}</td>
+              <td>{{if gt $ch.ReviewCount 0}}<span class="badge badge-teal">已審查</span>{{else}}<span class="badge badge-ghost">待審查</span>{{end}}</td>
+              <td><div class="signal-list">{{range $ch.Characters}}<span class="signal-tag">{{.}}</span>{{end}}</div></td>
+              <td><div class="progress-mini" title="審查完成度：{{if gt $ch.ReviewCount 0}}100%{{else}}0%{{end}}"><div class="progress-mini-fill" style="width:{{if gt $ch.ReviewCount 0}}100%{{else}}0%{{end}}"></div></div></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出報告')">報告</button></td>
             </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">02</td>
-              <td><span class="ch-name">廢棄站台</span></td>
-              <td>4,150</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag warn">伏筆#2</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 2 章報告')">報告</button></td>
-            </tr>
-            <tr class="ch-current">
-              <td style="color:var(--text-ghost)">03</td>
-              <td>
-                <span class="ch-name">晶體的低語</span>
-                <span class="badge badge-purple" style="margin-left:6px;font-size:9px">進行中</span>
-              </td>
-              <td>2,400</td>
-              <td><span class="badge badge-amber">待審查</span></td>
-              <td>
-                <div class="signal-list">
-                  <span class="signal-tag">陳晨</span>
-                  <span class="signal-tag warn">一致性警告</span>
-                  <span class="signal-tag err">新伏筆</span>
-                </div>
-              </td>
-              <td><div class="progress-mini" title="審查完成度：58%（示範資料）"><div class="progress-mini-fill" style="width:58%"></div></div></td>
-              <td>
-                <button class="btn btn-primary" style="padding:3px 8px;font-size:11px" onclick="navigate(document.querySelector('[data-page=review]'),'review')">審查</button>
-              </td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">04</td>
-              <td><span class="ch-name">追蹤者的影子</span></td>
-              <td>3,900</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">Kael</span><span class="signal-tag">追蹤者</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 4 章報告')">報告</button></td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">05</td>
-              <td><span class="ch-name">星際迷途</span></td>
-              <td>4,600</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">聯盟</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 5 章報告')">報告</button></td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">06</td>
-              <td><span class="ch-name">裂縫中的訊號</span></td>
-              <td>3,750</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">Kael</span><span class="signal-tag warn">伏筆#5</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 6 章報告')">報告</button></td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">07</td>
-              <td><span class="ch-name">失落艦隊</span></td>
-              <td>4,200</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag">聯盟</span><span class="signal-tag warn">伏筆#2 回收</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 7 章報告')">報告</button></td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">08</td>
-              <td><span class="ch-name">身份的裂縫</span></td>
-              <td>4,800</td>
-              <td><span class="badge badge-teal">已審查</span></td>
-              <td><div class="signal-list"><span class="signal-tag">陳晨</span><span class="signal-tag err">身份謎題</span></div></td>
-              <td><div class="progress-mini" title="審查完成度：100%（示範資料）"><div class="progress-mini-fill" style="width:100%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出第 8 章報告')">報告</button></td>
-            </tr>
-            <tr>
-              <td style="color:var(--text-ghost)">09</td>
-              <td><span class="ch-name" style="opacity:.5">（草稿）</span></td>
-              <td style="color:var(--text-ghost)">—</td>
-              <td><span class="badge badge-ghost">未建立</span></td>
-              <td></td>
-              <td><div class="progress-mini" title="審查完成度：0%（示範資料）"><div class="progress-mini-fill" style="width:0%"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('新增第 9 章')">+ 新增</button></td>
-            </tr>
+            {{end}}
+            {{if .ChapterError}}
+            <tr><td colspan="7" style="text-align:center;color:var(--red-text);padding:20px">{{.ChapterError}}</td></tr>
+            {{else if not .Chapters}}
+            <tr><td colspan="7" style="text-align:center;color:var(--text-ghost);padding:20px">尚無章節，請先新增章節檔案</td></tr>
+            {{end}}
           </tbody>
         </table>
       </div>
@@ -1464,47 +1388,28 @@
           </div>
 
           <div class="review-list-scroll">
-            <div class="review-list-item active">
-              <div class="rli-title" title="第 03 章 審查 #2">第 03 章 審查 #2</div>
-              <div class="rli-meta">今天 14:32 · llama3.2</div>
-              <div class="rli-tags">
-                <span class="badge badge-red">2 錯誤</span>
-                <span class="badge badge-amber">1 警告</span>
-                <span class="badge badge-purple">1 建議</span>
-              </div>
-            </div>
+            {{range .History}}
             <div class="review-list-item">
-              <div class="rli-title" title="第 03 章 審查 #1">第 03 章 審查 #1</div>
-              <div class="rli-meta">昨天 09:15 · llama3.2</div>
-              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
+              <div class="rli-title" title="{{.ChapterTitle}} · 審查 #{{.KindVersion}}">{{.ChapterTitle}} · 審查 #{{.KindVersion}}</div>
+              <div class="rli-meta">{{timeAgo .CreatedAt}}</div>
+              <div class="rli-tags"><span class="badge badge-ghost">{{.Kind}}</span></div>
             </div>
-            <div class="review-list-item">
-              <div class="rli-title" title="第 02 章 審查 #3">第 02 章 審查 #3</div>
-              <div class="rli-meta">3 天前 · llama3.2</div>
-              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
-            </div>
-            <div class="review-list-item">
-              <div class="rli-title" title="第 02 章 審查 #2">第 02 章 審查 #2</div>
-              <div class="rli-meta">4 天前 · llama3.2</div>
-              <div class="rli-tags">
-                <span class="badge badge-amber">1 警告</span>
-              </div>
-            </div>
-            <div class="review-list-item">
-              <div class="rli-title" title="第 01 章 審查 #1">第 01 章 審查 #1</div>
-              <div class="rli-meta">1 週前 · llama3.2</div>
-              <div class="rli-tags"><span class="badge badge-teal">通過</span></div>
-            </div>
+            {{end}}
+            {{if not .History}}
+            <div style="padding:16px 12px;color:var(--text-ghost);font-size:11px">尚無審查記錄</div>
+            {{end}}
           </div>
 
           <div class="style-selector">
             <div class="style-selector-label">套用風格</div>
+            {{range .Styles}}
             <label class="style-check">
-              <input type="checkbox" checked> 主線敘事.md
+              <input type="checkbox"> {{.Name}}
             </label>
-            <label class="style-check">
-              <input type="checkbox"> 回憶場景.md
-            </label>
+            {{end}}
+            {{if not .Styles}}
+            <div style="color:var(--text-ghost);font-size:11px">尚無風格檔</div>
+            {{end}}
           </div>
         </div>
 
@@ -1680,7 +1585,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">伏筆追蹤</div>
-          <div class="topbar-sub">7 個未解 · 3 個已收線 · 跨 8 章</div>
+          <div class="topbar-sub">{{len .OpenForeshadows}} 個未解 · {{len .ClosedForeshadows}} 個已收線</div>
         </div>
         <div class="topbar-actions">
           <button class="btn btn-primary" onclick="toast('新增伏筆')">+ 手動新增</button>
@@ -1689,117 +1594,50 @@
       <div class="page-body">
         <div class="section-hd">
           <span class="section-hd-title">未解伏筆</span>
-          <span class="badge badge-amber">7 個待收線</span>
+          <span class="badge badge-amber">{{len .OpenForeshadows}} 個待收線</span>
         </div>
         <div class="fs-grid">
+          {{range .OpenForeshadows}}
           <div class="fs-card">
             <div class="fs-card-hd">
-              <span class="fs-card-title">陳晨的身份謎題</span>
+              <span class="fs-card-title">{{.Description}}</span>
               <span class="badge badge-amber">未解</span>
             </div>
-            <div class="fs-card-body">晶體顯示她出生前 17 年的臉，來源不明，與第 5 章移民設定矛盾，需修正時間線後揭示真相。</div>
+            <div class="fs-card-body">{{if .PlantedIn}}{{.PlantedIn}}{{end}}{{if .ResolvedIn}} → 預計{{.ResolvedIn}}收線{{end}}</div>
             <div class="fs-card-meta">
-              <span>埋於第 03 章</span>
-              <span>預計第 08–09 章收線</span>
+              <span>埋於第 {{.Chapter}} 章</span>
+              {{if .ResolvedIn}}<span>預計 {{.ResolvedIn}} 收線</span>{{else}}<span>尚未排定收線</span>{{end}}
             </div>
           </div>
-          <div class="fs-card">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">失落艦隊訊號</span>
-              <span class="badge badge-amber">未解</span>
-            </div>
-            <div class="fs-card-body">晶體內模糊頻率與第 7 章支線相關，尚未給讀者足夠線索，建議第 3 章補強預埋。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 02 章</span>
-              <span>尚未排定收線</span>
-            </div>
-          </div>
-          <div class="fs-card">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">Kael 的聯盟記錄</span>
-              <span class="badge badge-amber">未解</span>
-            </div>
-            <div class="fs-card-body">第 1 章暗示他有在聯盟的過去，角色否認，但否認本身的停頓讓陳晨起疑。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 01 章</span>
-              <span>預計第 10 章收線</span>
-            </div>
-          </div>
-          <div class="fs-card">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">空間站廢棄原因</span>
-              <span class="badge badge-amber">未解</span>
-            </div>
-            <div class="fs-card-body">站台腐蝕痕跡與官方「自然老化」說法矛盾，暗示人為破壞，需在後期章節解釋。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 02 章</span>
-              <span>尚未排定收線</span>
-            </div>
-          </div>
-          <div class="fs-card">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">陳晨右臂的符文</span>
-              <span class="badge badge-amber">未解</span>
-            </div>
-            <div class="fs-card-body">第 6 章陳晨感到右臂灼熱，脫衣後驚見一段不知何時出現的符文，無人知其含義。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 06 章</span>
-              <span>預計第 11 章收線</span>
-            </div>
-          </div>
-          <div class="fs-card">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">神秘廣播「回到家」</span>
-              <span class="badge badge-amber">未解</span>
-            </div>
-            <div class="fs-card-body">第 4 章飛船收到只有陳晨能聽到的廣播，重複播送同一句話，其他人的儀器毫無反應。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 04 章</span>
-              <span>尚未排定收線</span>
-            </div>
-          </div>
+          {{end}}
+          {{if not .OpenForeshadows}}
+          <div class="fs-card" style="color:var(--text-ghost)">目前無未解伏筆</div>
+          {{end}}
         </div>
 
         <hr class="divider">
 
         <div class="section-hd">
           <span class="section-hd-title">已收線伏筆</span>
-          <span class="badge badge-teal">3 個完成</span>
+          <span class="badge badge-teal">{{len .ClosedForeshadows}} 個完成</span>
         </div>
         <div class="fs-grid">
+          {{range .ClosedForeshadows}}
           <div class="fs-card closed">
             <div class="fs-card-hd">
-              <span class="fs-card-title">追蹤者的來源</span>
+              <span class="fs-card-title">{{.Description}}</span>
               <span class="badge badge-teal">已收</span>
             </div>
-            <div class="fs-card-body">第 1 章埋下追蹤器訊號，第 4 章揭示為聯盟遠程監控裝置，第 4 章結尾已徹底摧毀裝置。</div>
+            <div class="fs-card-body">{{if .PlantedIn}}{{.PlantedIn}}{{end}}{{if .ResolvedIn}} → {{.ResolvedIn}}{{end}}</div>
             <div class="fs-card-meta">
-              <span>埋於第 01 章</span>
-              <span>收於第 04 章</span>
+              <span>埋於第 {{.Chapter}} 章</span>
+              {{if .ResolvedIn}}<span>收於 {{.ResolvedIn}}</span>{{end}}
             </div>
           </div>
-          <div class="fs-card closed">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">陳晨的舊傷</span>
-              <span class="badge badge-teal">已收</span>
-            </div>
-            <div class="fs-card-body">第 2 章提及右臂舊傷，第 5 章回憶場景交代幼年星際事故，傷疤是唯一留存的記憶。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 02 章</span>
-              <span>收於第 05 章</span>
-            </div>
-          </div>
-          <div class="fs-card closed">
-            <div class="fs-card-hd">
-              <span class="fs-card-title">「第七號艙」塗鴉</span>
-              <span class="badge badge-teal">已收</span>
-            </div>
-            <div class="fs-card-body">廢棄站台牆上的神秘塗鴉，第 7 章揭示是失落艦隊倖存者留下的逃脫路線密碼。</div>
-            <div class="fs-card-meta">
-              <span>埋於第 02 章</span>
-              <span>收於第 07 章</span>
-            </div>
-          </div>
+          {{end}}
+          {{if not .ClosedForeshadows}}
+          <div class="fs-card closed" style="color:var(--text-ghost)">目前無已收線伏筆</div>
+          {{end}}
         </div>
       </div>
     </div>
@@ -1809,7 +1647,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">角色設定</div>
-          <div class="topbar-sub">data/characters/ · 3 個角色檔</div>
+          <div class="topbar-sub">{{len .Characters}} 個角色檔</div>
         </div>
         <div class="topbar-actions">
           <button class="btn btn-primary" onclick="toast('新增角色')">+ 新增角色</button>
@@ -1817,39 +1655,21 @@
       </div>
       <div class="page-body">
         <div class="character-grid">
+          {{range .Characters}}
           <div class="char-card">
-            <div class="char-avatar" style="background:var(--accent-light);color:var(--accent-text)">陳</div>
-            <div class="char-name">陳晨</div>
-            <div class="char-role">主角 · 探索家</div>
+            <div class="char-avatar" style="background:var(--accent-light);color:var(--accent-text)">{{rune2 .Name}}</div>
+            <div class="char-name">{{.Name}}</div>
+            <div class="char-role">{{.Personality}}</div>
             <div class="char-attr">
-              <strong>個性：</strong>堅毅、孤僻、對真相有執念<br>
-              <strong>核心恐懼：</strong>被最信任的人出賣<br>
-              <strong>說話風格：</strong>簡短直接，極少解釋自己<br>
-              <strong>行為模式：</strong>觀察先於行動，但一旦決定不回頭
+              {{if .CoreFear}}<strong>核心恐懼：</strong>{{.CoreFear}}<br>{{end}}
+              {{if .SpeechStyle}}<strong>說話風格：</strong>{{.SpeechStyle}}<br>{{end}}
+              {{if .Behavior}}<strong>行為模式：</strong>{{.Behavior}}{{end}}
             </div>
           </div>
-          <div class="char-card">
-            <div class="char-avatar" style="background:var(--teal-light);color:var(--teal-text)">Ka</div>
-            <div class="char-name">Kael</div>
-            <div class="char-role">副角 · 飛行員</div>
-            <div class="char-attr">
-              <strong>個性：</strong>外向樂觀，但隱藏過去<br>
-              <strong>核心恐懼：</strong>失去陳晨的信任<br>
-              <strong>說話風格：</strong>愛用反問，話中有話<br>
-              <strong>行為模式：</strong>用幽默化解緊張，逃避直接回答
-            </div>
-          </div>
-          <div class="char-card">
-            <div class="char-avatar" style="background:var(--amber-light);color:var(--amber-text)">指</div>
-            <div class="char-name">指揮官 Vera</div>
-            <div class="char-role">對手 · 聯盟指揮官</div>
-            <div class="char-attr">
-              <strong>個性：</strong>冷靜、目的導向、不擇手段<br>
-              <strong>核心恐懼：</strong>秘密被揭露<br>
-              <strong>說話風格：</strong>正式、克制，從不直接否認<br>
-              <strong>行為模式：</strong>讓他人認為一切皆在掌控中
-            </div>
-          </div>
+          {{end}}
+          {{if not .Characters}}
+          <div style="color:var(--text-ghost);padding:20px">尚無角色設定檔，請在 data/characters/ 新增角色 .md 檔案</div>
+          {{end}}
         </div>
       </div>
     </div>
@@ -1859,7 +1679,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">世界觀設定</div>
-          <div class="topbar-sub">data/worldbuilding/ · 4 個設定檔</div>
+          <div class="topbar-sub">{{len .Worlds}} 個設定檔</div>
         </div>
         <div class="topbar-actions">
           <button class="btn btn-primary" onclick="toast('新增設定')">+ 新增設定</button>
@@ -1867,38 +1687,15 @@
       </div>
       <div class="page-body">
         <div class="world-grid">
+          {{range .Worlds}}
           <div class="world-card">
-            <div class="world-card-icon">🌌</div>
-            <div class="world-card-title">星際聯盟</div>
-            <div class="world-card-body">
-              成立於大崩潰後 200 年，控制已知宇宙 73% 的星際航道。
-              表面維持秩序，實際上透過資訊壟斷鞏固權力。移民後裔被系統性剝奪政治代表權。
-            </div>
+            <div class="world-card-title">{{.Name}}</div>
+            <div class="world-card-body">{{.RawContent}}</div>
           </div>
-          <div class="world-card">
-            <div class="world-card-icon">🚀</div>
-            <div class="world-card-title">流亡者網絡</div>
-            <div class="world-card-body">
-              由不滿聯盟統治的移民後裔組成的地下網絡。沒有固定基地，靠廢棄站台和黑市交換情報。
-              陳晨是無意間捲入的局外人。
-            </div>
-          </div>
-          <div class="world-card">
-            <div class="world-card-icon">🔮</div>
-            <div class="world-card-title">數據晶體技術</div>
-            <div class="world-card-body">
-              200 年前的失落技術，可儲存「記憶印記」而非普通數據。讀取需要特定基因共鳴，
-              目前聯盟宣稱此技術已不存在。
-            </div>
-          </div>
-          <div class="world-card">
-            <div class="world-card-icon">📅</div>
-            <div class="world-card-title">時間線設定</div>
-            <div class="world-card-body">
-              故事發生於星曆 2387 年。陳晨出生於 2359 年（28 歲）。
-              晶體時間戳顯示 2342 年，即陳晨出生前 17 年，矛盾待解。
-            </div>
-          </div>
+          {{end}}
+          {{if not .Worlds}}
+          <div style="color:var(--text-ghost);padding:20px">尚無世界觀設定檔，請在 data/worldbuilding/ 新增 .md 檔案</div>
+          {{end}}
         </div>
       </div>
     </div>
@@ -1908,7 +1705,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">寫作風格</div>
-          <div class="topbar-sub">data/style/ · 2 個風格檔</div>
+          <div class="topbar-sub">{{len .Styles}} 個風格檔</div>
         </div>
         <div class="topbar-actions">
           <button class="btn btn-primary" onclick="toast('新增風格檔')">+ 新增風格</button>
@@ -1916,38 +1713,21 @@
       </div>
       <div class="page-body">
         <div class="world-grid">
-          <div class="world-card" style="grid-column: span 2">
-            <div class="world-card-title" style="margin-bottom:10px">主線敘事.md</div>
-            <div class="world-card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-              <div>
-                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">敘事視角</strong>
-                第三人稱限知視角，嚴格限定陳晨的感知範圍
-              </div>
-              <div>
-                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">句式風格</strong>
-                簡短直接，節奏緊促，單句不超過 30 字
-              </div>
-              <div>
-                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">節奏感</strong>
-                動作場景：極短句。內心場景：中等長度，偶用破折號
-              </div>
-              <div>
-                <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">禁忌</strong>
-                禁止「她感到」「她想到」等直白心理描寫；禁止超過 3 行的景物描寫
-              </div>
-            </div>
-          </div>
+          {{range .Styles}}
           <div class="world-card">
-            <div class="world-card-title" style="margin-bottom:10px">回憶場景.md</div>
-            <div class="world-card-body">
-              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">敘事視角</strong>
-              第一人稱，破碎片段，允許時序錯亂<br><br>
-              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">句式風格</strong>
-              長短交替，感官細節豐富，允許重複意象<br><br>
-              <strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">禁忌</strong>
-              禁止明確交代時間地點，讓讀者自行拼湊
+            <div class="world-card-title" style="margin-bottom:10px">{{.Name}}</div>
+            <div class="world-card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+              {{if .Perspective}}<div><strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">敘事視角</strong>{{.Perspective}}</div>{{end}}
+              {{if .SentenceStyle}}<div><strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">句式風格</strong>{{.SentenceStyle}}</div>{{end}}
+              {{if .Rhythm}}<div><strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">節奏感</strong>{{.Rhythm}}</div>{{end}}
+              {{if .Tone}}<div><strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">語氣</strong>{{.Tone}}</div>{{end}}
+              {{if .Forbidden}}<div style="grid-column:span 2"><strong style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:5px">禁忌</strong>{{.Forbidden}}</div>{{end}}
             </div>
           </div>
+          {{end}}
+          {{if not .Styles}}
+          <div style="color:var(--text-ghost);padding:20px">尚無風格設定檔，請在 data/style/ 新增 .md 檔案</div>
+          {{end}}
         </div>
       </div>
     </div>
@@ -1994,6 +1774,26 @@
           <text x="305" y="334" font-size="10" fill="#b8a060" font-family="sans-serif">隱藏關係</text>
         </svg>
       </div>
+      <div class="page-body" style="border-top:1px solid var(--border)">
+        <div class="section-hd"><span class="section-hd-title">角色關係列表</span></div>
+        {{if .Relationships}}
+        <table class="ch-table">
+          <thead><tr><th>角色 A</th><th>角色 B</th><th>關係</th><th>備注</th></tr></thead>
+          <tbody>
+          {{range .Relationships}}
+          <tr>
+            <td>{{.From}}</td>
+            <td>{{.To}}</td>
+            <td><span class="badge badge-ghost">{{.Status}}</span></td>
+            <td style="color:var(--text-secondary);font-size:12px">{{.Note}}</td>
+          </tr>
+          {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <div style="color:var(--text-ghost);padding:16px">尚無關係資料，審查完章節後會自動更新</div>
+        {{end}}
+      </div>
     </div>
 
     <!-- ══ PAGE: 時間軸 ══ -->
@@ -2001,7 +1801,7 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">時間軸</div>
-          <div class="topbar-sub">data/timeline.json · 跨 8 章 · 22 個事件</div>
+          <div class="topbar-sub">{{len .Timeline}} 個事件</div>
         </div>
         <div class="topbar-actions">
           <button class="btn" onclick="toast('已匯出時間軸')">匯出</button>
@@ -2009,58 +1809,18 @@
       </div>
       <div class="page-body">
         <div class="timeline">
+          {{range .Timeline}}
           <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <div class="timeline-ch">第 01 章</div>
-            <div class="timeline-title">陳晨與 Kael 在流亡船上相遇</div>
-            <div class="timeline-body">陳晨因偷渡被 Kael 攔下，兩人達成不公平的交易：她幫助修復引擎，換取一段免費航程。</div>
+            <div class="timeline-dot{{if gt .Chapter 3}} teal{{else if gt .Chapter 1}} amber{{end}}"></div>
+            <div class="timeline-ch">第 {{printf "%02d" .Chapter}} 章{{if .Scene}} · {{.Scene}}{{end}}</div>
+            <div class="timeline-title">{{.Description}}</div>
+            {{if .Consequences}}<div class="timeline-body">{{.Consequences}}</div>{{end}}
+            {{if .Characters}}<div class="timeline-tags">{{range .Characters}}<span class="signal-tag">{{.}}</span>{{end}}</div>{{end}}
           </div>
-          <div class="timeline-item">
-            <div class="timeline-dot teal"></div>
-            <div class="timeline-ch">第 01 章</div>
-            <div class="timeline-title">Kael 通訊中的奇怪停頓</div>
-            <div class="timeline-body">陳晨無意間聽到 Kael 與不明對象的通訊，話中有話，Kael 察覺後立刻切斷。</div>
-            <div class="timeline-tags"><span class="signal-tag warn">伏筆 · Kael身份</span></div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot amber"></div>
-            <div class="timeline-ch">第 02 章</div>
-            <div class="timeline-title">抵達廢棄空間站</div>
-            <div class="timeline-body">補給計劃失敗，被迫停靠廢棄的 X-7 站台。陳晨注意到腐蝕痕跡不像自然老化。</div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot"></div>
-            <div class="timeline-ch">第 02 章</div>
-            <div class="timeline-title">發現「第七號艙」塗鴉</div>
-            <div class="timeline-body">牆上的塗鴉被 Kael 斥為廢話，但陳晨暗中拍照存檔。</div>
-            <div class="timeline-tags"><span class="signal-tag ok">伏筆 · 塗鴉 ✓ 第07章收線</span></div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot red"></div>
-            <div class="timeline-ch">第 03 章</div>
-            <div class="timeline-title">發現數據晶體</div>
-            <div class="timeline-body">陳晨獨自在廢棄站台深處發現神秘晶體，決定隱瞞 Kael。晶體顯示她出生前 17 年的臉。</div>
-            <div class="timeline-tags"><span class="signal-tag warn">伏筆 · 身份謎題</span></div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot teal"></div>
-            <div class="timeline-ch">第 04 章</div>
-            <div class="timeline-title">追蹤器揭露</div>
-            <div class="timeline-body">飛船被聯盟鎖定，Kael 找到並摧毀追蹤器，拒絕解釋如何知道其位置。</div>
-            <div class="timeline-tags"><span class="signal-tag ok">伏筆 · 追蹤者 ✓ 已收線</span></div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot amber"></div>
-            <div class="timeline-ch">第 07 章</div>
-            <div class="timeline-title">失落艦隊殘骸</div>
-            <div class="timeline-body">「第七號艙」塗鴉指引到失落艦隊殘骸，艦隊在 200 年前神秘失蹤，與聯盟的建立時間高度重疊。</div>
-          </div>
-          <div class="timeline-item">
-            <div class="timeline-dot red"></div>
-            <div class="timeline-ch">第 08 章</div>
-            <div class="timeline-title">身份的裂縫</div>
-            <div class="timeline-body">在失落艦隊殘骸深處，陳晨找到第二個晶體，裡面的記憶讓她懷疑自己的整個童年記憶都是植入的。</div>
-          </div>
+          {{end}}
+          {{if not .Timeline}}
+          <div style="color:var(--text-ghost);padding:20px">尚無時間軸資料，審查完章節後會自動更新</div>
+          {{end}}
         </div>
       </div>
     </div>

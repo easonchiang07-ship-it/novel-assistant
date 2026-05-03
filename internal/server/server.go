@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -182,6 +183,30 @@ func (s *Server) templateFuncMap() template.FuncMap {
 		"authEnabled": func() bool {
 			return s.auth != nil && s.auth.Enabled()
 		},
+		"add1": func(i int) int { return i + 1 },
+		"sub":  func(a, b int) int { return a - b },
+		"rune2": func(str string) string {
+			runes := []rune(str)
+			if len(runes) >= 2 {
+				return string(runes[:2])
+			}
+			return string(runes)
+		},
+		"timeAgo": func(t time.Time) string {
+			d := time.Since(t)
+			switch {
+			case d < 2*time.Minute:
+				return "剛才"
+			case d < time.Hour:
+				return fmt.Sprintf("%.0f 分鐘前", d.Minutes())
+			case d < 24*time.Hour:
+				return fmt.Sprintf("%.0f 小時前", d.Hours())
+			case d < 7*24*time.Hour:
+				return fmt.Sprintf("%.0f 天前", d.Hours()/24)
+			default:
+				return t.Format("2006-01-02")
+			}
+		},
 	}
 }
 
@@ -272,6 +297,7 @@ func (s *Server) setupRoutes() {
 	protected.GET("/relationships", s.handleRelationshipsPage)
 	protected.GET("/timeline", s.handleTimelinePage)
 	protected.GET("/foreshadow", s.handleForeshadowPage)
+	protected.GET("/app", s.handleNovelAssistantPage)
 	protected.GET("/api/history/:id", s.handleGetHistoryEntry)
 	protected.GET("/api/history/:id/diff", s.handleGetHistoryDiff)
 	protected.GET("/api/backups", s.handleListBackups)

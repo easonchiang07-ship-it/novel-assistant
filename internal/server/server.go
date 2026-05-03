@@ -253,6 +253,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/setup/specs", s.handleSetupSpecs)
 	r.GET("/api/setup/install-ollama", s.handleSetupInstallOllama)
 	r.GET("/api/setup/pull-model", s.handleSetupPullModel)
+	r.GET("/api/setup/check-ollama", s.handleSetupCheckOllama)
 	r.POST("/api/setup/complete", s.handleSetupComplete)
 
 	protected := r.Group("/")
@@ -260,6 +261,7 @@ func (s *Server) setupRoutes() {
 	protected.Use(s.requireAuth())
 
 	protected.GET("/", s.handleIndex)
+	protected.GET("/app", s.handleAppPage)
 	protected.GET("/chapters", s.handleChaptersPage)
 	protected.GET("/characters", s.handleCharacters)
 	protected.GET("/history", s.handleHistoryPage)

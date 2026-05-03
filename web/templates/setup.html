@@ -328,6 +328,8 @@ h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .5rem; }
       <h1>下載 AI 模型</h1>
       <p class="subtitle">首次下載需要一些時間，請耐心等待。</p>
 
+      <div id="ollamaCheckMsg" class="hidden" style="text-align:center;padding:.75rem;color:#6b7280;font-size:.95rem;"></div>
+
       <div id="pullItems"></div>
 
       <div id="pullError" class="hidden error-box"></div>
@@ -509,6 +511,39 @@ async function runOllamaInstall() {
 
 // ── Step 4: Pull models ─────────────────────────────────────────────────
 async function runModelPull() {
+  const checkMsg = document.getElementById('ollamaCheckMsg');
+  const errBox = document.getElementById('pullError');
+
+  // Reset state from any previous attempt
+  document.getElementById('pullItems').textContent = '';
+  errBox.classList.add('hidden');
+  checkMsg.textContent = '偵測 Ollama 中…';
+  checkMsg.classList.remove('hidden');
+
+  // Health check before downloading
+  let ollamaOk = false;
+  try {
+    const resp = await fetch('/api/setup/check-ollama');
+    const data = await resp.json();
+    ollamaOk = data.ok === true;
+  } catch (_) {}
+
+  checkMsg.classList.add('hidden');
+
+  if (!ollamaOk) {
+    errBox.classList.remove('hidden');
+    errBox.textContent = '';
+    errBox.appendChild(document.createTextNode(
+      '請先確認 Ollama 已開啟（Windows：從開始選單啟動 Ollama；macOS：從應用程式開啟） '
+    ));
+    const btn = document.createElement('button');
+    btn.textContent = '偵測並繼續';
+    btn.style.cssText = 'margin-left:.75rem;padding:.2rem .75rem;background:#667eea;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.8rem;';
+    btn.onclick = runModelPull;
+    errBox.appendChild(btn);
+    return;
+  }
+
   const modelsToInstall = [
     { name: selectedLLM, label: selectedLLM },
     { name: 'nomic-embed-text', label: 'Nomic Embed Text' },
@@ -527,8 +562,6 @@ async function runModelPull() {
        <div class="progress-msg" id="msg-${cssId(m.name)}">排隊中…</div>
      </div>`
   ).join('');
-
-  document.getElementById('pullError').classList.add('hidden');
 
   for (const m of modelsToInstall) {
     const ok = await pullModel(m.name);

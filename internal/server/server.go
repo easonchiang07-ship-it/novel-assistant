@@ -253,6 +253,7 @@ func (s *Server) setupRoutes() {
 	r.GET("/api/setup/specs", s.handleSetupSpecs)
 	r.GET("/api/setup/install-ollama", s.handleSetupInstallOllama)
 	r.GET("/api/setup/pull-model", s.handleSetupPullModel)
+	r.GET("/api/setup/check-ollama", s.handleSetupCheckOllama)
 	r.POST("/api/setup/complete", s.handleSetupComplete)
 
 	protected := r.Group("/")

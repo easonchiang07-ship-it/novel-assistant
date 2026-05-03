@@ -1,11 +1,13 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"novel-assistant/internal/setup"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -91,6 +93,39 @@ func (s *Server) handleSetupPullModel(c *gin.Context) {
 		return
 	}
 	s.streamOllamaPull(c, model)
+}
+
+// handleSetupCheckOllama pings Ollama's /api/tags and returns {"ok": true/false}.
+func (s *Server) handleSetupCheckOllama(c *gin.Context) {
+	dataDir := s.globalDataDir
+	if dataDir == "" {
+		dataDir = "data"
+	}
+	if setup.IsComplete(dataDir) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "setup already complete"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", s.cfg.OllamaURL+"/api/tags", nil)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("Ollama 回應 %d", resp.StatusCode)})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // handleSetupComplete persists the chosen models and marks setup as done.

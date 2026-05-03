@@ -261,7 +261,6 @@ func (s *Server) setupRoutes() {
 	protected.Use(s.requireAuth())
 
 	protected.GET("/", s.handleIndex)
-	protected.GET("/app", s.handleAppPage)
 	protected.GET("/chapters", s.handleChaptersPage)
 	protected.GET("/characters", s.handleCharacters)
 	protected.GET("/history", s.handleHistoryPage)

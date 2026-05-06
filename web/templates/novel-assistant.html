@@ -1153,7 +1153,7 @@
     </div>
 
     <div class="project-selector">
-      <button class="project-btn" onclick="toast('切換專案')">
+      <button class="project-btn" onclick="window.location.href='/settings'">
         <span class="project-dot"></span>
         <span class="project-btn-label">星際流亡者</span>
         <span class="project-btn-chevron">⌄</span>
@@ -1293,7 +1293,7 @@
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1"/><path d="M4 6l1.5 1.5 2.5-3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
             送出審查
           </button>
-          <button class="btn btn-primary" onclick="toast('重新索引中…')">
+          <button class="btn btn-primary" onclick="reindex(this)">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10 6A4 4 0 1 1 2 6" stroke="white" stroke-width="1.1" stroke-linecap="round"/><path d="M10 3v3h-3" stroke="white" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
             重新索引
           </button>
@@ -1326,7 +1326,7 @@
 
         <div class="section-hd">
           <span class="section-hd-title">章節列表</span>
-          <button class="btn" onclick="toast('匯出中…')">
+          <button class="btn" onclick="exportManuscript(this)">
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v7M2 6l3.5 3.5L9 6" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 9.5h9" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>
             匯出全本報告
           </button>
@@ -1353,7 +1353,7 @@
               <td>{{if gt $ch.ReviewCount 0}}<span class="badge badge-teal">已審查</span>{{else}}<span class="badge badge-ghost">待審查</span>{{end}}</td>
               <td><div class="signal-list">{{range $ch.Characters}}<span class="signal-tag">{{.}}</span>{{end}}</div></td>
               <td><div class="progress-mini" title="審查完成度：{{if gt $ch.ReviewCount 0}}100%{{else}}0%{{end}}"><div class="progress-mini-fill" style="width:{{if gt $ch.ReviewCount 0}}100%{{else}}0%{{end}}"></div></div></td>
-              <td><button class="btn" style="padding:3px 8px;font-size:11px" onclick="toast('匯出報告')">報告</button></td>
+              <td><button class="btn" style="padding:3px 8px;font-size:11px" data-chapter="{{$ch.Name}}" onclick="exportChapterReport(this)">報告</button></td>
             </tr>
             {{end}}
             {{if .ChapterError}}
@@ -1374,8 +1374,8 @@
           <div class="topbar-sub">第 03 章 · 晶體的低語 · 2,400 字</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn" onclick="toast('匯出章節報告')">匯出報告</button>
-          <button class="btn btn-primary" onclick="toast('已接受所有修改稿')">接受全部修改</button>
+          <button class="btn" disabled title="請至審查歷史頁匯出">匯出報告</button>
+          <button class="btn btn-primary" disabled title="修改稿接受功能開發中">接受全部修改</button>
         </div>
       </div>
 
@@ -1475,9 +1475,9 @@
               <span class="diff-add">她把晶體壓進口袋，稜角嵌進掌心。<em>告訴他，然後呢？</em> 那個停頓。昨天 Kael 說話時那個半秒的停頓。她讓念頭沉下去。</span>
             </div>
             <div class="diff-actions">
-              <button class="btn btn-primary" onclick="toast('已接受修改稿')">接受此修改</button>
-              <button class="btn" onclick="toast('已回填至編輯器')">回填編輯器</button>
-              <button class="btn btn-danger" onclick="toast('已略過')">略過</button>
+              <button class="btn btn-primary" disabled title="修改稿接受功能開發中">接受此修改</button>
+              <button class="btn" disabled title="修改稿接受功能開發中">回填編輯器</button>
+              <button class="btn btn-danger" disabled title="修改稿接受功能開發中">略過</button>
             </div>
           </div>
         </div>
@@ -1489,10 +1489,10 @@
       <div class="topbar">
         <div class="topbar-title-wrap">
           <div class="topbar-title">審查歷史</div>
-          <div class="topbar-sub">全部章節 · 共 18 筆記錄</div>
+          <div class="topbar-sub">全部章節 · 共 {{len .History}} 筆記錄</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn" onclick="toast('備份已建立')">建立備份</button>
+          <button class="btn" onclick="createBackup(this)">建立備份</button>
         </div>
       </div>
       <div class="page-body">
@@ -1500,83 +1500,31 @@
           <thead>
             <tr>
               <th>章節</th>
-              <th>審查次數</th>
+              <th>類型</th>
               <th>時間</th>
-              <th>模型</th>
-              <th>結果</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
+            {{range .History}}
             <tr>
-              <td>第 03 章 · 晶體的低語</td>
-              <td>#2</td>
-              <td>今天 14:32</td>
-              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
-              <td><span class="badge badge-red">2 錯誤 · 1 警告</span></td>
+              <td>{{.ChapterTitle}}</td>
+              <td>{{if eq .Kind "rewrite"}}修稿{{else}}審查{{end}} #{{.KindVersion}}</td>
+              <td>{{timeAgo .CreatedAt}}</td>
               <td>
                 <div class="flex gap-2">
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="navigate(document.querySelector('[data-page=review]'),'review')">查看 diff</button>
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
-                  <button class="btn btn-danger" style="padding:3px 7px;font-size:11px" onclick="toast('已刪除')">刪除</button>
+                  <a href="/history" class="btn" style="padding:3px 7px;font-size:11px">查看全部</a>
+                  <button class="btn" style="padding:3px 7px;font-size:11px" data-id="{{.ID}}" onclick="exportHistoryEntry(this)">匯出</button>
+                  <button class="btn btn-danger" style="padding:3px 7px;font-size:11px" data-id="{{.ID}}" onclick="deleteHistoryEntry(this)">刪除</button>
                 </div>
               </td>
             </tr>
-            <tr>
-              <td>第 03 章 · 晶體的低語</td>
-              <td>#1</td>
-              <td>昨天 09:15</td>
-              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
-              <td><span class="badge badge-teal">通過</span></td>
-              <td>
-                <div class="flex gap-2">
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td>第 02 章 · 廢棄站台</td>
-              <td>#3</td>
-              <td>3 天前</td>
-              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
-              <td><span class="badge badge-teal">通過</span></td>
-              <td>
-                <div class="flex gap-2">
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td>第 02 章 · 廢棄站台</td>
-              <td>#2</td>
-              <td>4 天前</td>
-              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
-              <td><span class="badge badge-amber">1 警告</span></td>
-              <td>
-                <div class="flex gap-2">
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td>第 01 章 · 流亡之始</td>
-              <td>#1</td>
-              <td>1 週前</td>
-              <td style="font-family:var(--font-mono);font-size:11px">llama3.2</td>
-              <td><span class="badge badge-teal">通過</span></td>
-              <td>
-                <div class="flex gap-2">
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('查看 diff')">查看 diff</button>
-                  <button class="btn" style="padding:3px 7px;font-size:11px" onclick="toast('已匯出')">匯出</button>
-                </div>
-              </td>
-            </tr>
+            {{else}}
+            <tr><td colspan="4" style="text-align:center;color:var(--text-ghost);padding:20px">尚無審查記錄</td></tr>
+            {{end}}
           </tbody>
         </table>
-        <div style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:right">目前共 5 筆記錄</div>
+        <div style="margin-top:12px;font-size:12px;color:var(--text-muted);text-align:right">目前共 {{len .History}} 筆記錄</div>
       </div>
     </div>
 
@@ -1588,7 +1536,7 @@
           <div class="topbar-sub">{{len .OpenForeshadows}} 個未解 · {{len .ClosedForeshadows}} 個已收線</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn btn-primary" onclick="toast('新增伏筆')">+ 手動新增</button>
+          <button class="btn btn-primary" onclick="showAddForeshadow()">+ 手動新增</button>
         </div>
       </div>
       <div class="page-body">
@@ -1650,7 +1598,7 @@
           <div class="topbar-sub">{{len .Characters}} 個角色檔</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn btn-primary" onclick="toast('新增角色')">+ 新增角色</button>
+          <button class="btn btn-primary" onclick="window.location.href='/characters'">+ 新增角色</button>
         </div>
       </div>
       <div class="page-body">
@@ -1682,7 +1630,7 @@
           <div class="topbar-sub">{{len .Worlds}} 個設定檔</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn btn-primary" onclick="toast('新增設定')">+ 新增設定</button>
+          <button class="btn btn-primary" disabled title="請在 data/worldbuilding/ 新增 .md 檔案">+ 新增設定</button>
         </div>
       </div>
       <div class="page-body">
@@ -1708,7 +1656,7 @@
           <div class="topbar-sub">{{len .Styles}} 個風格檔</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn btn-primary" onclick="toast('新增風格檔')">+ 新增風格</button>
+          <button class="btn btn-primary" onclick="window.location.href='/styles'">+ 新增風格</button>
         </div>
       </div>
       <div class="page-body">
@@ -1740,7 +1688,7 @@
           <div class="topbar-sub">data/relationships.json · 自動從審查結果更新</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn" onclick="toast('已匯出關係圖')">匯出</button>
+          <button class="btn" onclick="exportRelationships()">匯出</button>
         </div>
       </div>
       <div class="relation-canvas">
@@ -1804,7 +1752,7 @@
           <div class="topbar-sub">{{len .Timeline}} 個事件</div>
         </div>
         <div class="topbar-actions">
-          <button class="btn" onclick="toast('已匯出時間軸')">匯出</button>
+          <button class="btn" onclick="exportTimeline()">匯出</button>
         </div>
       </div>
       <div class="page-body">
@@ -1832,7 +1780,35 @@
 <!-- Toast container -->
 <div class="toast-wrap" id="toast-wrap"></div>
 
+<!-- 新增伏筆 Modal -->
+<div id="foreshadow-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:var(--bg-surface);border-radius:10px;padding:24px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <div style="font-weight:600;font-size:15px;margin-bottom:16px">手動新增伏筆</div>
+    <form id="foreshadow-add-form" action="/foreshadow" method="post">
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px">埋下章節 *</label>
+        <input type="number" name="chapter" min="1" placeholder="例：2" required style="width:100%;padding:6px 10px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;background:var(--bg-raised)">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px">伏筆描述 *</label>
+        <textarea name="description" placeholder="這個伏筆是什麼？" required style="width:100%;padding:6px 10px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;background:var(--bg-raised);min-height:72px;resize:vertical"></textarea>
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;color:var(--text-secondary);display:block;margin-bottom:4px">埋下方式（選填）</label>
+        <input type="text" name="planted_in" placeholder="例：林昊看了一眼桌上的信，沒有打開" style="width:100%;padding:6px 10px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;background:var(--bg-raised)">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="hideAddForeshadow()">取消</button>
+        <button type="submit" class="btn btn-primary">新增</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
+  const _relData = {{jsonJS .Relationships}};
+  const _timelineData = {{jsonJS .Timeline}};
+
   /* ── Navigation ── */
   function navigate(el, pageId) {
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -1856,6 +1832,160 @@
       t.classList.add('out');
       setTimeout(() => t.remove(), 220);
     }, 2200);
+  }
+
+  /* ── 重新索引 ── */
+  async function reindex(btn) {
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = '索引中…';
+    try {
+      const resp = await fetch('/ingest', {method: 'POST'});
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      toast('重新索引完成');
+    } catch(e) {
+      toast('索引失敗：' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origHTML;
+    }
+  }
+
+  /* ── 匯出全本報告 ── */
+  async function exportManuscript(btn) {
+    const origText = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = '匯出中…';
+    try {
+      const resp = await fetch('/api/manuscript/export', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'});
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      await triggerDownload(resp, 'novel_manuscript.md');
+      toast('全本報告已匯出');
+    } catch(e) {
+      toast('匯出失敗：' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origText;
+    }
+  }
+
+  /* ── 匯出章節報告 ── */
+  async function exportChapterReport(btn) {
+    const name = btn.dataset.chapter;
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/chapter-report/export', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        throw new Error(d.error || 'HTTP ' + resp.status);
+      }
+      await triggerDownload(resp, name.replace(/\.md$/, '') + '_bundle.zip');
+      toast('章節報告已匯出');
+    } catch(e) {
+      toast('匯出失敗：' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── 建立備份 ── */
+  async function createBackup(btn) {
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/backups/create', {method: 'POST'});
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        throw new Error(d.error || 'HTTP ' + resp.status);
+      }
+      toast('備份已建立');
+    } catch(e) {
+      toast('建立備份失敗：' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── 匯出歷史紀錄 ── */
+  async function exportHistoryEntry(btn) {
+    const id = btn.dataset.id;
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/history/export', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ids: [id]})});
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        throw new Error(d.error || 'HTTP ' + resp.status);
+      }
+      await triggerDownload(resp, 'review-history.md');
+      toast('已匯出');
+    } catch(e) {
+      toast('匯出失敗：' + e.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  /* ── 刪除歷史紀錄 ── */
+  async function deleteHistoryEntry(btn) {
+    const id = btn.dataset.id;
+    if (!confirm('確定刪除此筆審查記錄？')) return;
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/history/delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id})});
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}));
+        throw new Error(d.error || 'HTTP ' + resp.status);
+      }
+      toast('已刪除');
+      btn.closest('tr').remove();
+    } catch(e) {
+      toast('刪除失敗：' + e.message);
+      btn.disabled = false;
+    }
+  }
+
+  /* ── 匯出關係圖 ── */
+  function exportRelationships() {
+    downloadJSON(_relData, 'relationships.json');
+    toast('關係圖已匯出');
+  }
+
+  /* ── 匯出時間軸 ── */
+  function exportTimeline() {
+    downloadJSON(_timelineData, 'timeline.json');
+    toast('時間軸已匯出');
+  }
+
+  /* ── 伏筆 Modal ── */
+  function showAddForeshadow() {
+    const m = document.getElementById('foreshadow-modal');
+    m.style.display = 'flex';
+  }
+  function hideAddForeshadow() {
+    document.getElementById('foreshadow-modal').style.display = 'none';
+  }
+  document.getElementById('foreshadow-modal').addEventListener('click', function(e) {
+    if (e.target === this) hideAddForeshadow();
+  });
+
+  /* ── Helpers ── */
+  async function triggerDownload(resp, fallbackName) {
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = m ? m[1] : fallbackName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function downloadJSON(data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   /* ── Toggle ── */

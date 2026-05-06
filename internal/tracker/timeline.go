@@ -12,6 +12,7 @@ import (
 type TimelineEvent struct {
 	ID           string    `json:"id"`
 	Chapter      int       `json:"chapter"`
+	SceneIndex   int       `json:"scene_index,omitempty"`
 	Scene        string    `json:"scene"`
 	Description  string    `json:"description"`
 	Characters   []string  `json:"characters"`

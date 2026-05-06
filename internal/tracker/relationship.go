@@ -13,6 +13,8 @@ type Relationship struct {
 	Status       string    `json:"status"`
 	Note         string    `json:"note"`
 	TriggerEvent string    `json:"trigger_event"`
+	Chapter      int       `json:"chapter,omitempty"`
+	SceneIndex   int       `json:"scene_index,omitempty"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 

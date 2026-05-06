@@ -12,6 +12,7 @@ import (
 type Foreshadowing struct {
 	ID              string    `json:"id"`
 	Chapter         int       `json:"chapter"`
+	SceneIndex      int       `json:"scene_index,omitempty"`
 	Description     string    `json:"description"`
 	PlantedIn       string    `json:"planted_in"`
 	ResolvedIn      string    `json:"resolved_in"`

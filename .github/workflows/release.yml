@@ -18,7 +18,7 @@ jobs:
         include:
           - goos: windows
             goarch: amd64
-            runner: ubuntu-latest
+            runner: windows-latest
             asset_name: novel-assistant-windows-amd64
             ext: .exe
 
@@ -49,6 +49,7 @@ jobs:
           cache: true
 
       - name: Build binary
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -62,18 +63,15 @@ jobs:
       # ── Windows: wrap with Inno Setup installer ──────────────────────
       - name: Package Windows installer
         if: matrix.goos == 'windows'
+        shell: pwsh
         run: |
-          # Install Inno Setup via wine
-          sudo apt-get install -y wine-stable
-          wget -q "https://jrsoftware.org/download.php/is.exe" -O /tmp/is.exe
-          wine /tmp/is.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          # Copy binary for the .iss script
-          cp dist/${{ matrix.asset_name }}.exe scripts/novel-assistant.exe
-          wine "$HOME/.wine/drive_c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
-            /DMyAppVersion=${{ github.ref_name }} \
-            scripts/windows.iss
-          mv scripts/Output/NovelAssistantSetup.exe \
-            dist/${{ matrix.asset_name }}-setup.exe
+          choco install innosetup --yes --no-progress
+          Copy-Item dist\${{ matrix.asset_name }}.exe scripts\novel-assistant.exe
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DMyAppVersion=${{ github.ref_name }} `
+            scripts\windows.iss
+          Move-Item scripts\Output\NovelAssistantSetup.exe `
+            dist\${{ matrix.asset_name }}-setup.exe
 
       # ── macOS: create .dmg ────────────────────────────────────────────
       - name: Package macOS DMG

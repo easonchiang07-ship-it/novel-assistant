@@ -1936,7 +1936,15 @@
         throw new Error(d.error || 'HTTP ' + resp.status);
       }
       toast('已刪除');
+      const tbody = btn.closest('tbody');
       btn.closest('tr').remove();
+      const remaining = tbody.querySelectorAll('tr').length;
+      document.querySelectorAll('#page-history .topbar-sub, #page-history [style*="text-align:right"]').forEach(el => {
+        el.textContent = el.textContent.replace(/\d+/, remaining);
+      });
+      if (remaining === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-ghost);padding:20px">尚無審查記錄</td></tr>';
+      }
     } catch(e) {
       toast('刪除失敗：' + e.message);
       btn.disabled = false;

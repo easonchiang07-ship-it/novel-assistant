@@ -12,6 +12,7 @@ import (
 
 type timelineWritebackRequest struct {
 	Chapter      int      `json:"chapter"`
+	SceneIndex   int      `json:"scene_index,omitempty"`
 	Scene        string   `json:"scene"`
 	Description  string   `json:"description"`
 	Characters   []string `json:"characters"`
@@ -20,6 +21,7 @@ type timelineWritebackRequest struct {
 
 type foreshadowWritebackRequest struct {
 	Chapter     int    `json:"chapter"`
+	SceneIndex  int    `json:"scene_index,omitempty"`
 	Description string `json:"description"`
 	PlantedIn   string `json:"planted_in"`
 }
@@ -30,6 +32,8 @@ type relationshipWritebackRequest struct {
 	Status       string `json:"status"`
 	Note         string `json:"note"`
 	TriggerEvent string `json:"trigger_event"`
+	Chapter      int    `json:"chapter,omitempty"`
+	SceneIndex   int    `json:"scene_index,omitempty"`
 }
 
 func saveTrackerAsJSON(c *gin.Context, action string, err error) bool {
@@ -58,6 +62,7 @@ func (s *Server) handleWritebackTimeline(c *gin.Context) {
 
 	s.timeline.Add(&tracker.TimelineEvent{
 		Chapter:      req.Chapter,
+		SceneIndex:   req.SceneIndex,
 		Scene:        strings.TrimSpace(req.Scene),
 		Description:  strings.TrimSpace(req.Description),
 		Characters:   req.Characters,
@@ -86,6 +91,7 @@ func (s *Server) handleWritebackForeshadow(c *gin.Context) {
 
 	s.foreshadow.Add(&tracker.Foreshadowing{
 		Chapter:     req.Chapter,
+		SceneIndex:  req.SceneIndex,
 		Description: strings.TrimSpace(req.Description),
 		PlantedIn:   strings.TrimSpace(req.PlantedIn),
 	})
@@ -116,6 +122,8 @@ func (s *Server) handleWritebackRelationship(c *gin.Context) {
 		Status:       strings.TrimSpace(req.Status),
 		Note:         strings.TrimSpace(req.Note),
 		TriggerEvent: strings.TrimSpace(req.TriggerEvent),
+		Chapter:      req.Chapter,
+		SceneIndex:   req.SceneIndex,
 	})
 	if !saveTrackerAsJSON(c, "save relationship", s.relationships.Save()) {
 		return

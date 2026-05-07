@@ -1594,6 +1594,9 @@ func (s *Server) handleAddRelationship(c *gin.Context) {
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
 	}
+	s.applyStateGraphDelta(r.Chapter, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: r.From, To: r.To, Status: r.Status, Note: r.Note},
+	}})
 	c.Redirect(http.StatusFound, "/relationships")
 }
 
@@ -1619,16 +1622,18 @@ func (s *Server) handleAddTimelineEvent(c *gin.Context) {
 			chars = append(chars, t)
 		}
 	}
-	s.timeline.Add(&tracker.TimelineEvent{
+	ev := &tracker.TimelineEvent{
 		Chapter:      chapter,
 		Scene:        c.PostForm("scene"),
 		Description:  c.PostForm("description"),
 		Characters:   chars,
 		Consequences: c.PostForm("consequences"),
-	})
+	}
+	s.timeline.Add(ev)
 	if !saveOrAbort(c, s.timeline.Save(), "save timeline") {
 		return
 	}
+	s.applyStateGraphDelta(ev.Chapter, tracker.StateDelta{Events: []tracker.TimelineEvent{*ev}})
 	c.Redirect(http.StatusFound, "/timeline")
 }
 
@@ -1648,22 +1653,37 @@ func (s *Server) handleAddForeshadow(c *gin.Context) {
 		c.String(http.StatusBadRequest, "%s", err.Error())
 		return
 	}
-	s.foreshadow.Add(&tracker.Foreshadowing{
+	fs := &tracker.Foreshadowing{
 		Chapter:     chapter,
 		Description: c.PostForm("description"),
 		PlantedIn:   c.PostForm("planted_in"),
-	})
+	}
+	s.foreshadow.Add(fs)
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
+	s.applyStateGraphDelta(fs.Chapter, tracker.StateDelta{AddedFS: []string{fs.ID}})
 	c.Redirect(http.StatusFound, "/foreshadow")
 }
 
 func (s *Server) handleResolveForeshadow(c *gin.Context) {
-	s.foreshadow.Resolve(c.PostForm("id"), c.PostForm("resolved_in"))
+	id := c.PostForm("id")
+	s.foreshadow.Resolve(id, c.PostForm("resolved_in"))
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
+	// Use the foreshadow's chapter as the best-effort resolve chapter.
+	resolveChapter := 0
+	for _, f := range s.foreshadow.GetAll() {
+		if f.ID == id {
+			resolveChapter = f.LastSeenChapter
+			if resolveChapter == 0 {
+				resolveChapter = f.Chapter
+			}
+			break
+		}
+	}
+	s.applyStateGraphDelta(resolveChapter, tracker.StateDelta{ResolvedFS: []string{id}})
 	c.Redirect(http.StatusFound, "/foreshadow")
 }
 
@@ -1742,12 +1762,18 @@ func (s *Server) handleConfirmForeshadow(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter 必須為正整數"})
 		return
 	}
+	beforeItems := s.foreshadow.GetAll()
 	if !s.foreshadow.ConfirmPending(req.ID, req.Chapter, req.PlantedIn) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "pending hook not found"})
 		return
 	}
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
+	}
+	afterItems := s.foreshadow.GetAll()
+	if len(afterItems) > len(beforeItems) {
+		newItem := afterItems[len(afterItems)-1]
+		s.applyStateGraphDelta(newItem.Chapter, tracker.StateDelta{AddedFS: []string{newItem.ID}})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "pending": s.foreshadow.GetPending()})
 }

@@ -36,6 +36,20 @@ type relationshipWritebackRequest struct {
 	SceneIndex   int    `json:"scene_index,omitempty"`
 }
 
+// applyStateGraphDelta fires-and-forgets a state graph delta; errors are logged only.
+func (s *Server) applyStateGraphDelta(chapter int, delta tracker.StateDelta) {
+	if s.stateGraph == nil {
+		return
+	}
+	if err := s.stateGraph.Apply(chapter, delta); err != nil {
+		log.Printf("stategraph apply: %v", err)
+		return
+	}
+	if err := s.stateGraph.Save(); err != nil {
+		log.Printf("stategraph save: %v", err)
+	}
+}
+
 func saveTrackerAsJSON(c *gin.Context, action string, err error) bool {
 	if err == nil {
 		return true
@@ -60,17 +74,19 @@ func (s *Server) handleWritebackTimeline(c *gin.Context) {
 		return
 	}
 
-	s.timeline.Add(&tracker.TimelineEvent{
+	ev := &tracker.TimelineEvent{
 		Chapter:      req.Chapter,
 		SceneIndex:   req.SceneIndex,
 		Scene:        strings.TrimSpace(req.Scene),
 		Description:  strings.TrimSpace(req.Description),
 		Characters:   req.Characters,
 		Consequences: strings.TrimSpace(req.Consequences),
-	})
+	}
+	s.timeline.Add(ev)
 	if !saveTrackerAsJSON(c, "save timeline", s.timeline.Save()) {
 		return
 	}
+	s.applyStateGraphDelta(ev.Chapter, tracker.StateDelta{Events: []tracker.TimelineEvent{*ev}})
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已加入時間軸"})
 }
 
@@ -89,15 +105,17 @@ func (s *Server) handleWritebackForeshadow(c *gin.Context) {
 		return
 	}
 
-	s.foreshadow.Add(&tracker.Foreshadowing{
+	fs := &tracker.Foreshadowing{
 		Chapter:     req.Chapter,
 		SceneIndex:  req.SceneIndex,
 		Description: strings.TrimSpace(req.Description),
 		PlantedIn:   strings.TrimSpace(req.PlantedIn),
-	})
+	}
+	s.foreshadow.Add(fs)
 	if !saveTrackerAsJSON(c, "save foreshadow", s.foreshadow.Save()) {
 		return
 	}
+	s.applyStateGraphDelta(fs.Chapter, tracker.StateDelta{AddedFS: []string{fs.ID}})
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已加入伏筆追蹤"})
 }
 
@@ -116,7 +134,7 @@ func (s *Server) handleWritebackRelationship(c *gin.Context) {
 		return
 	}
 
-	s.relationships.Upsert(&tracker.Relationship{
+	rel := &tracker.Relationship{
 		From:         strings.TrimSpace(req.From),
 		To:           strings.TrimSpace(req.To),
 		Status:       strings.TrimSpace(req.Status),
@@ -124,9 +142,13 @@ func (s *Server) handleWritebackRelationship(c *gin.Context) {
 		TriggerEvent: strings.TrimSpace(req.TriggerEvent),
 		Chapter:      req.Chapter,
 		SceneIndex:   req.SceneIndex,
-	})
+	}
+	s.relationships.Upsert(rel)
 	if !saveTrackerAsJSON(c, "save relationship", s.relationships.Save()) {
 		return
 	}
+	s.applyStateGraphDelta(rel.Chapter, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: rel.From, To: rel.To, Status: rel.Status, Note: rel.Note},
+	}})
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已更新角色關係"})
 }

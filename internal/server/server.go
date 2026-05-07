@@ -42,6 +42,7 @@ type projectState struct {
 	timeline      *tracker.TimelineTracker
 	foreshadow    *tracker.ForeshadowTracker
 	worldstate    *worldstate.Store
+	stateGraph    *tracker.JSONStateGraph
 }
 
 type Server struct {
@@ -64,6 +65,7 @@ type Server struct {
 	timeline       *tracker.TimelineTracker
 	foreshadow     *tracker.ForeshadowTracker
 	worldstate     *worldstate.Store
+	stateGraph     *tracker.JSONStateGraph
 	retriever      retriever.Retriever
 	chapterOrderMu sync.RWMutex
 	scenePlansMu   sync.RWMutex
@@ -411,6 +413,11 @@ func (s *Server) loadProjectState(name string) (*projectState, error) {
 		log.Printf("worldstate load: %v", err)
 	}
 
+	st.stateGraph = tracker.NewJSONStateGraph(filepath.Join(dataDir, "stategraph.json"))
+	if err := st.stateGraph.Load(); err != nil {
+		log.Printf("stategraph load: %v", err)
+	}
+
 	return st, nil
 }
 
@@ -440,6 +447,7 @@ func (s *Server) currentState() *projectState {
 		timeline:      s.timeline,
 		foreshadow:    s.foreshadow,
 		worldstate:    s.worldstate,
+		stateGraph:    s.stateGraph,
 	}
 }
 
@@ -456,6 +464,7 @@ func (s *Server) setProjectState(st *projectState) {
 	s.timeline = st.timeline
 	s.foreshadow = st.foreshadow
 	s.worldstate = st.worldstate
+	s.stateGraph = st.stateGraph
 	s.cfg.DataDir = st.dataDir
 	s.retriever = retriever.NewVector(s.embedder, s.store)
 }

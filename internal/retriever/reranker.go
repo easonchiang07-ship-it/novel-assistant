@@ -159,8 +159,11 @@ func parseBatchScores(raw string, n int) ([]float64, error) {
 	return scores, nil
 }
 
-// extractFloat scans whitespace-separated tokens for the first parseable float and clamps it to [0,1].
+// extractFloat scans whitespace-separated tokens for the last parseable float and clamps it to [0,1].
+// Using the last token avoids misreading line-number prefixes (e.g. "1. 0.82", "[2] 0.45") as scores.
 func extractFloat(s string) (float64, bool) {
+	var last float64
+	found := false
 	for _, tok := range strings.Fields(s) {
 		tok = strings.TrimRight(tok, "。,.;:!?)]")
 		tok = strings.TrimLeft(tok, "([")
@@ -170,10 +173,11 @@ func extractFloat(s string) (float64, bool) {
 			} else if f > 1 {
 				f = 1
 			}
-			return f, true
+			last = f
+			found = true
 		}
 	}
-	return 0, false
+	return last, found
 }
 
 // WithReranking wraps inner with reranking. When cfg.Enabled is false, inner is returned as-is

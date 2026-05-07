@@ -156,6 +156,9 @@ func TestLLMRerankerHandlesMessyScoreOutput(t *testing.T) {
 		{"label prefix", "score: 0.75", 0.75},
 		{"trailing comma", "0.60,", 0.60},
 		{"extra explanation line then score", "The text is relevant.\n0.90", 0.90},
+		{"numbered dot prefix", "1. 0.82", 0.82},
+		{"bracketed index prefix", "[2] 0.45", 0.45},
+		{"paren index prefix", "3) 0.91", 0.91},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

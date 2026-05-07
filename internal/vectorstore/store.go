@@ -24,6 +24,7 @@ type Store struct {
 	mu       sync.RWMutex
 	docs     []Document
 	filepath string
+	bm25     *bm25Index
 }
 
 type ScoredDocument struct {
@@ -45,7 +46,11 @@ func (s *Store) Load() error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, &s.docs)
+	if err := json.Unmarshal(data, &s.docs); err != nil {
+		return err
+	}
+	s.bm25 = buildBM25Index(s.docs)
+	return nil
 }
 
 func (s *Store) Save() error {
@@ -61,19 +66,25 @@ func (s *Store) Save() error {
 func (s *Store) Upsert(doc Document) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.bm25 == nil {
+		s.bm25 = newBM25Index()
+	}
 	for i, d := range s.docs {
 		if d.ID == doc.ID {
 			s.docs[i] = doc
+			s.bm25.upsert(doc)
 			return
 		}
 	}
 	s.docs = append(s.docs, doc)
+	s.bm25.upsert(doc)
 }
 
 func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.docs = nil
+	s.bm25 = nil
 }
 
 func (s *Store) Len() int {
@@ -229,6 +240,81 @@ func (s *Store) QueryChapterSummaries(beforeChapter int) []Document {
 		out = append(out, d)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ChapterIndex < out[j].ChapterIndex })
+	return out
+}
+
+// QueryHybrid merges BM25 keyword scoring with vector cosine similarity.
+// alpha=1.0 is pure vector; alpha=0.0 is pure BM25.
+// BM25 scores are normalized to [0,1] before combining.
+// beforeChapter <= 0 disables the timeline filter.
+func (s *Store) QueryHybrid(queryVec []float64, queryText string, topK int, types []string, threshold float64, alpha float64, beforeChapter int) []ScoredDocument {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	typeSet := make(map[string]struct{}, len(types))
+	for _, t := range types {
+		typeSet[t] = struct{}{}
+	}
+
+	idx := s.bm25
+	if idx == nil {
+		idx = buildBM25Index(s.docs)
+	}
+	queryTerms := tokenize(queryText)
+
+	type candidate struct {
+		doc      Document
+		vecScore float64
+		bm25Raw  float64
+	}
+	candidates := make([]candidate, 0, len(s.docs))
+	for _, d := range s.docs {
+		if len(typeSet) > 0 {
+			if _, ok := typeSet[d.Type]; !ok {
+				continue
+			}
+		}
+		if beforeChapter > 0 && d.Type == "chapter" && d.ChapterIndex >= beforeChapter {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			doc:      d,
+			vecScore: cosine(queryVec, d.Embedding),
+			bm25Raw:  idx.score(queryTerms, d.ID),
+		})
+	}
+
+	// Normalize BM25 to [0, 1].
+	maxBM25 := 0.0
+	for _, c := range candidates {
+		if c.bm25Raw > maxBM25 {
+			maxBM25 = c.bm25Raw
+		}
+	}
+
+	type scored struct {
+		doc   Document
+		score float64
+	}
+	results := make([]scored, 0, len(candidates))
+	for _, c := range candidates {
+		normBM25 := 0.0
+		if maxBM25 > 0 {
+			normBM25 = c.bm25Raw / maxBM25
+		}
+		combined := alpha*c.vecScore + (1-alpha)*normBM25
+		if threshold > 0 && combined < threshold {
+			continue
+		}
+		results = append(results, scored{doc: c.doc, score: combined})
+	}
+
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+
+	out := make([]ScoredDocument, 0, topK)
+	for i := 0; i < topK && i < len(results); i++ {
+		out = append(out, ScoredDocument{Document: results[i].doc, Score: results[i].score})
+	}
 	return out
 }
 

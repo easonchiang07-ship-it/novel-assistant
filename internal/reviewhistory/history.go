@@ -31,6 +31,17 @@ type RetrievalConfig struct {
 	Sources   []string `json:"sources"`
 	TopK      int      `json:"top_k"`
 	Threshold float64  `json:"threshold"`
+	// Alpha controls hybrid search weight: 0.0=BM25-only, 1.0=vector-only.
+	// nil means use the caller's default (typically 0.5).
+	Alpha *float64 `json:"alpha,omitempty"`
+}
+
+// EffectiveAlpha returns the configured alpha, or 0.5 if unset.
+func (c RetrievalConfig) EffectiveAlpha() float64 {
+	if c.Alpha == nil {
+		return 0.5
+	}
+	return *c.Alpha
 }
 
 type Store struct {

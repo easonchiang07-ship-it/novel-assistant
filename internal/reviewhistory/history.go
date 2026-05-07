@@ -31,6 +31,7 @@ type RetrievalConfig struct {
 	Sources   []string `json:"sources"`
 	TopK      int      `json:"top_k"`
 	Threshold float64  `json:"threshold"`
+	Alpha     float64  `json:"alpha,omitempty"` // hybrid weight: 0.0=BM25-only, 1.0=vector-only, 0=default means 0.5
 }
 
 type Store struct {

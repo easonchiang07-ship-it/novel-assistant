@@ -80,17 +80,26 @@ func (g *JSONStateGraph) Apply(chapter int, delta StateDelta) error {
 }
 
 // QueryAt replays all deltas up to and including chapter, returning the accumulated state.
-// Deletion tombstones are applied globally (across all chapters) because they represent
-// user corrections rather than story events.
+// Tombstones are chapter-aware: a delete recorded at chapter N is only applied for queries
+// at chapter N or later, preserving the historical snapshot for earlier chapters.
 func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	// Collect global tombstones from ALL deltas first.
+	sorted := make([]chapterDelta, len(g.deltas))
+	copy(sorted, g.deltas)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Chapter < sorted[j].Chapter
+	})
+
+	// Pass 1: collect tombstones from chapters <= query chapter.
 	deletedEvents := make(map[string]bool)
 	deletedFS := make(map[string]bool)
 	deletedRels := make(map[[2]string]bool)
-	for _, cd := range g.deltas {
+	for _, cd := range sorted {
+		if cd.Chapter > chapter {
+			break
+		}
 		for _, id := range cd.Delta.DeletedEventIDs {
 			deletedEvents[id] = true
 		}
@@ -102,18 +111,13 @@ func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 		}
 	}
 
+	// Pass 2: accumulate state up to chapter, filtered by tombstones.
 	state := NarrativeState{
 		Chapter:    chapter,
 		Characters: make(map[string]CharacterState),
 	}
 	fsActive := make(map[string]bool)
 	relMap := make(map[[2]string]RelationshipEdge)
-
-	sorted := make([]chapterDelta, len(g.deltas))
-	copy(sorted, g.deltas)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Chapter < sorted[j].Chapter
-	})
 
 	for _, cd := range sorted {
 		if cd.Chapter > chapter {
@@ -150,10 +154,8 @@ func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 	}
 	sort.Strings(state.ActiveFS)
 
-	for key, rel := range relMap {
-		if !deletedRels[key] {
-			state.Relationships = append(state.Relationships, rel)
-		}
+	for _, rel := range relMap {
+		state.Relationships = append(state.Relationships, rel)
 	}
 	sort.Slice(state.Relationships, func(i, j int) bool {
 		if state.Relationships[i].From != state.Relationships[j].From {

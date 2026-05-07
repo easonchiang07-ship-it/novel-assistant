@@ -146,10 +146,43 @@ func TestStateGraphSaveCreatesFile(t *testing.T) {
 	}
 }
 
+func TestStateGraphTombstoneDoesNotAffectPastChapters(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	// Event added at chapter 3; tombstone recorded at chapter 3 (item's own chapter).
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
+	g.Apply(3, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+
+	// QueryAt(2) — before the event — should not see it (it didn't exist yet).
+	if len(g.QueryAt(2).Events) != 0 {
+		t.Errorf("QueryAt(2) should see no events before chapter 3")
+	}
+	// QueryAt(3) — tombstone chapter — item should be gone.
+	if len(g.QueryAt(3).Events) != 0 {
+		t.Errorf("QueryAt(3) should not see e3 after its tombstone at chapter 3")
+	}
+}
+
+func TestStateGraphTombstonePreservesPastSnapshot(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	// Event added at chapter 3; tombstone at chapter 10 (delete happened later).
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
+	g.Apply(10, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+
+	// QueryAt(5) — before the tombstone chapter — must still see the event.
+	at5 := g.QueryAt(5)
+	if len(at5.Events) != 1 || at5.Events[0].ID != "e3" {
+		t.Errorf("QueryAt(5) should see e3 (tombstone is at chapter 10), got %v", at5.Events)
+	}
+	// QueryAt(10) — at tombstone chapter — event must be gone.
+	if len(g.QueryAt(10).Events) != 0 {
+		t.Errorf("QueryAt(10) should not see e3 after tombstone, got %v", g.QueryAt(10).Events)
+	}
+}
+
 func TestStateGraphDeleteEventTombstone(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
 	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1}, {ID: "e2", Chapter: 1}}})
-	g.Apply(0, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})
+	g.Apply(1, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})
 
 	state := g.QueryAt(5)
 	for _, e := range state.Events {
@@ -165,7 +198,7 @@ func TestStateGraphDeleteEventTombstone(t *testing.T) {
 func TestStateGraphDeleteForeshadowTombstone(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
 	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
-	g.Apply(0, tracker.StateDelta{DeletedFS: []string{"fs1"}})
+	g.Apply(1, tracker.StateDelta{DeletedFS: []string{"fs1"}})
 
 	state := g.QueryAt(5)
 	for _, id := range state.ActiveFS {
@@ -184,7 +217,7 @@ func TestStateGraphDeleteRelationshipTombstone(t *testing.T) {
 		{From: "A", To: "B", Status: "敵對"},
 		{From: "C", To: "D", Status: "友好"},
 	}})
-	g.Apply(0, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}})
+	g.Apply(1, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}})
 
 	state := g.QueryAt(5)
 	for _, rel := range state.Relationships {

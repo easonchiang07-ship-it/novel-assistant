@@ -66,15 +66,18 @@ func (s *Store) Save() error {
 func (s *Store) Upsert(doc Document) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.bm25 == nil {
+		s.bm25 = newBM25Index()
+	}
 	for i, d := range s.docs {
 		if d.ID == doc.ID {
 			s.docs[i] = doc
-			s.bm25 = buildBM25Index(s.docs)
+			s.bm25.upsert(doc)
 			return
 		}
 	}
 	s.docs = append(s.docs, doc)
-	s.bm25 = buildBM25Index(s.docs)
+	s.bm25.upsert(doc)
 }
 
 func (s *Store) Clear() {

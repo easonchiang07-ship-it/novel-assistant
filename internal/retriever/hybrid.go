@@ -19,8 +19,13 @@ type HybridRetriever struct {
 	alpha    float64
 }
 
-// NewHybrid creates a HybridRetriever. alpha must be in [0.0, 1.0].
+// NewHybrid creates a HybridRetriever. alpha is clamped to [0.0, 1.0].
 func NewHybrid(emb Embedder, store HybridStorer, alpha float64) *HybridRetriever {
+	if alpha < 0 {
+		alpha = 0
+	} else if alpha > 1 {
+		alpha = 1
+	}
 	return &HybridRetriever{embedder: emb, store: store, alpha: alpha}
 }
 

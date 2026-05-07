@@ -1,6 +1,7 @@
 package vectorstore
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -131,17 +132,38 @@ func TestQueryHybridUpsertUpdatesIndex(t *testing.T) {
 	s := New("")
 	s.Upsert(Document{ID: "d1", Type: "character", Content: "原始內容", Embedding: []float64{1, 0}})
 
-	// Replace with new content
+	// Replace with new content — incremental update should remove old terms
 	s.Upsert(Document{ID: "d1", Type: "character", Content: "林昊林昊林昊", Embedding: []float64{1, 0}})
 
 	results := s.QueryHybrid([]float64{1, 0}, "林昊", 1, nil, 0, 0.0, 0)
 	if len(results) == 0 || results[0].ID != "d1" {
 		t.Error("BM25 index not updated after Upsert replace")
 	}
-	// Old content keyword should not score (term 原始 no longer in doc)
+	// Old terms must be removed from the index
 	idx := s.bm25
-	oldScore := idx.score(tokenize("原始"), "d1")
-	if oldScore > 0 {
-		t.Errorf("old term still scores after replace: %f", oldScore)
+	if idx.df["原"] != 0 || idx.df["始"] != 0 {
+		t.Errorf("old terms still in df after replace: 原=%d 始=%d", idx.df["原"], idx.df["始"])
+	}
+	// n should still be 1
+	if idx.n != 1 {
+		t.Errorf("expected n=1 after replace, got %d", idx.n)
+	}
+}
+
+func TestBM25IncrementalNEqualsDocCount(t *testing.T) {
+	s := New("")
+	for i := range 5 {
+		s.Upsert(Document{
+			ID:      fmt.Sprintf("d%d", i),
+			Content: fmt.Sprintf("doc %d content", i),
+		})
+	}
+	if s.bm25.n != 5 {
+		t.Errorf("expected n=5, got %d", s.bm25.n)
+	}
+	// Overwrite one — n should stay 5
+	s.Upsert(Document{ID: "d0", Content: "replaced"})
+	if s.bm25.n != 5 {
+		t.Errorf("after replace expected n=5, got %d", s.bm25.n)
 	}
 }

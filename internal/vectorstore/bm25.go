@@ -45,45 +45,80 @@ func isCJK(r rune) bool {
 }
 
 type bm25Index struct {
-	tf     map[string]map[string]int // docID -> term -> count
-	df     map[string]int            // term -> document frequency
-	docLen map[string]int            // docID -> token count
-	avgdl  float64
-	n      int
+	tf       map[string]map[string]int // docID -> term -> count
+	df       map[string]int            // term -> document frequency
+	docLen   map[string]int            // docID -> token count
+	totalLen int                       // sum of all doc lengths (for avgdl)
+	n        int
 }
 
-func buildBM25Index(docs []Document) *bm25Index {
-	idx := &bm25Index{
+func newBM25Index() *bm25Index {
+	return &bm25Index{
 		tf:     make(map[string]map[string]int),
 		df:     make(map[string]int),
 		docLen: make(map[string]int),
 	}
+}
+
+func buildBM25Index(docs []Document) *bm25Index {
+	idx := newBM25Index()
 	for _, d := range docs {
-		terms := tokenize(d.Content)
-		tf := make(map[string]int, len(terms))
-		for _, t := range terms {
-			tf[t]++
-		}
-		idx.tf[d.ID] = tf
-		idx.docLen[d.ID] = len(terms)
-		for t := range tf {
-			idx.df[t]++
-		}
-	}
-	idx.n = len(docs)
-	if idx.n > 0 {
-		total := 0
-		for _, l := range idx.docLen {
-			total += l
-		}
-		idx.avgdl = float64(total) / float64(idx.n)
+		idx.addDoc(d)
 	}
 	return idx
 }
 
+func (idx *bm25Index) avgdl() float64 {
+	if idx.n == 0 {
+		return 0
+	}
+	return float64(idx.totalLen) / float64(idx.n)
+}
+
+// addDoc indexes a document. The caller must ensure the ID is not already present.
+func (idx *bm25Index) addDoc(doc Document) {
+	terms := tokenize(doc.Content)
+	tf := make(map[string]int, len(terms))
+	for _, t := range terms {
+		tf[t]++
+	}
+	idx.tf[doc.ID] = tf
+	idx.docLen[doc.ID] = len(terms)
+	idx.totalLen += len(terms)
+	idx.n++
+	for t := range tf {
+		idx.df[t]++
+	}
+}
+
+// removeDoc removes a document from the index. No-op if the ID is not present.
+func (idx *bm25Index) removeDoc(id string) {
+	tf, ok := idx.tf[id]
+	if !ok {
+		return
+	}
+	for term := range tf {
+		idx.df[term]--
+		if idx.df[term] == 0 {
+			delete(idx.df, term)
+		}
+	}
+	idx.totalLen -= idx.docLen[id]
+	idx.n--
+	delete(idx.tf, id)
+	delete(idx.docLen, id)
+}
+
+// upsert adds or replaces a document incrementally (O(unique terms in doc)).
+func (idx *bm25Index) upsert(doc Document) {
+	idx.removeDoc(doc.ID)
+	idx.addDoc(doc)
+}
+
 // score computes BM25 score for a document given pre-tokenized query terms.
 func (idx *bm25Index) score(queryTerms []string, docID string) float64 {
-	if idx.n == 0 || idx.avgdl == 0 {
+	avgdl := idx.avgdl()
+	if idx.n == 0 || avgdl == 0 {
 		return 0
 	}
 	docTerms := idx.tf[docID]
@@ -96,7 +131,7 @@ func (idx *bm25Index) score(queryTerms []string, docID string) float64 {
 		}
 		idf := math.Log((float64(idx.n)-df+0.5)/(df+0.5) + 1)
 		tf := float64(docTerms[term])
-		norm := tf + bm25k1*(1-bm25b+bm25b*float64(docLen)/idx.avgdl)
+		norm := tf + bm25k1*(1-bm25b+bm25b*float64(docLen)/avgdl)
 		s += idf * (tf * (bm25k1 + 1)) / norm
 	}
 	return s

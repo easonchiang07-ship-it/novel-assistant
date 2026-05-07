@@ -93,3 +93,22 @@ func TestHybridRetrieverForwardsBeforeChapter(t *testing.T) {
 func TestHybridRetrieverSatisfiesRetrieverInterface(t *testing.T) {
 	var _ retriever.Retriever = retriever.NewHybrid(nil, &stubHybridStore{}, 0.5)
 }
+
+func TestNewHybridClampsAlpha(t *testing.T) {
+	doc := vectorstore.ScoredDocument{Document: vectorstore.Document{ID: "d1"}, Score: 0.5}
+	for _, tc := range []struct {
+		input float64
+		want  float64
+	}{
+		{-0.5, 0.0},
+		{1.5, 1.0},
+		{0.3, 0.3},
+	} {
+		store := &stubHybridStore{docs: []vectorstore.ScoredDocument{doc}}
+		r := retriever.NewHybrid(&stubEmbedder{vec: []float64{1}}, store, tc.input)
+		r.Retrieve(context.Background(), retriever.Request{Query: "q", TopK: 1}) //nolint
+		if store.gotAlpha != tc.want {
+			t.Errorf("input alpha=%.1f: expected clamped=%.1f, got=%.1f", tc.input, tc.want, store.gotAlpha)
+		}
+	}
+}

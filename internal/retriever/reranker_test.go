@@ -13,13 +13,18 @@ import (
 // --- mock helpers ---
 
 type stubScorer struct {
-	responses map[string]string // content -> score string
+	// batchResp is returned verbatim for any Score call; takes precedence over responses.
+	batchResp string
+	responses map[string]string // content -> score string (used only when batchResp is empty)
 	err       error
 }
 
 func (s *stubScorer) Score(_ context.Context, prompt string) (string, error) {
 	if s.err != nil {
 		return "", s.err
+	}
+	if s.batchResp != "" {
+		return s.batchResp, nil
 	}
 	for content, score := range s.responses {
 		if len(prompt) > 0 && containsStr(prompt, content) {
@@ -91,11 +96,8 @@ func TestPassthroughRerankerEmpty(t *testing.T) {
 // --- LLMReranker ---
 
 func TestLLMRerankerSortsByScore(t *testing.T) {
-	scorer := &stubScorer{responses: map[string]string{
-		"low":  "0.2",
-		"high": "0.9",
-		"mid":  "0.5",
-	}}
+	// Batch response: scores in input order — low=0.2, mid=0.5, high=0.9
+	scorer := &stubScorer{batchResp: "0.2\n0.5\n0.9"}
 	r := retriever.NewLLMReranker(scorer)
 	chunks := []retriever.Chunk{
 		makeChunk("low", 0.9, "low"),
@@ -132,7 +134,7 @@ func TestLLMRerankerFallsBackOnScorerError(t *testing.T) {
 }
 
 func TestLLMRerankerClampsScore(t *testing.T) {
-	scorer := &stubScorer{responses: map[string]string{"x": "2.5"}}
+	scorer := &stubScorer{batchResp: "2.5"}
 	r := retriever.NewLLMReranker(scorer)
 	chunks := []retriever.Chunk{makeChunk("x", 0.5, "x")}
 	got, err := r.Rerank(context.Background(), "q", chunks)
@@ -141,6 +143,33 @@ func TestLLMRerankerClampsScore(t *testing.T) {
 	}
 	if got[0].Score != 1.0 {
 		t.Errorf("expected clamped score 1.0, got %f", got[0].Score)
+	}
+}
+
+func TestLLMRerankerHandlesMessyScoreOutput(t *testing.T) {
+	cases := []struct {
+		name      string
+		batchResp string
+		wantScore float64
+	}{
+		{"chinese period", "0.82。", 0.82},
+		{"label prefix", "score: 0.75", 0.75},
+		{"trailing comma", "0.60,", 0.60},
+		{"extra explanation line then score", "The text is relevant.\n0.90", 0.90},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scorer := &stubScorer{batchResp: tc.batchResp}
+			r := retriever.NewLLMReranker(scorer)
+			chunks := []retriever.Chunk{makeChunk("x", 0.0, "x")}
+			got, err := r.Rerank(context.Background(), "q", chunks)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if fmt.Sprintf("%.2f", got[0].Score) != fmt.Sprintf("%.2f", tc.wantScore) {
+				t.Errorf("expected %.2f, got %f", tc.wantScore, got[0].Score)
+			}
+		})
 	}
 }
 
@@ -176,10 +205,8 @@ func TestWithRerankingEnabledAppliesReranker(t *testing.T) {
 			makeChunk("high", 0.1, "high"),
 		}, nil
 	})
-	scorer := &stubScorer{responses: map[string]string{
-		"low":  "0.1",
-		"high": "0.9",
-	}}
+	// Batch response: scores in input order — low=0.1, high=0.9
+	scorer := &stubScorer{batchResp: "0.1\n0.9"}
 	reranker := retriever.NewLLMReranker(scorer)
 	wrapped := retriever.WithReranking(inner, reranker, retriever.RerankConfig{Enabled: true})
 	got, err := wrapped.Retrieve(context.Background(), retriever.Request{Query: "q", TopK: 5})

@@ -21,7 +21,11 @@ type Reranker interface {
 // RerankConfig controls optional reranking after initial retrieval.
 type RerankConfig struct {
 	Enabled bool
-	TopN    int // 0 means keep all reranked results
+	// TopN caps results after reranking; 0 keeps all. Issue #146 specifies the default
+	// should equal TopK, but since the inner retriever already respects TopK before
+	// reranking, the practical difference is small. Callers that want strict parity
+	// should set TopN = req.TopK explicitly.
+	TopN int
 }
 
 // PassthroughReranker is the no-op default — preserves input order with zero LLM cost.
@@ -85,7 +89,7 @@ func (o *OllamaScorer) Score(ctx context.Context, prompt string) (string, error)
 	return sb.String(), scanner.Err()
 }
 
-// LLMReranker scores each chunk against the query using an LLM and sorts by score descending.
+// LLMReranker scores all chunks against the query in one batch LLM call and sorts by score descending.
 type LLMReranker struct {
 	scorer LLMScorer
 }
@@ -94,20 +98,23 @@ func NewLLMReranker(scorer LLMScorer) *LLMReranker {
 	return &LLMReranker{scorer: scorer}
 }
 
-const rerankPromptTpl = "Query: %s\nText: %s\n以 0.0 到 1.0 評分此文本與查詢的相關性，僅輸出數字。"
+const rerankBatchPromptTpl = "Query: %s\n以 0.0 到 1.0 評分以下每段文本與查詢的相關性，依序每行輸出一個數字，不要有其他說明：\n\n%s"
 
 func (r *LLMReranker) Rerank(ctx context.Context, query string, chunks []Chunk) ([]Chunk, error) {
+	if len(chunks) == 0 {
+		return chunks, nil
+	}
+	scores, err := r.scoreChunksBatch(ctx, query, chunks)
+	if err != nil {
+		return chunks, nil // degrade to original order/scores on batch failure
+	}
 	type entry struct {
 		chunk Chunk
 		score float64
 	}
 	entries := make([]entry, len(chunks))
 	for i, c := range chunks {
-		s, err := r.scoreChunk(ctx, query, c.Content)
-		if err != nil {
-			s = c.Score // degrade to original score on per-chunk error
-		}
-		entries[i] = entry{chunk: c, score: s}
+		entries[i] = entry{chunk: c, score: scores[i]}
 	}
 	sort.SliceStable(entries, func(i, j int) bool {
 		return entries[i].score > entries[j].score
@@ -120,22 +127,53 @@ func (r *LLMReranker) Rerank(ctx context.Context, query string, chunks []Chunk) 
 	return out, nil
 }
 
-func (r *LLMReranker) scoreChunk(ctx context.Context, query, content string) (float64, error) {
-	raw, err := r.scorer.Score(ctx, fmt.Sprintf(rerankPromptTpl, query, content))
+func (r *LLMReranker) scoreChunksBatch(ctx context.Context, query string, chunks []Chunk) ([]float64, error) {
+	var sb strings.Builder
+	for i, c := range chunks {
+		fmt.Fprintf(&sb, "[%d] %s\n", i+1, c.Content)
+	}
+	raw, err := r.scorer.Score(ctx, fmt.Sprintf(rerankBatchPromptTpl, query, sb.String()))
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	raw = strings.TrimSpace(raw)
-	score, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse score %q: %w", raw, err)
+	return parseBatchScores(raw, len(chunks))
+}
+
+func parseBatchScores(raw string, n int) ([]float64, error) {
+	scores := make([]float64, 0, n)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if f, ok := extractFloat(line); ok {
+			scores = append(scores, f)
+		}
+		if len(scores) == n {
+			break
+		}
 	}
-	if score < 0 {
-		score = 0
-	} else if score > 1 {
-		score = 1
+	if len(scores) != n {
+		return nil, fmt.Errorf("batch score: expected %d scores, got %d", n, len(scores))
 	}
-	return score, nil
+	return scores, nil
+}
+
+// extractFloat scans whitespace-separated tokens for the first parseable float and clamps it to [0,1].
+func extractFloat(s string) (float64, bool) {
+	for _, tok := range strings.Fields(s) {
+		tok = strings.TrimRight(tok, "。,.;:!?)]")
+		tok = strings.TrimLeft(tok, "([")
+		if f, err := strconv.ParseFloat(tok, 64); err == nil {
+			if f < 0 {
+				f = 0
+			} else if f > 1 {
+				f = 1
+			}
+			return f, true
+		}
+	}
+	return 0, false
 }
 
 // WithReranking wraps inner with reranking. When cfg.Enabled is false, inner is returned as-is

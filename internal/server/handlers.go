@@ -1594,17 +1594,23 @@ func (s *Server) handleAddRelationship(c *gin.Context) {
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
 	}
-	s.applyStateGraphDelta(r.Chapter, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
-		{From: r.From, To: r.To, Status: r.Status, Note: r.Note},
-	}})
+	// Skip state graph delta when no chapter is provided — UI form has no chapter field,
+	// so r.Chapter==0, and recording it at chapter 0 would make the edge appear in all QueryAt results.
+	if r.Chapter > 0 {
+		s.applyStateGraphDelta(r.Chapter, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+			{From: r.From, To: r.To, Status: r.Status, Note: r.Note},
+		}})
+	}
 	c.Redirect(http.StatusFound, "/relationships")
 }
 
 func (s *Server) handleDeleteRelationship(c *gin.Context) {
-	s.relationships.Delete(c.PostForm("from"), c.PostForm("to"))
+	from, to := c.PostForm("from"), c.PostForm("to")
+	s.relationships.Delete(from, to)
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
 	}
+	s.applyStateGraphDelta(0, tracker.StateDelta{DeletedRelationships: [][2]string{{from, to}}})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -1638,10 +1644,12 @@ func (s *Server) handleAddTimelineEvent(c *gin.Context) {
 }
 
 func (s *Server) handleDeleteTimelineEvent(c *gin.Context) {
-	s.timeline.Delete(c.PostForm("id"))
+	id := c.PostForm("id")
+	s.timeline.Delete(id)
 	if !saveOrAbort(c, s.timeline.Save(), "save timeline") {
 		return
 	}
+	s.applyStateGraphDelta(0, tracker.StateDelta{DeletedEventIDs: []string{id}})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -1688,10 +1696,12 @@ func (s *Server) handleResolveForeshadow(c *gin.Context) {
 }
 
 func (s *Server) handleDeleteForeshadow(c *gin.Context) {
-	s.foreshadow.Delete(c.PostForm("id"))
+	id := c.PostForm("id")
+	s.foreshadow.Delete(id)
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
+	s.applyStateGraphDelta(0, tracker.StateDelta{DeletedFS: []string{id}})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -1855,22 +1865,27 @@ func (s *Server) handleNarrativeExtract(c *gin.Context) {
 		return
 	}
 
+	var addedEvents []tracker.TimelineEvent
 	for _, ev := range mem.Events {
-		s.timeline.Add(&tracker.TimelineEvent{
+		te := &tracker.TimelineEvent{
 			Chapter:      req.ChapterIndex,
 			Scene:        ev.Scene,
 			Description:  ev.Description,
 			Characters:   ev.Characters,
 			Consequences: ev.Consequences,
-		})
+		}
+		s.timeline.Add(te)
+		addedEvents = append(addedEvents, *te)
 	}
 	if len(mem.Events) > 0 {
 		if err := s.timeline.Save(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存時間軸失敗"})
 			return
 		}
+		s.applyStateGraphDelta(req.ChapterIndex, tracker.StateDelta{Events: addedEvents})
 	}
 
+	var addedEdges []tracker.RelationshipEdge
 	for _, rel := range mem.Relationships {
 		s.relationships.Upsert(&tracker.Relationship{
 			From:         rel.From,
@@ -1879,12 +1894,16 @@ func (s *Server) handleNarrativeExtract(c *gin.Context) {
 			Note:         rel.Note,
 			TriggerEvent: rel.TriggerEvent,
 		})
+		addedEdges = append(addedEdges, tracker.RelationshipEdge{
+			From: rel.From, To: rel.To, Status: rel.Status, Note: rel.Note,
+		})
 	}
 	if len(mem.Relationships) > 0 {
 		if err := s.relationships.Save(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存角色關係失敗"})
 			return
 		}
+		s.applyStateGraphDelta(req.ChapterIndex, tracker.StateDelta{Relationships: addedEdges})
 	}
 
 	if len(mem.WorldState) > 0 {

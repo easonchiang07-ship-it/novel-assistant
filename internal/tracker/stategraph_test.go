@@ -146,4 +146,55 @@ func TestStateGraphSaveCreatesFile(t *testing.T) {
 	}
 }
 
+func TestStateGraphDeleteEventTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1}, {ID: "e2", Chapter: 1}}})
+	g.Apply(0, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})
+
+	state := g.QueryAt(5)
+	for _, e := range state.Events {
+		if e.ID == "e1" {
+			t.Errorf("deleted event e1 should not appear in QueryAt result")
+		}
+	}
+	if len(state.Events) != 1 || state.Events[0].ID != "e2" {
+		t.Errorf("expected only e2, got %v", state.Events)
+	}
+}
+
+func TestStateGraphDeleteForeshadowTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
+	g.Apply(0, tracker.StateDelta{DeletedFS: []string{"fs1"}})
+
+	state := g.QueryAt(5)
+	for _, id := range state.ActiveFS {
+		if id == "fs1" {
+			t.Errorf("deleted foreshadow fs1 should not appear in ActiveFS")
+		}
+	}
+	if len(state.ActiveFS) != 1 || state.ActiveFS[0] != "fs2" {
+		t.Errorf("expected only fs2, got %v", state.ActiveFS)
+	}
+}
+
+func TestStateGraphDeleteRelationshipTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: "A", To: "B", Status: "敵對"},
+		{From: "C", To: "D", Status: "友好"},
+	}})
+	g.Apply(0, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}})
+
+	state := g.QueryAt(5)
+	for _, rel := range state.Relationships {
+		if rel.From == "A" && rel.To == "B" {
+			t.Errorf("deleted relationship A->B should not appear")
+		}
+	}
+	if len(state.Relationships) != 1 || state.Relationships[0].From != "C" {
+		t.Errorf("expected only C->D, got %v", state.Relationships)
+	}
+}
+
 var _ tracker.StateGraph = tracker.NewJSONStateGraph("")

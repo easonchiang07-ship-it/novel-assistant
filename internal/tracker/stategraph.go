@@ -32,12 +32,16 @@ type NarrativeState struct {
 }
 
 // StateDelta records what changed at a given chapter.
+// Deletion fields are global tombstones — they are applied across all chapters in QueryAt.
 type StateDelta struct {
-	Events        []TimelineEvent           `json:"events,omitempty"`
-	AddedFS       []string                  `json:"added_foreshadows,omitempty"`
-	ResolvedFS    []string                  `json:"resolved_foreshadows,omitempty"`
-	Relationships []RelationshipEdge        `json:"relationships,omitempty"`
-	Characters    map[string]CharacterState `json:"characters,omitempty"`
+	Events               []TimelineEvent           `json:"events,omitempty"`
+	AddedFS              []string                  `json:"added_foreshadows,omitempty"`
+	ResolvedFS           []string                  `json:"resolved_foreshadows,omitempty"`
+	Relationships        []RelationshipEdge        `json:"relationships,omitempty"`
+	Characters           map[string]CharacterState `json:"characters,omitempty"`
+	DeletedEventIDs      []string                  `json:"deleted_events,omitempty"`
+	DeletedFS            []string                  `json:"deleted_foreshadows,omitempty"`
+	DeletedRelationships [][2]string               `json:"deleted_relationships,omitempty"`
 }
 
 // StateGraph is the narrative state graph interface.
@@ -76,9 +80,27 @@ func (g *JSONStateGraph) Apply(chapter int, delta StateDelta) error {
 }
 
 // QueryAt replays all deltas up to and including chapter, returning the accumulated state.
+// Deletion tombstones are applied globally (across all chapters) because they represent
+// user corrections rather than story events.
 func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
+	// Collect global tombstones from ALL deltas first.
+	deletedEvents := make(map[string]bool)
+	deletedFS := make(map[string]bool)
+	deletedRels := make(map[[2]string]bool)
+	for _, cd := range g.deltas {
+		for _, id := range cd.Delta.DeletedEventIDs {
+			deletedEvents[id] = true
+		}
+		for _, id := range cd.Delta.DeletedFS {
+			deletedFS[id] = true
+		}
+		for _, pair := range cd.Delta.DeletedRelationships {
+			deletedRels[pair] = true
+		}
+	}
 
 	state := NarrativeState{
 		Chapter:    chapter,
@@ -98,16 +120,23 @@ func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 			break
 		}
 		for _, e := range cd.Delta.Events {
-			state.Events = append(state.Events, e)
+			if !deletedEvents[e.ID] {
+				state.Events = append(state.Events, e)
+			}
 		}
 		for _, id := range cd.Delta.AddedFS {
-			fsActive[id] = true
+			if !deletedFS[id] {
+				fsActive[id] = true
+			}
 		}
 		for _, id := range cd.Delta.ResolvedFS {
 			fsActive[id] = false
 		}
 		for _, rel := range cd.Delta.Relationships {
-			relMap[[2]string{rel.From, rel.To}] = rel
+			key := [2]string{rel.From, rel.To}
+			if !deletedRels[key] {
+				relMap[key] = rel
+			}
 		}
 		for name, cs := range cd.Delta.Characters {
 			state.Characters[name] = cs
@@ -121,8 +150,10 @@ func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 	}
 	sort.Strings(state.ActiveFS)
 
-	for _, rel := range relMap {
-		state.Relationships = append(state.Relationships, rel)
+	for key, rel := range relMap {
+		if !deletedRels[key] {
+			state.Relationships = append(state.Relationships, rel)
+		}
 	}
 	sort.Slice(state.Relationships, func(i, j int) bool {
 		if state.Relationships[i].From != state.Relationships[j].From {

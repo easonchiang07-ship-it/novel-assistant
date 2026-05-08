@@ -580,6 +580,161 @@ func (s *Server) Ingest(ctx context.Context) error {
 	return st.store.Save()
 }
 
+// IngestIncremental re-indexes only items whose content has changed since the last run.
+// Chapters and profiles are compared by SHA-256; unchanged items are skipped.
+// Deleted items are NOT removed — use Ingest() for a full rebuild when that matters.
+func (s *Server) IngestIncremental(ctx context.Context) error {
+	st := s.currentState()
+	if err := st.profiles.Load(); err != nil {
+		return fmt.Errorf("load profiles: %w", err)
+	}
+
+	manifestPath := filepath.Join(st.dataDir, "index_hashes.json")
+	manifest, err := loadManifest(manifestPath)
+	if err != nil {
+		log.Printf("load manifest: %v (starting fresh)", err)
+		manifest = newManifest()
+	}
+
+	// Characters
+	for _, char := range st.profiles.Characters {
+		if manifest.unchanged("char_"+char.Name, char.RawContent) {
+			log.Printf("skipped character (unchanged): %s", char.Name)
+			continue
+		}
+		vec, err := s.embedder.Embed(ctx, char.RawContent)
+		if err != nil {
+			return fmt.Errorf("embed %s: %w", char.Name, err)
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:        "char_" + char.Name,
+			Type:      "character",
+			Content:   char.RawContent,
+			Embedding: vec,
+		})
+		manifest.record("char_"+char.Name, char.RawContent)
+		log.Printf("indexed character: %s", char.Name)
+	}
+
+	// Worlds
+	for _, world := range st.profiles.Worlds {
+		if manifest.unchanged("world_"+world.Name, world.RawContent) {
+			log.Printf("skipped world (unchanged): %s", world.Name)
+			continue
+		}
+		vec, err := s.embedder.Embed(ctx, world.RawContent)
+		if err != nil {
+			return fmt.Errorf("embed world %s: %w", world.Name, err)
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:        "world_" + world.Name,
+			Type:      "world",
+			Content:   world.RawContent,
+			Embedding: vec,
+		})
+		manifest.record("world_"+world.Name, world.RawContent)
+		log.Printf("indexed world: %s", world.Name)
+	}
+
+	// Styles
+	for _, style := range st.profiles.Styles {
+		if manifest.unchanged("style_"+style.Name, style.RawContent) {
+			log.Printf("skipped style (unchanged): %s", style.Name)
+			continue
+		}
+		vec, err := s.embedder.Embed(ctx, style.RawContent)
+		if err != nil {
+			return fmt.Errorf("embed style %s: %w", style.Name, err)
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:        "style_" + style.Name,
+			Type:      "style",
+			Content:   style.RawContent,
+			Embedding: vec,
+		})
+		manifest.record("style_"+style.Name, style.RawContent)
+		log.Printf("indexed style: %s", style.Name)
+	}
+
+	// Chapters
+	files, err := os.ReadDir(chapterDirFor(st.dataDir))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("list chapters: %w", err)
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(strings.ToLower(file.Name()), ".md") {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(chapterDirFor(st.dataDir), file.Name()))
+		if err != nil {
+			return fmt.Errorf("read chapter %s: %w", file.Name(), err)
+		}
+		chapterText := string(content)
+
+		if manifest.unchanged("chapter_"+file.Name(), chapterText) {
+			log.Printf("skipped chapter (unchanged): %s", file.Name())
+			continue
+		}
+
+		chapterIdx := extractChapterIndex(file.Name())
+		chunks := chunkChapter(file.Name(), chapterText)
+
+		// Pre-embed all chunks before touching the store so that any embed
+		// failure leaves the existing data intact (no destructive mid-state).
+		newChunks := make([]vectorstore.Document, 0, len(chunks))
+		for _, chunk := range chunks {
+			vec, err := s.embedder.Embed(ctx, chunk.Content)
+			if err != nil {
+				return fmt.Errorf("embed chapter chunk %s: %w", chunk.ID, err)
+			}
+			chunk.Embedding = vec
+			newChunks = append(newChunks, chunk)
+		}
+
+		// All chunks are ready — atomically replace old with new.
+		st.store.ClearByChapter(file.Name())
+		for _, chunk := range newChunks {
+			st.store.Upsert(chunk)
+			log.Printf("indexed chapter chunk: %s", chunk.ID)
+		}
+
+		if len(newChunks) == 0 {
+			manifest.record("chapter_"+file.Name(), chapterText)
+			continue
+		}
+
+		// Summary is attempted after chunks are in place.
+		// If summary or its embed fails, skip manifest.record so the next
+		// incremental run retries the whole chapter (including summary).
+		summary, err := s.checker.SummarizeChapter(ctx, chapterText)
+		if err != nil {
+			log.Printf("summarize chapter %s: %v (skipped, will retry next run)", file.Name(), err)
+			continue
+		}
+		summaryVec, err := s.embedder.Embed(ctx, summary)
+		if err != nil {
+			log.Printf("embed summary %s: %v (skipped, will retry next run)", file.Name(), err)
+			continue
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:           "summary_" + file.Name(),
+			Type:         "chapter_summary",
+			Content:      summary,
+			Summary:      summary,
+			Embedding:    summaryVec,
+			ChapterFile:  file.Name(),
+			ChapterIndex: chapterIdx,
+		})
+		log.Printf("indexed chapter summary: %s", file.Name())
+		manifest.record("chapter_"+file.Name(), chapterText)
+	}
+
+	if err := manifest.save(manifestPath); err != nil {
+		log.Printf("save manifest: %v", err)
+	}
+	return st.store.Save()
+}
+
 func (s *Server) Run() error {
 	return s.router.Run(":" + s.cfg.Port)
 }

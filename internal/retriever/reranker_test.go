@@ -18,21 +18,38 @@ func makeChunk(id string, score float64) retriever.Chunk {
 	}
 }
 
+// fixedScorer maps chunk content → score for deterministic tests.
 type fixedScorer struct {
 	scores map[string]float64
 	err    error
 }
 
-func (s *fixedScorer) Score(_ context.Context, _, chunk string) (float64, error) {
+func (s *fixedScorer) ScoreBatch(_ context.Context, _ string, contents []string) ([]float64, error) {
 	if s.err != nil {
-		return 0, s.err
+		return nil, s.err
 	}
-	for id, sc := range s.scores {
-		if chunk == "content of "+id {
-			return sc, nil
+	out := make([]float64, len(contents))
+	for i, c := range contents {
+		matched := false
+		for id, sc := range s.scores {
+			if c == "content of "+id {
+				out[i] = sc
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			out[i] = 0.5
 		}
 	}
-	return 0.5, nil
+	return out, nil
+}
+
+// wrongCountScorer returns a slice of the wrong length.
+type wrongCountScorer struct{}
+
+func (wrongCountScorer) ScoreBatch(_ context.Context, _ string, _ []string) ([]float64, error) {
+	return []float64{0.9}, nil // always returns 1 score regardless of input count
 }
 
 type stubBaseRetriever struct {
@@ -117,19 +134,30 @@ func TestLLMRerankerTopNLargerThanInput(t *testing.T) {
 	}
 }
 
-func TestLLMRerankerScorerErrorFallsBackToOriginalScore(t *testing.T) {
-	chunks := []retriever.Chunk{makeChunk("x", 0.77)}
+// Scorer batch error → return chunks in original order, no error propagated.
+func TestLLMRerankerBatchErrorFallsBackToOriginalOrder(t *testing.T) {
+	chunks := []retriever.Chunk{makeChunk("a", 0.9), makeChunk("b", 0.1)}
 	scorer := &fixedScorer{err: errors.New("scorer unavailable")}
 	r := retriever.NewLLMReranker(scorer, 0)
 	got, err := r.Rerank(context.Background(), "q", chunks)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("expected 1 chunk, got %d", len(got))
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+		t.Errorf("expected original order preserved, got %v", got)
 	}
-	if got[0].Score != 0.77 {
-		t.Errorf("expected fallback score 0.77, got %f", got[0].Score)
+}
+
+// Scorer returns wrong number of scores → fall back to original order.
+func TestLLMRerankerWrongScoreCountFallsBackToOriginalOrder(t *testing.T) {
+	chunks := []retriever.Chunk{makeChunk("a", 0.9), makeChunk("b", 0.5), makeChunk("c", 0.1)}
+	r := retriever.NewLLMReranker(wrongCountScorer{}, 0)
+	got, err := r.Rerank(context.Background(), "q", chunks)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 3 || got[0].ID != "a" {
+		t.Errorf("expected original order, got %v", got)
 	}
 }
 
@@ -140,6 +168,42 @@ func TestLLMRerankerUpdatesScoreField(t *testing.T) {
 	got, _ := r.Rerank(context.Background(), "q", chunks)
 	if got[0].Score != 0.99 {
 		t.Errorf("expected Score updated to 0.99, got %f", got[0].Score)
+	}
+}
+
+// ── parseScores (exported for testing via ParseScoresForTest) ─────────────────
+// We test parseScores indirectly through a mock scorer that calls it.
+
+func TestParseScores(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		wantN   int
+		wantErr bool
+	}{
+		{"bare JSON array", "[0.9, 0.3, 0.75]", 3, false},
+		{"JSON array with surrounding text", "Sure, here are the scores: [0.9, 0.3, 0.75]\nDone.", 3, false},
+		{"one per line", "0.9\n0.3\n0.75", 3, false},
+		{"JSON array with trailing period", "[0.82.]", 0, true},
+		{"empty string", "", 0, true},
+		{"non-numeric", "high medium low", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scores, err := retriever.ParseScoresForTest(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got scores %v", scores)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(scores) != tc.wantN {
+				t.Errorf("expected %d scores, got %d: %v", tc.wantN, len(scores), scores)
+			}
+		})
 	}
 }
 
@@ -187,7 +251,8 @@ func TestRerankingRetrieverEmptyBaseResult(t *testing.T) {
 	}
 }
 
-// compile-time interface check
+// compile-time interface checks
 var _ retriever.Reranker = retriever.PassthroughReranker{}
 var _ retriever.Reranker = (*retriever.LLMReranker)(nil)
 var _ retriever.Retriever = (*retriever.RerankingRetriever)(nil)
+var _ retriever.Scorer = (*retriever.OllamaScorer)(nil)

@@ -5,7 +5,7 @@ import "context"
 // RerankingRetriever wraps a base Retriever and applies a Reranker to its results.
 // Use PassthroughReranker (the default) for zero-overhead passthrough.
 type RerankingRetriever struct {
-	base    Retriever
+	base     Retriever
 	reranker Reranker
 }
 

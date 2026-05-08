@@ -69,7 +69,7 @@
               <div style="display:flex;justify-content:space-between;align-items:start">
                 <div class="timeline-scene">{{.Scene}}</div>
                 <button class="btn btn-sm btn-danger"
-                  onclick="deleteEvent('{{.ID}}')">刪除</button>
+                  onclick="deleteEvent('{{.ID}}', {{.Chapter}})">刪除</button>
               </div>
               {{if .Description}}
               <div class="timeline-desc">{{.Description}}</div>
@@ -96,10 +96,11 @@
 </div>
 
 <script>
-function deleteEvent(id) {
+function deleteEvent(id, chapter) {
   if (!confirm('確定刪除此事件？')) return;
   const fd = new FormData();
   fd.append('id', id);
+  if (chapter) fd.append('chapter', chapter);
   fetch('/timeline/delete', { method: 'POST', body: fd })
     .then(() => document.getElementById('ev-' + id)?.remove());
 }

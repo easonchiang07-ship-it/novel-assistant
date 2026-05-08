@@ -1607,17 +1607,23 @@ func (s *Server) handleAddRelationship(c *gin.Context) {
 func (s *Server) handleDeleteRelationship(c *gin.Context) {
 	from, to := c.PostForm("from"), c.PostForm("to")
 	tombstoneChapter := 0
-	for _, r := range s.relationships.GetAll() {
-		if r.From == from && r.To == to {
-			tombstoneChapter = r.Chapter
-			break
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, r := range s.relationships.GetAll() {
+			if r.From == from && r.To == to {
+				tombstoneChapter = r.Chapter
+				break
+			}
 		}
 	}
 	s.relationships.Delete(from, to)
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
 	}
-	s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedRelationships: [][2]string{{from, to}}})
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedRelationships: [][2]string{{from, to}}})
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -1653,17 +1659,23 @@ func (s *Server) handleAddTimelineEvent(c *gin.Context) {
 func (s *Server) handleDeleteTimelineEvent(c *gin.Context) {
 	id := c.PostForm("id")
 	tombstoneChapter := 0
-	for _, ev := range s.timeline.GetSorted() {
-		if ev.ID == id {
-			tombstoneChapter = ev.Chapter
-			break
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, ev := range s.timeline.GetSorted() {
+			if ev.ID == id {
+				tombstoneChapter = ev.Chapter
+				break
+			}
 		}
 	}
 	s.timeline.Delete(id)
 	if !saveOrAbort(c, s.timeline.Save(), "save timeline") {
 		return
 	}
-	s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedEventIDs: []string{id}})
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedEventIDs: []string{id}})
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -1712,17 +1724,23 @@ func (s *Server) handleResolveForeshadow(c *gin.Context) {
 func (s *Server) handleDeleteForeshadow(c *gin.Context) {
 	id := c.PostForm("id")
 	tombstoneChapter := 0
-	for _, f := range s.foreshadow.GetAll() {
-		if f.ID == id {
-			tombstoneChapter = f.Chapter
-			break
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, f := range s.foreshadow.GetAll() {
+			if f.ID == id {
+				tombstoneChapter = f.Chapter
+				break
+			}
 		}
 	}
 	s.foreshadow.Delete(id)
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
-	s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedFS: []string{id}})
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedFS: []string{id}})
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

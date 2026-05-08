@@ -170,7 +170,10 @@ func (g *JSONStateGraph) QueryAt(chapter int) NarrativeState {
 func (g *JSONStateGraph) Save() error {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
-	data, _ := json.MarshalIndent(stateGraphStore{Deltas: g.deltas}, "", "  ")
+	data, err := json.MarshalIndent(stateGraphStore{Deltas: g.deltas}, "", "  ")
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(g.path, data, 0644)
 }
 

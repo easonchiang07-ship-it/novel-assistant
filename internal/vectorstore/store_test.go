@@ -90,6 +90,45 @@ func TestDocumentMetadataSurvivesSaveLoad(t *testing.T) {
 	}
 }
 
+func TestClearByChapter(t *testing.T) {
+	t.Parallel()
+
+	store := New("")
+	store.Upsert(Document{ID: "ch1_s1", Type: "chapter", ChapterFile: "第01章.md", Embedding: []float64{1, 0}})
+	store.Upsert(Document{ID: "ch1_s2", Type: "chapter", ChapterFile: "第01章.md", Embedding: []float64{1, 0}})
+	store.Upsert(Document{ID: "ch2_s1", Type: "chapter", ChapterFile: "第02章.md", Embedding: []float64{0, 1}})
+	store.Upsert(Document{ID: "summary_ch1", Type: "chapter_summary", ChapterFile: "第01章.md", Embedding: []float64{1, 0}})
+
+	store.ClearByChapter("第01章.md")
+
+	if store.Len() != 1 {
+		t.Fatalf("expected 1 doc after clearing chapter 1, got %d", store.Len())
+	}
+	all := store.QueryFilteredScored([]float64{1, 0}, 10, nil, 0)
+	if len(all) != 1 || all[0].ID != "ch2_s1" {
+		t.Errorf("expected only ch2_s1 to remain, got %v", all)
+	}
+}
+
+func TestClearByType(t *testing.T) {
+	t.Parallel()
+
+	store := New("")
+	store.Upsert(Document{ID: "char_1", Type: "character", Embedding: []float64{1, 0}})
+	store.Upsert(Document{ID: "char_2", Type: "character", Embedding: []float64{0.9, 0.1}})
+	store.Upsert(Document{ID: "world_1", Type: "world", Embedding: []float64{0, 1}})
+
+	store.ClearByType("character")
+
+	if store.Len() != 1 {
+		t.Fatalf("expected 1 doc after clearing character type, got %d", store.Len())
+	}
+	all := store.QueryFilteredScored([]float64{1, 0}, 10, nil, 0)
+	if len(all) != 1 || all[0].ID != "world_1" {
+		t.Errorf("expected only world_1 to remain, got %v", all)
+	}
+}
+
 func TestQueryFilteredBeforeChapter(t *testing.T) {
 	t.Parallel()
 

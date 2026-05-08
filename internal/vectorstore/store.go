@@ -87,6 +87,34 @@ func (s *Store) Clear() {
 	s.bm25 = nil
 }
 
+// ClearByChapter removes all documents whose ChapterFile matches chapterFile.
+func (s *Store) ClearByChapter(chapterFile string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.docs[:0]
+	for _, d := range s.docs {
+		if d.ChapterFile != chapterFile {
+			kept = append(kept, d)
+		}
+	}
+	s.docs = kept
+	s.bm25 = buildBM25Index(s.docs)
+}
+
+// ClearByType removes all documents of the given type.
+func (s *Store) ClearByType(docType string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := s.docs[:0]
+	for _, d := range s.docs {
+		if d.Type != docType {
+			kept = append(kept, d)
+		}
+	}
+	s.docs = kept
+	s.bm25 = buildBM25Index(s.docs)
+}
+
 func (s *Store) Len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

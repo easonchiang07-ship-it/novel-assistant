@@ -1594,13 +1594,35 @@ func (s *Server) handleAddRelationship(c *gin.Context) {
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
 	}
+	// Skip state graph delta when no chapter is provided — UI form has no chapter field,
+	// so r.Chapter==0, and recording it at chapter 0 would make the edge appear in all QueryAt results.
+	if r.Chapter > 0 {
+		s.applyStateGraphDelta(r.Chapter, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+			{From: r.From, To: r.To, Status: r.Status, Note: r.Note},
+		}})
+	}
 	c.Redirect(http.StatusFound, "/relationships")
 }
 
 func (s *Server) handleDeleteRelationship(c *gin.Context) {
-	s.relationships.Delete(c.PostForm("from"), c.PostForm("to"))
+	from, to := c.PostForm("from"), c.PostForm("to")
+	tombstoneChapter := 0
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, r := range s.relationships.GetAll() {
+			if r.From == from && r.To == to {
+				tombstoneChapter = r.Chapter
+				break
+			}
+		}
+	}
+	s.relationships.Delete(from, to)
 	if !saveOrAbort(c, s.relationships.Save(), "save relationships") {
 		return
+	}
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedRelationships: [][2]string{{from, to}}})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -1619,23 +1641,40 @@ func (s *Server) handleAddTimelineEvent(c *gin.Context) {
 			chars = append(chars, t)
 		}
 	}
-	s.timeline.Add(&tracker.TimelineEvent{
+	ev := &tracker.TimelineEvent{
 		Chapter:      chapter,
 		Scene:        c.PostForm("scene"),
 		Description:  c.PostForm("description"),
 		Characters:   chars,
 		Consequences: c.PostForm("consequences"),
-	})
+	}
+	s.timeline.Add(ev)
 	if !saveOrAbort(c, s.timeline.Save(), "save timeline") {
 		return
 	}
+	s.applyStateGraphDelta(ev.Chapter, tracker.StateDelta{Events: []tracker.TimelineEvent{*ev}})
 	c.Redirect(http.StatusFound, "/timeline")
 }
 
 func (s *Server) handleDeleteTimelineEvent(c *gin.Context) {
-	s.timeline.Delete(c.PostForm("id"))
+	id := c.PostForm("id")
+	tombstoneChapter := 0
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, ev := range s.timeline.GetSorted() {
+			if ev.ID == id {
+				tombstoneChapter = ev.Chapter
+				break
+			}
+		}
+	}
+	s.timeline.Delete(id)
 	if !saveOrAbort(c, s.timeline.Save(), "save timeline") {
 		return
+	}
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedEventIDs: []string{id}})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -1648,29 +1687,59 @@ func (s *Server) handleAddForeshadow(c *gin.Context) {
 		c.String(http.StatusBadRequest, "%s", err.Error())
 		return
 	}
-	s.foreshadow.Add(&tracker.Foreshadowing{
+	fs := &tracker.Foreshadowing{
 		Chapter:     chapter,
 		Description: c.PostForm("description"),
 		PlantedIn:   c.PostForm("planted_in"),
-	})
+	}
+	s.foreshadow.Add(fs)
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
+	s.applyStateGraphDelta(fs.Chapter, tracker.StateDelta{AddedFS: []string{fs.ID}})
 	c.Redirect(http.StatusFound, "/foreshadow")
 }
 
 func (s *Server) handleResolveForeshadow(c *gin.Context) {
-	s.foreshadow.Resolve(c.PostForm("id"), c.PostForm("resolved_in"))
+	id := c.PostForm("id")
+	s.foreshadow.Resolve(id, c.PostForm("resolved_in"))
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
 	}
+	// Use the foreshadow's chapter as the best-effort resolve chapter.
+	resolveChapter := 0
+	for _, f := range s.foreshadow.GetAll() {
+		if f.ID == id {
+			resolveChapter = f.LastSeenChapter
+			if resolveChapter == 0 {
+				resolveChapter = f.Chapter
+			}
+			break
+		}
+	}
+	s.applyStateGraphDelta(resolveChapter, tracker.StateDelta{ResolvedFS: []string{id}})
 	c.Redirect(http.StatusFound, "/foreshadow")
 }
 
 func (s *Server) handleDeleteForeshadow(c *gin.Context) {
-	s.foreshadow.Delete(c.PostForm("id"))
+	id := c.PostForm("id")
+	tombstoneChapter := 0
+	if ch, err := strconv.Atoi(c.PostForm("chapter")); err == nil && ch > 0 {
+		tombstoneChapter = ch
+	} else {
+		for _, f := range s.foreshadow.GetAll() {
+			if f.ID == id {
+				tombstoneChapter = f.Chapter
+				break
+			}
+		}
+	}
+	s.foreshadow.Delete(id)
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
+	}
+	if tombstoneChapter > 0 {
+		s.applyStateGraphDelta(tombstoneChapter, tracker.StateDelta{DeletedFS: []string{id}})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -1742,12 +1811,18 @@ func (s *Server) handleConfirmForeshadow(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "chapter 必須為正整數"})
 		return
 	}
+	beforeItems := s.foreshadow.GetAll()
 	if !s.foreshadow.ConfirmPending(req.ID, req.Chapter, req.PlantedIn) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "pending hook not found"})
 		return
 	}
 	if !saveOrAbort(c, s.foreshadow.Save(), "save foreshadow") {
 		return
+	}
+	afterItems := s.foreshadow.GetAll()
+	if len(afterItems) > len(beforeItems) {
+		newItem := afterItems[len(afterItems)-1]
+		s.applyStateGraphDelta(newItem.Chapter, tracker.StateDelta{AddedFS: []string{newItem.ID}})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "pending": s.foreshadow.GetPending()})
 }
@@ -1829,22 +1904,27 @@ func (s *Server) handleNarrativeExtract(c *gin.Context) {
 		return
 	}
 
+	var addedEvents []tracker.TimelineEvent
 	for _, ev := range mem.Events {
-		s.timeline.Add(&tracker.TimelineEvent{
+		te := &tracker.TimelineEvent{
 			Chapter:      req.ChapterIndex,
 			Scene:        ev.Scene,
 			Description:  ev.Description,
 			Characters:   ev.Characters,
 			Consequences: ev.Consequences,
-		})
+		}
+		s.timeline.Add(te)
+		addedEvents = append(addedEvents, *te)
 	}
 	if len(mem.Events) > 0 {
 		if err := s.timeline.Save(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存時間軸失敗"})
 			return
 		}
+		s.applyStateGraphDelta(req.ChapterIndex, tracker.StateDelta{Events: addedEvents})
 	}
 
+	var addedEdges []tracker.RelationshipEdge
 	for _, rel := range mem.Relationships {
 		s.relationships.Upsert(&tracker.Relationship{
 			From:         rel.From,
@@ -1853,12 +1933,16 @@ func (s *Server) handleNarrativeExtract(c *gin.Context) {
 			Note:         rel.Note,
 			TriggerEvent: rel.TriggerEvent,
 		})
+		addedEdges = append(addedEdges, tracker.RelationshipEdge{
+			From: rel.From, To: rel.To, Status: rel.Status, Note: rel.Note,
+		})
 	}
 	if len(mem.Relationships) > 0 {
 		if err := s.relationships.Save(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "儲存角色關係失敗"})
 			return
 		}
+		s.applyStateGraphDelta(req.ChapterIndex, tracker.StateDelta{Relationships: addedEdges})
 	}
 
 	if len(mem.WorldState) > 0 {

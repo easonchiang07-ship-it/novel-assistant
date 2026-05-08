@@ -113,7 +113,7 @@
                   onclick="showResolve('{{.ID}}')">回收</button>
                 {{end}}
                 <button class="btn btn-sm btn-danger"
-                  onclick="deleteForeshadow('{{.ID}}')">刪除</button>
+                  onclick="deleteForeshadow('{{.ID}}', {{.Chapter}})">刪除</button>
               </td>
             </tr>
             <!-- Resolve row (hidden by default) -->
@@ -146,10 +146,11 @@ function showResolve(id) {
 function hideResolve(id) {
   document.getElementById('resolve-' + id).style.display = 'none';
 }
-function deleteForeshadow(id) {
+function deleteForeshadow(id, chapter) {
   if (!confirm('確定刪除此伏筆？')) return;
   const fd = new FormData();
   fd.append('id', id);
+  if (chapter) fd.append('chapter', chapter);
   fetch('/foreshadow/delete', { method: 'POST', body: fd })
     .then(() => {
       document.getElementById('fs-' + id)?.remove();

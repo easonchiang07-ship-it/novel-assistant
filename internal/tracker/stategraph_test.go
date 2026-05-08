@@ -1,0 +1,233 @@
+package tracker_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"novel-assistant/internal/tracker"
+)
+
+func TestStateGraphQueryAtEmpty(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	state := g.QueryAt(5)
+	if state.Chapter != 5 {
+		t.Errorf("expected chapter 5, got %d", state.Chapter)
+	}
+	if len(state.Events) != 0 || len(state.ActiveFS) != 0 || len(state.Relationships) != 0 {
+		t.Errorf("expected empty state, got %+v", state)
+	}
+}
+
+func TestStateGraphQueryAtAccumulatesEvents(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1, Description: "first"}}})
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3, Description: "third"}}})
+
+	at2 := g.QueryAt(2)
+	if len(at2.Events) != 1 || at2.Events[0].ID != "e1" {
+		t.Errorf("chapter 2 should only have e1, got %+v", at2.Events)
+	}
+
+	at3 := g.QueryAt(3)
+	if len(at3.Events) != 2 {
+		t.Errorf("chapter 3 should have 2 events, got %d", len(at3.Events))
+	}
+}
+
+func TestStateGraphActiveForeshadows(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
+	g.Apply(3, tracker.StateDelta{ResolvedFS: []string{"fs1"}})
+
+	at2 := g.QueryAt(2)
+	if len(at2.ActiveFS) != 2 {
+		t.Errorf("chapter 2: expected 2 active, got %v", at2.ActiveFS)
+	}
+
+	at3 := g.QueryAt(3)
+	if len(at3.ActiveFS) != 1 || at3.ActiveFS[0] != "fs2" {
+		t.Errorf("chapter 3: expected only fs2 active, got %v", at3.ActiveFS)
+	}
+}
+
+func TestStateGraphRelationshipUpsert(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: "A", To: "B", Status: "敵對"},
+	}})
+	g.Apply(3, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: "A", To: "B", Status: "和解"},
+	}})
+
+	at1 := g.QueryAt(1)
+	if len(at1.Relationships) != 1 || at1.Relationships[0].Status != "敵對" {
+		t.Errorf("chapter 1: expected 敵對, got %+v", at1.Relationships)
+	}
+
+	at3 := g.QueryAt(3)
+	if len(at3.Relationships) != 1 || at3.Relationships[0].Status != "和解" {
+		t.Errorf("chapter 3: expected 和解, got %+v", at3.Relationships)
+	}
+}
+
+func TestStateGraphCharacterState(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(2, tracker.StateDelta{Characters: map[string]tracker.CharacterState{
+		"Alice": {Name: "Alice", Status: "alive"},
+	}})
+	g.Apply(5, tracker.StateDelta{Characters: map[string]tracker.CharacterState{
+		"Alice": {Name: "Alice", Status: "dead"},
+	}})
+
+	at4 := g.QueryAt(4)
+	if at4.Characters["Alice"].Status != "alive" {
+		t.Errorf("chapter 4: expected alive, got %s", at4.Characters["Alice"].Status)
+	}
+
+	at5 := g.QueryAt(5)
+	if at5.Characters["Alice"].Status != "dead" {
+		t.Errorf("chapter 5: expected dead, got %s", at5.Characters["Alice"].Status)
+	}
+}
+
+func TestStateGraphExcludesFutureDeltas(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(10, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "future", Chapter: 10}}})
+
+	at5 := g.QueryAt(5)
+	if len(at5.Events) != 0 {
+		t.Errorf("chapter 5 should not see chapter-10 events, got %v", at5.Events)
+	}
+}
+
+func TestStateGraphSaveLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sg.json")
+
+	g := tracker.NewJSONStateGraph(path)
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1"}})
+	g.Apply(2, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 2}}})
+	if err := g.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	g2 := tracker.NewJSONStateGraph(path)
+	if err := g2.Load(); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	state := g2.QueryAt(2)
+	if len(state.ActiveFS) != 1 || state.ActiveFS[0] != "fs1" {
+		t.Errorf("after reload: expected fs1 active, got %v", state.ActiveFS)
+	}
+	if len(state.Events) != 1 || state.Events[0].ID != "e1" {
+		t.Errorf("after reload: expected e1 event, got %v", state.Events)
+	}
+}
+
+func TestStateGraphLoadMissingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nonexistent.json")
+	g := tracker.NewJSONStateGraph(path)
+	if err := g.Load(); err != nil {
+		t.Errorf("loading missing file should be a no-op, got: %v", err)
+	}
+}
+
+func TestStateGraphSaveCreatesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sg.json")
+	g := tracker.NewJSONStateGraph(path)
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"x"}})
+	if err := g.Save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected file to exist after save: %v", err)
+	}
+}
+
+func TestStateGraphTombstoneDoesNotAffectPastChapters(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	// Event added at chapter 3; tombstone recorded at chapter 3 (item's own chapter).
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
+	g.Apply(3, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+
+	// QueryAt(2) — before the event — should not see it (it didn't exist yet).
+	if len(g.QueryAt(2).Events) != 0 {
+		t.Errorf("QueryAt(2) should see no events before chapter 3")
+	}
+	// QueryAt(3) — tombstone chapter — item should be gone.
+	if len(g.QueryAt(3).Events) != 0 {
+		t.Errorf("QueryAt(3) should not see e3 after its tombstone at chapter 3")
+	}
+}
+
+func TestStateGraphTombstonePreservesPastSnapshot(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	// Event added at chapter 3; tombstone at chapter 10 (delete happened later).
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
+	g.Apply(10, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+
+	// QueryAt(5) — before the tombstone chapter — must still see the event.
+	at5 := g.QueryAt(5)
+	if len(at5.Events) != 1 || at5.Events[0].ID != "e3" {
+		t.Errorf("QueryAt(5) should see e3 (tombstone is at chapter 10), got %v", at5.Events)
+	}
+	// QueryAt(10) — at tombstone chapter — event must be gone.
+	if len(g.QueryAt(10).Events) != 0 {
+		t.Errorf("QueryAt(10) should not see e3 after tombstone, got %v", g.QueryAt(10).Events)
+	}
+}
+
+func TestStateGraphDeleteEventTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1}, {ID: "e2", Chapter: 1}}})
+	g.Apply(1, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})
+
+	state := g.QueryAt(5)
+	for _, e := range state.Events {
+		if e.ID == "e1" {
+			t.Errorf("deleted event e1 should not appear in QueryAt result")
+		}
+	}
+	if len(state.Events) != 1 || state.Events[0].ID != "e2" {
+		t.Errorf("expected only e2, got %v", state.Events)
+	}
+}
+
+func TestStateGraphDeleteForeshadowTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
+	g.Apply(1, tracker.StateDelta{DeletedFS: []string{"fs1"}})
+
+	state := g.QueryAt(5)
+	for _, id := range state.ActiveFS {
+		if id == "fs1" {
+			t.Errorf("deleted foreshadow fs1 should not appear in ActiveFS")
+		}
+	}
+	if len(state.ActiveFS) != 1 || state.ActiveFS[0] != "fs2" {
+		t.Errorf("expected only fs2, got %v", state.ActiveFS)
+	}
+}
+
+func TestStateGraphDeleteRelationshipTombstone(t *testing.T) {
+	g := tracker.NewJSONStateGraph("")
+	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+		{From: "A", To: "B", Status: "敵對"},
+		{From: "C", To: "D", Status: "友好"},
+	}})
+	g.Apply(1, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}})
+
+	state := g.QueryAt(5)
+	for _, rel := range state.Relationships {
+		if rel.From == "A" && rel.To == "B" {
+			t.Errorf("deleted relationship A->B should not appear")
+		}
+	}
+	if len(state.Relationships) != 1 || state.Relationships[0].From != "C" {
+		t.Errorf("expected only C->D, got %v", state.Relationships)
+	}
+}
+
+var _ tracker.StateGraph = tracker.NewJSONStateGraph("")

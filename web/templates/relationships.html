@@ -90,7 +90,7 @@
               <td style="color:#64748b;font-size:0.82rem">{{.TriggerEvent}}</td>
               <td>
                 <button class="btn btn-sm btn-danger"
-                  onclick="deleteRel('{{.From}}','{{.To}}',this)">刪除</button>
+                  onclick="deleteRel('{{.From}}','{{.To}}',{{.Chapter}},this)">刪除</button>
               </td>
             </tr>
             {{end}}
@@ -106,11 +106,12 @@
 </div>
 
 <script>
-function deleteRel(from, to, btn) {
+function deleteRel(from, to, chapter, btn) {
   if (!confirm('確定刪除此關係？')) return;
   const fd = new FormData();
   fd.append('from', from);
   fd.append('to', to);
+  if (chapter) fd.append('chapter', chapter);
   fetch('/relationships/delete', { method: 'POST', body: fd })
     .then(() => btn.closest('tr').remove());
 }

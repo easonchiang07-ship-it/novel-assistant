@@ -1908,3 +1908,48 @@ func TestIngestIncrementalClearsByChapterOnChange(t *testing.T) {
 		t.Errorf("expected fewer docs after reducing chapter scenes (%d → %d)", countAfterFirst, countAfterSecond)
 	}
 }
+
+func TestIngestIncrementalSummaryFailureDoesNotRecordManifest(t *testing.T) {
+	t.Parallel()
+
+	var generateFail atomic.Bool
+	var embedCalls atomic.Int64
+
+	ollama := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embeddings":
+			embedCalls.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		case "/api/generate":
+			if generateFail.Load() {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"response":"summary","done":true}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollama.Close()
+
+	dir := t.TempDir()
+	mustWriteFile(t, filepath.Join(dir, "chapters", "第01章.md"), "## Scene 1\nContent.")
+
+	s := newE2ETestServer(t, dir, ollama.URL)
+
+	// 第一次：summary 失敗
+	generateFail.Store(true)
+	if err := s.IngestIncremental(context.Background()); err != nil {
+		t.Fatalf("ingest with failed summary: %v", err)
+	}
+
+	// 第二次：summary 正常，應該重跑（manifest 未記錄 → hash 不符 → 重新 embed）
+	generateFail.Store(false)
+	embedCalls.Store(0)
+	if err := s.IngestIncremental(context.Background()); err != nil {
+		t.Fatalf("retry ingest: %v", err)
+	}
+	if embedCalls.Load() == 0 {
+		t.Error("expected embed calls on retry after summary failure, got 0 — manifest should not have been recorded")
+	}
+}

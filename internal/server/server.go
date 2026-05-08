@@ -676,44 +676,56 @@ func (s *Server) IngestIncremental(ctx context.Context) error {
 			continue
 		}
 
-		// Remove stale chunks for this chapter before re-indexing.
-		st.store.ClearByChapter(file.Name())
-
 		chapterIdx := extractChapterIndex(file.Name())
 		chunks := chunkChapter(file.Name(), chapterText)
+
+		// Pre-embed all chunks before touching the store so that any embed
+		// failure leaves the existing data intact (no destructive mid-state).
+		newChunks := make([]vectorstore.Document, 0, len(chunks))
 		for _, chunk := range chunks {
 			vec, err := s.embedder.Embed(ctx, chunk.Content)
 			if err != nil {
 				return fmt.Errorf("embed chapter chunk %s: %w", chunk.ID, err)
 			}
 			chunk.Embedding = vec
+			newChunks = append(newChunks, chunk)
+		}
+
+		// All chunks are ready — atomically replace old with new.
+		st.store.ClearByChapter(file.Name())
+		for _, chunk := range newChunks {
 			st.store.Upsert(chunk)
 			log.Printf("indexed chapter chunk: %s", chunk.ID)
 		}
-		if len(chunks) == 0 {
+
+		if len(newChunks) == 0 {
 			manifest.record("chapter_"+file.Name(), chapterText)
 			continue
 		}
+
+		// Summary is attempted after chunks are in place.
+		// If summary or its embed fails, skip manifest.record so the next
+		// incremental run retries the whole chapter (including summary).
 		summary, err := s.checker.SummarizeChapter(ctx, chapterText)
 		if err != nil {
-			log.Printf("summarize chapter %s: %v (skipped)", file.Name(), err)
-		} else {
-			summaryVec, err := s.embedder.Embed(ctx, summary)
-			if err != nil {
-				log.Printf("embed summary %s: %v (skipped)", file.Name(), err)
-			} else {
-				st.store.Upsert(vectorstore.Document{
-					ID:           "summary_" + file.Name(),
-					Type:         "chapter_summary",
-					Content:      summary,
-					Summary:      summary,
-					Embedding:    summaryVec,
-					ChapterFile:  file.Name(),
-					ChapterIndex: chapterIdx,
-				})
-				log.Printf("indexed chapter summary: %s", file.Name())
-			}
+			log.Printf("summarize chapter %s: %v (skipped, will retry next run)", file.Name(), err)
+			continue
 		}
+		summaryVec, err := s.embedder.Embed(ctx, summary)
+		if err != nil {
+			log.Printf("embed summary %s: %v (skipped, will retry next run)", file.Name(), err)
+			continue
+		}
+		st.store.Upsert(vectorstore.Document{
+			ID:           "summary_" + file.Name(),
+			Type:         "chapter_summary",
+			Content:      summary,
+			Summary:      summary,
+			Embedding:    summaryVec,
+			ChapterFile:  file.Name(),
+			ChapterIndex: chapterIdx,
+		})
+		log.Printf("indexed chapter summary: %s", file.Name())
 		manifest.record("chapter_"+file.Name(), chapterText)
 	}
 

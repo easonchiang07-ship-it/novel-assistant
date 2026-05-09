@@ -454,8 +454,8 @@ func (s *Server) buildChapterBundleMarkdown(name string) (string, error) {
 
 	var sb strings.Builder
 	sb.WriteString("# 章節完整報告\n\n")
-	sb.WriteString(fmt.Sprintf("**章節：** %s\n\n", file.Title))
-	sb.WriteString(fmt.Sprintf("**匯出時間：** %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	fmt.Fprintf(&sb, "**章節：** %s\n\n", file.Title)
+	fmt.Fprintf(&sb, "**匯出時間：** %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
 
 	sb.WriteString("## 原始章節\n\n```text\n")
 	sb.WriteString(strings.TrimSpace(file.Content))

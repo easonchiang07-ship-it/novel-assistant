@@ -1010,7 +1010,7 @@ func performRequest(t *testing.T, baseURL, method, path string, body *bytes.Read
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	data, _ := io.ReadAll(resp.Body)
 	return httpResult{StatusCode: resp.StatusCode, Body: data}
 }
@@ -1502,7 +1502,7 @@ func TestEvaluateStreamReturnsResult(t *testing.T) {
 		case "/api/generate":
 			w.Header().Set("Content-Type", "application/json")
 			chunk, _ := json.Marshal(map[string]any{"response": evalJSON, "done": true})
-			w.Write(chunk)
+			w.Write(chunk) //nolint:errcheck
 		default:
 			http.NotFound(w, r)
 		}
@@ -1586,7 +1586,7 @@ func TestEvaluateStreamStaleForeshadowPenalty(t *testing.T) {
 		case "/api/generate":
 			w.Header().Set("Content-Type", "application/json")
 			chunk, _ := json.Marshal(map[string]any{"response": evalJSON, "done": true})
-			w.Write(chunk)
+			w.Write(chunk) //nolint:errcheck
 		default:
 			http.NotFound(w, r)
 		}

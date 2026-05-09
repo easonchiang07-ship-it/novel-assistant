@@ -93,10 +93,6 @@ func behaviorPrompt(profile, chapter, chunkLabel, summary string) string {
 `, profile, extra.String(), chapter)
 }
 
-func (c *Checker) checkBehaviorChunkedStream(ctx context.Context, profile, chapter string, w io.Writer) error {
-	return c.checkBehaviorChunkedWithSystemStream(ctx, "", profile, chapter, w)
-}
-
 func summarizeBehaviorProfile(profile string) string {
 	lines := strings.Split(profile, "\n")
 	parts := make([]string, 0, 4)

@@ -38,7 +38,7 @@ func (o *OllamaStreamer) Stream(ctx context.Context, system, prompt string, w io
 	if err != nil {
 		return fmt.Errorf("ollama unavailable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("ollama generate failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))

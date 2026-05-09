@@ -95,7 +95,7 @@ func (s *Server) handleOllamaStatus(c *gin.Context) {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	defer httpResp.Body.Close()
+	defer httpResp.Body.Close() //nolint:errcheck
 
 	if httpResp.StatusCode != http.StatusOK {
 		c.JSON(http.StatusOK, resp)
@@ -187,7 +187,7 @@ func (s *Server) streamOllamaPull(c *gin.Context, model string) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "無法連線 Ollama：" + err.Error()})
 		return
 	}
-	defer pullResp.Body.Close()
+	defer pullResp.Body.Close() //nolint:errcheck
 
 	if pullResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(pullResp.Body, 4096))
@@ -211,7 +211,7 @@ func (s *Server) streamOllamaPull(c *gin.Context, model string) {
 			continue
 		}
 		if errMsg, ok := frame["error"].(string); ok {
-			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n",
+			fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", //nolint:errcheck
 				mustJSON(map[string]string{"error": errMsg}))
 			if flusher != nil {
 				flusher.Flush()
@@ -219,26 +219,26 @@ func (s *Server) streamOllamaPull(c *gin.Context, model string) {
 			return
 		}
 		if status, _ := frame["status"].(string); status == "success" {
-			fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+			fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n") //nolint:errcheck
 			if flusher != nil {
 				flusher.Flush()
 			}
 			return
 		}
-		fmt.Fprintf(c.Writer, "event: progress\ndata: %s\n\n", mustJSON(frame))
+		fmt.Fprintf(c.Writer, "event: progress\ndata: %s\n\n", mustJSON(frame)) //nolint:errcheck
 		if flusher != nil {
 			flusher.Flush()
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n",
+		fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", //nolint:errcheck
 			mustJSON(map[string]string{"error": "stream read error: " + err.Error()}))
 		if flusher != nil {
 			flusher.Flush()
 		}
 		return
 	}
-	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n")
+	fmt.Fprintf(c.Writer, "event: done\ndata: {}\n\n") //nolint:errcheck
 	if flusher != nil {
 		flusher.Flush()
 	}
@@ -268,7 +268,7 @@ func EmbedReady(ollamaURL, embedModel string) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return false
 	}

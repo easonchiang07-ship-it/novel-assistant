@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck      # ensure all errors are handled
+    - staticcheck   # comprehensive static analysis (includes gosimple)
+    - govet         # reports suspicious constructs
+    - ineffassign   # detect unused assignments
+    - unused        # find unused code
+    - misspell      # fix spelling mistakes
+    - exhaustive    # check exhaustiveness of enum switches
+
+formatters:
+  enable:
+    - goimports     # check import ordering
+
+formatters-settings:
+  goimports:
+    local-prefixes:
+      - novel-assistant
+
+linters-settings:
+  errcheck:
+    # defer Close/Remove patterns are standard cleanup — errors here are not actionable
+    exclude-functions:
+      - (io.Closer).Close
+      - (*os.File).Close
+      - (net.Conn).Close
+      - os.Remove
+      - os.RemoveAll
+  exhaustive:
+    default-signifies-exhaustive: true
+
+issues:
+  exclude-rules:
+    # test helpers: errcheck noise is acceptable in test code
+    - path: ".*_test\\.go"
+      linters:
+        - errcheck

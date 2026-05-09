@@ -66,7 +66,7 @@ func (t *RelationshipTracker) Delete(from, to string) {
 	defer t.mu.Unlock()
 	var filtered []*Relationship
 	for _, item := range t.Items {
-		if !(item.From == from && item.To == to) {
+		if item.From != from || item.To != to {
 			filtered = append(filtered, item)
 		}
 	}

@@ -65,7 +65,7 @@ func ollamaMockServer(t *testing.T, status int, body string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		fmt.Fprint(w, body)
+		fmt.Fprint(w, body) //nolint:errcheck
 	}))
 }
 
@@ -78,13 +78,13 @@ func TestHandleOllamaStatus_Down(t *testing.T) {
 			return
 		}
 		conn, _, _ := hj.Hijack()
-		conn.Close()
+		conn.Close() //nolint:errcheck
 	}))
 	defer srv.Close()
 	s := newTestServerWithOllama(t, srv.URL, "llama3.2", "nomic-embed-text")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if resp.Running {
 		t.Error("expected running=false when Ollama is down")
 	}
@@ -97,7 +97,7 @@ func TestHandleOllamaStatus_AllReady(t *testing.T) {
 	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if !resp.Running || !resp.LLMReady || !resp.EmbedReady {
 		t.Errorf("expected all ready, got running=%v llm=%v embed=%v", resp.Running, resp.LLMReady, resp.EmbedReady)
 	}
@@ -110,7 +110,7 @@ func TestHandleOllamaStatus_MissingLLM(t *testing.T) {
 	s := newTestServerWithOllama(t, mock.URL, "llama3.1:8b", "nomic-embed-text")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if resp.LLMReady {
 		t.Error("expected llm_ready=false")
 	}
@@ -126,7 +126,7 @@ func TestHandleOllamaStatus_MissingEmbed(t *testing.T) {
 	s := newTestServerWithOllama(t, mock.URL, "llama3.2", "nomic-embed-text")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if !resp.LLMReady {
 		t.Error("expected llm_ready=true (entry alias)")
 	}
@@ -142,7 +142,7 @@ func TestHandleOllamaStatus_LatestNormalize(t *testing.T) {
 	s := newTestServerWithOllama(t, mock.URL, "llama3.1:8b", "nomic-embed-text:latest")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if !resp.LLMReady || !resp.EmbedReady {
 		t.Errorf("expected both ready after :latest normalize, got llm=%v embed=%v", resp.LLMReady, resp.EmbedReady)
 	}
@@ -159,7 +159,7 @@ func TestHandleOllamaStatus_Non200TagsResponse(t *testing.T) {
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 
 	if resp.Running {
 		t.Error("expected running=false when /api/tags returns non-200")
@@ -176,7 +176,7 @@ func TestHandleOllamaStatus_EntryAlias(t *testing.T) {
 	s := newTestServerWithOllama(t, mock.URL, "llama3.2:3b", "nomic-embed-text")
 	rec := newTestRequest(t, s, "GET", "/api/ollama/status", nil)
 	var resp ollamaStatusResponse
-	json.Unmarshal(rec.Body.Bytes(), &resp)
+	json.Unmarshal(rec.Body.Bytes(), &resp) //nolint:errcheck
 	if !resp.LLMReady {
 		t.Error("expected llm_ready=true: llama3.2:3b alias matches llama3.2:latest")
 	}
@@ -208,8 +208,8 @@ func TestHandleOllamaPull_ForwardsProgress(t *testing.T) {
 	t.Parallel()
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/pull" {
-			fmt.Fprintln(w, `{"status":"pulling manifest","completed":0,"total":100}`)
-			fmt.Fprintln(w, `{"status":"success"}`)
+			fmt.Fprintln(w, `{"status":"pulling manifest","completed":0,"total":100}`) //nolint:errcheck
+			fmt.Fprintln(w, `{"status":"success"}`)                                    //nolint:errcheck
 			return
 		}
 		http.NotFound(w, r)
@@ -234,7 +234,7 @@ func TestHandleOllamaPull_ForwardsError(t *testing.T) {
 	t.Parallel()
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/pull" {
-			fmt.Fprintln(w, `{"error":"model not found"}`)
+			fmt.Fprintln(w, `{"error":"model not found"}`) //nolint:errcheck
 			return
 		}
 		http.NotFound(w, r)
@@ -292,7 +292,7 @@ func TestHandleOllamaPull_DuplicateReturns409(t *testing.T) {
 		if r.URL.Path == "/api/pull" {
 			close(started)
 			<-unblock
-			fmt.Fprintln(w, `{"status":"success"}`)
+			fmt.Fprintln(w, `{"status":"success"}`) //nolint:errcheck
 			return
 		}
 		http.NotFound(w, r)
@@ -325,7 +325,7 @@ func TestHandleOllamaPull_ReleasesLockAfterCompletion(t *testing.T) {
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
-			fmt.Fprintln(w, `{"status":"success"}`)
+			fmt.Fprintln(w, `{"status":"success"}`) //nolint:errcheck
 			return
 		}
 		http.NotFound(w, r)

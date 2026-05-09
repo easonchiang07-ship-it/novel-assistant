@@ -63,6 +63,8 @@ func ExportFilmScenes(scenes []checker.FilmScene, format FilmFormat) ([]byte, er
 	switch format {
 	case FilmFormatJSON:
 		return json.MarshalIndent(scenes, "", "  ")
+	case FilmFormatYAML:
+		fallthrough
 	default:
 		out, err := yaml.Marshal(scenes)
 		if err != nil {

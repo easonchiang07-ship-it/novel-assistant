@@ -21,8 +21,8 @@ func TestStateGraphQueryAtEmpty(t *testing.T) {
 
 func TestStateGraphQueryAtAccumulatesEvents(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1, Description: "first"}}})
-	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3, Description: "third"}}})
+	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1, Description: "first"}}}) //nolint:errcheck
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3, Description: "third"}}}) //nolint:errcheck
 
 	at2 := g.QueryAt(2)
 	if len(at2.Events) != 1 || at2.Events[0].ID != "e1" {
@@ -37,8 +37,8 @@ func TestStateGraphQueryAtAccumulatesEvents(t *testing.T) {
 
 func TestStateGraphActiveForeshadows(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
-	g.Apply(3, tracker.StateDelta{ResolvedFS: []string{"fs1"}})
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}}) //nolint:errcheck
+	g.Apply(3, tracker.StateDelta{ResolvedFS: []string{"fs1"}})     //nolint:errcheck
 
 	at2 := g.QueryAt(2)
 	if len(at2.ActiveFS) != 2 {
@@ -53,10 +53,10 @@ func TestStateGraphActiveForeshadows(t *testing.T) {
 
 func TestStateGraphRelationshipUpsert(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{ //nolint:errcheck
 		{From: "A", To: "B", Status: "敵對"},
 	}})
-	g.Apply(3, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+	g.Apply(3, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{ //nolint:errcheck
 		{From: "A", To: "B", Status: "和解"},
 	}})
 
@@ -73,10 +73,10 @@ func TestStateGraphRelationshipUpsert(t *testing.T) {
 
 func TestStateGraphCharacterState(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(2, tracker.StateDelta{Characters: map[string]tracker.CharacterState{
+	g.Apply(2, tracker.StateDelta{Characters: map[string]tracker.CharacterState{ //nolint:errcheck
 		"Alice": {Name: "Alice", Status: "alive"},
 	}})
-	g.Apply(5, tracker.StateDelta{Characters: map[string]tracker.CharacterState{
+	g.Apply(5, tracker.StateDelta{Characters: map[string]tracker.CharacterState{ //nolint:errcheck
 		"Alice": {Name: "Alice", Status: "dead"},
 	}})
 
@@ -93,7 +93,7 @@ func TestStateGraphCharacterState(t *testing.T) {
 
 func TestStateGraphExcludesFutureDeltas(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(10, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "future", Chapter: 10}}})
+	g.Apply(10, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "future", Chapter: 10}}}) //nolint:errcheck
 
 	at5 := g.QueryAt(5)
 	if len(at5.Events) != 0 {
@@ -106,8 +106,8 @@ func TestStateGraphSaveLoad(t *testing.T) {
 	path := filepath.Join(dir, "sg.json")
 
 	g := tracker.NewJSONStateGraph(path)
-	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1"}})
-	g.Apply(2, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 2}}})
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1"}})                                //nolint:errcheck
+	g.Apply(2, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 2}}}) //nolint:errcheck
 	if err := g.Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestStateGraphLoadMissingFile(t *testing.T) {
 func TestStateGraphSaveCreatesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sg.json")
 	g := tracker.NewJSONStateGraph(path)
-	g.Apply(1, tracker.StateDelta{AddedFS: []string{"x"}})
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"x"}}) //nolint:errcheck
 	if err := g.Save(); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -149,8 +149,8 @@ func TestStateGraphSaveCreatesFile(t *testing.T) {
 func TestStateGraphTombstoneDoesNotAffectPastChapters(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
 	// Event added at chapter 3; tombstone recorded at chapter 3 (item's own chapter).
-	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
-	g.Apply(3, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}}) //nolint:errcheck
+	g.Apply(3, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})                         //nolint:errcheck
 
 	// QueryAt(2) — before the event — should not see it (it didn't exist yet).
 	if len(g.QueryAt(2).Events) != 0 {
@@ -165,8 +165,8 @@ func TestStateGraphTombstoneDoesNotAffectPastChapters(t *testing.T) {
 func TestStateGraphTombstonePreservesPastSnapshot(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
 	// Event added at chapter 3; tombstone at chapter 10 (delete happened later).
-	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}})
-	g.Apply(10, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})
+	g.Apply(3, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e3", Chapter: 3}}}) //nolint:errcheck
+	g.Apply(10, tracker.StateDelta{DeletedEventIDs: []string{"e3"}})                        //nolint:errcheck
 
 	// QueryAt(5) — before the tombstone chapter — must still see the event.
 	at5 := g.QueryAt(5)
@@ -181,8 +181,8 @@ func TestStateGraphTombstonePreservesPastSnapshot(t *testing.T) {
 
 func TestStateGraphDeleteEventTombstone(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1}, {ID: "e2", Chapter: 1}}})
-	g.Apply(1, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})
+	g.Apply(1, tracker.StateDelta{Events: []tracker.TimelineEvent{{ID: "e1", Chapter: 1}, {ID: "e2", Chapter: 1}}}) //nolint:errcheck
+	g.Apply(1, tracker.StateDelta{DeletedEventIDs: []string{"e1"}})                                                 //nolint:errcheck
 
 	state := g.QueryAt(5)
 	for _, e := range state.Events {
@@ -197,8 +197,8 @@ func TestStateGraphDeleteEventTombstone(t *testing.T) {
 
 func TestStateGraphDeleteForeshadowTombstone(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}})
-	g.Apply(1, tracker.StateDelta{DeletedFS: []string{"fs1"}})
+	g.Apply(1, tracker.StateDelta{AddedFS: []string{"fs1", "fs2"}}) //nolint:errcheck
+	g.Apply(1, tracker.StateDelta{DeletedFS: []string{"fs1"}})      //nolint:errcheck
 
 	state := g.QueryAt(5)
 	for _, id := range state.ActiveFS {
@@ -213,11 +213,11 @@ func TestStateGraphDeleteForeshadowTombstone(t *testing.T) {
 
 func TestStateGraphDeleteRelationshipTombstone(t *testing.T) {
 	g := tracker.NewJSONStateGraph("")
-	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{
+	g.Apply(1, tracker.StateDelta{Relationships: []tracker.RelationshipEdge{ //nolint:errcheck
 		{From: "A", To: "B", Status: "敵對"},
 		{From: "C", To: "D", Status: "友好"},
 	}})
-	g.Apply(1, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}})
+	g.Apply(1, tracker.StateDelta{DeletedRelationships: [][2]string{{"A", "B"}}}) //nolint:errcheck
 
 	state := g.QueryAt(5)
 	for _, rel := range state.Relationships {

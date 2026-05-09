@@ -53,7 +53,7 @@ func (s *Server) handleSetupInstallOllama(c *gin.Context) {
 
 	send := func(percent int, msg string) {
 		data, _ := json.Marshal(gin.H{"percent": percent, "msg": msg})
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data) //nolint:errcheck
 		c.Writer.Flush()
 	}
 
@@ -64,7 +64,7 @@ func (s *Server) handleSetupInstallOllama(c *gin.Context) {
 
 	if err := setup.InstallOllama(send); err != nil {
 		data, _ := json.Marshal(gin.H{"error": err.Error()})
-		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data) //nolint:errcheck
 		c.Writer.Flush()
 	}
 }
@@ -119,7 +119,7 @@ func (s *Server) handleSetupCheckOllama(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("Ollama 回應 %d", resp.StatusCode)})

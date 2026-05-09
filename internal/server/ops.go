@@ -171,7 +171,7 @@ func listBackupItems(dir string) ([]backupItem, error) {
 }
 
 func snapshotCopyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+	data, err := os.ReadFile(src) // #nosec G304 -- src is from filepath.WalkDir on the backup directory
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func cleanDataDirForRestore(dataDir string) error {
 		}
 		ext := filepath.Ext(d.Name())
 		if ext == ".md" || ext == ".json" || d.Name() == ".gitkeep" {
-			return os.Remove(path)
+			return os.Remove(path) // #nosec G122 -- WalkDir on a trusted local backup directory; symlink attacks not realistic
 		}
 		return nil
 	})
@@ -421,7 +421,7 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 }
 
 func addZipFile(zw *zip.Writer, path, name string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is from filepath.WalkDir on the backup directory
 	if err != nil {
 		return err
 	}

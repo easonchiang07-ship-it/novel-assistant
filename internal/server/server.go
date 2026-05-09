@@ -173,7 +173,7 @@ func (s *Server) templateFuncMap() template.FuncMap {
 			if err != nil {
 				return template.JS("null")
 			}
-			return template.JS(data)
+			return template.JS(data) // #nosec G203 -- data is json.Marshal output, not raw user input
 		},
 		"sourceEnabled": func(sources []string, name string) bool {
 			for _, source := range sources {

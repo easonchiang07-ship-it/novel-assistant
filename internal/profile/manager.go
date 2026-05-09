@@ -29,7 +29,7 @@ func (m *Manager) Load() error {
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 				path := filepath.Join(charDir, e.Name())
-				content, err := os.ReadFile(path)
+				content, err := os.ReadFile(path) // #nosec G304 -- path derived from os.ReadDir on a known subdirectory
 				if err != nil {
 					continue
 				}
@@ -45,7 +45,7 @@ func (m *Manager) Load() error {
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 				path := filepath.Join(worldDir, e.Name())
-				content, err := os.ReadFile(path)
+				content, err := os.ReadFile(path) // #nosec G304 -- path derived from os.ReadDir on a known subdirectory
 				if err != nil {
 					continue
 				}
@@ -63,7 +63,7 @@ func (m *Manager) Load() error {
 		for _, e := range entries {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 				path := filepath.Join(styleDir, e.Name())
-				content, err := os.ReadFile(path)
+				content, err := os.ReadFile(path) // #nosec G304 -- path derived from os.ReadDir on a known subdirectory
 				if err != nil {
 					continue
 				}
@@ -100,7 +100,7 @@ func (m *Manager) indexCharacterAppearances() {
 		}
 
 		path := filepath.Join(chapterDir, e.Name())
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) // #nosec G304 -- path derived from os.ReadDir on a known subdirectory
 		if err != nil {
 			continue
 		}

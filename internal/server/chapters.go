@@ -202,7 +202,7 @@ func (s *Server) loadChapterFile(name string) (chapterFile, error) {
 	}
 
 	path := filepath.Join(s.chapterDir(), normalized)
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- path sanitized by normalizeChapterName (no traversal chars)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return chapterFile{}, fmt.Errorf("找不到章節檔案：%s", normalized)

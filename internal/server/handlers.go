@@ -2144,12 +2144,12 @@ func (s *Server) handleDemoData(c *gin.Context) {
 	chapterPath := filepath.Join("examples", "demo", "chapters", "第一章_抵達.md")
 	healthPath := filepath.Join("examples", "demo", "health.json")
 
-	chapterBytes, err := os.ReadFile(chapterPath)
+	chapterBytes, err := os.ReadFile(chapterPath) // #nosec G304 -- hardcoded path to bundled demo assets
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "demo chapter not found"})
 		return
 	}
-	healthBytes, err := os.ReadFile(healthPath)
+	healthBytes, err := os.ReadFile(healthPath) // #nosec G304 -- hardcoded path to bundled demo assets
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "demo health result not found"})
 		return

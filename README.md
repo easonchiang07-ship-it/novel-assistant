@@ -1,6 +1,7 @@
 # Novel Assistant
 
 [![CI](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/easonchiang07-ship-it/novel-assistant/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/easonchiang07-ship-it/novel-assistant/graph/badge.svg)](https://codecov.io/gh/easonchiang07-ship-it/novel-assistant)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 English | [繁體中文](README.zh-TW.md)

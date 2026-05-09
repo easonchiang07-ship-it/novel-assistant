@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"novel-assistant/internal/checker"
@@ -29,6 +30,7 @@ type App struct {
 // New creates an App and initializes the embedded gin server.
 // Must be called before wails.Run so the Handler is ready for the options struct.
 func New(webFS fs.FS) (*App, error) {
+	gin.SetMode(gin.ReleaseMode)
 	cfg := config.Default()
 
 	// Desktop: store data in ~/NovelAssistant/data/ instead of ./data/

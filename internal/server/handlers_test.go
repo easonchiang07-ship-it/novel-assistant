@@ -339,7 +339,6 @@ func TestHandleApplyStyleAnalysisReturnsNotFoundForMissingStyle(t *testing.T) {
 }
 
 func ginTestRouter(s *Server) *gin.Engine {
-	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/styles/:name/analysis", s.handleApplyStyleAnalysis)
 	return r

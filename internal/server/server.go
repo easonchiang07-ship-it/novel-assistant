@@ -216,7 +216,6 @@ func (s *Server) templateFuncMap() template.FuncMap {
 // setupRouter configures gin routes and template/static serving.
 // webFS non-nil → use embedded FS; nil → load from filesystem.
 func (s *Server) setupRouter(webFS fs.FS) error {
-	gin.SetMode(gin.ReleaseMode)
 	s.router = gin.Default()
 	funcMap := s.templateFuncMap()
 

@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/pkg/browser"
 
 	assets "novel-assistant"
@@ -17,6 +18,7 @@ import (
 
 func main() {
 	loadDotEnv(".env")
+	gin.SetMode(gin.ReleaseMode)
 	cfg := config.Default()
 
 	// Read the global data directory BEFORE server.New, which calls

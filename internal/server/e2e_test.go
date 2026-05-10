@@ -940,7 +940,6 @@ func newE2ETestServer(t *testing.T, dataDir, ollamaURL string) *Server {
 		t.Fatalf("write setup marker: %v", err)
 	}
 
-	gin.SetMode(gin.TestMode)
 	s := &Server{
 		cfg:           cfg,
 		globalDataDir: dataDir,

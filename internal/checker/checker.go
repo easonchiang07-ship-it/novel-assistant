@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/worldstate"
-	"strings"
 )
 
 var ErrStyleParseFailure = errors.New("style analysis parse failure")

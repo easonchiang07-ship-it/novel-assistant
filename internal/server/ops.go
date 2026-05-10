@@ -276,9 +276,13 @@ func (s *Server) resolveBackupPath(name string) (string, error) {
 	if name == "" || strings.ContainsAny(name, "/\\") {
 		return "", fmt.Errorf("invalid backup name")
 	}
-	full := filepath.Join(s.backupDir(), filepath.Clean(name))
+	clean := filepath.Clean(name)
+	if clean == "." || clean == ".." {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	full := filepath.Join(s.backupDir(), clean)
 	rel, err := filepath.Rel(s.backupDir(), full)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 		return "", fmt.Errorf("invalid backup name")
 	}
 	return full, nil

@@ -1,3 +1,5 @@
+version: "2"
+
 linters:
   enable:
     - errcheck      # ensure all errors are handled
@@ -7,11 +9,17 @@ linters:
     - unused        # find unused code
     - misspell      # fix spelling mistakes
     - exhaustive    # check exhaustiveness of enum switches
+
+formatters:
+  enable:
     - goimports     # check import ordering
 
-linters-settings:
+formatters-settings:
   goimports:
-    local-prefixes: novel-assistant
+    local-prefixes:
+      - novel-assistant
+
+linters-settings:
   errcheck:
     # defer Close/Remove patterns are standard cleanup — errors here are not actionable
     exclude-functions:

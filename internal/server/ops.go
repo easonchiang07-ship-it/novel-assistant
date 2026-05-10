@@ -269,6 +269,21 @@ func pruneOldBackups(dir string, retain int, protected map[string]struct{}) ([]s
 	return removed, nil
 }
 
+// resolveBackupPath validates that name is a plain filename and returns its
+// full path inside s.backupDir(). Rejects empty strings, names containing
+// path separators, and any path that would escape the backup directory.
+func (s *Server) resolveBackupPath(name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	full := filepath.Join(s.backupDir(), filepath.Clean(name))
+	rel, err := filepath.Rel(s.backupDir(), full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	return full, nil
+}
+
 // writeSnapshot creates a snapshot directory and manifest without pruning.
 func (s *Server) writeSnapshot(prefix string) (backupItem, error) {
 	name := prefix + "_" + time.Now().Format("20060102_150405")
@@ -326,11 +341,11 @@ func (s *Server) handleListBackups(c *gin.Context) {
 
 func (s *Server) handleGetBackupPreview(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少備份名稱"})
+	src, err := s.resolveBackupPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的備份名稱"})
 		return
 	}
-	src := filepath.Join(s.backupDir(), name)
 	info, err := os.Stat(src)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "找不到指定備份"})
@@ -364,12 +379,11 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 		return
 	}
 	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少備份名稱"})
+	src, err := s.resolveBackupPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的備份名稱"})
 		return
 	}
-
-	src := filepath.Join(s.backupDir(), name)
 	if _, err := os.Stat(src); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "找不到指定備份"})
 		return

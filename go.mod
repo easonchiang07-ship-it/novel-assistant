@@ -1,8 +1,6 @@
 module novel-assistant
 
-go 1.25.0
-
-toolchain go1.25.10
+go 1.22.0
 
 require (
 	github.com/gin-gonic/gin v1.9.1

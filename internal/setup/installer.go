@@ -53,7 +53,7 @@ func InstallOllama(progress ProgressFn) error {
 func installWindows(progress ProgressFn) error {
 	url := "https://ollama.com/download/OllamaSetup.exe"
 	tmp := filepath.Join(os.TempDir(), "OllamaSetup.exe")
-	defer os.Remove(tmp)
+	defer os.Remove(tmp) //nolint:errcheck
 
 	progress(5, "正在下載 Ollama 安裝程式...")
 	if err := downloadWithProgress(url, tmp, 5, 70, progress); err != nil {
@@ -79,7 +79,7 @@ func installWindows(progress ProgressFn) error {
 func installDarwin(progress ProgressFn) error {
 	url := "https://ollama.com/download/Ollama-darwin.zip"
 	tmp := filepath.Join(os.TempDir(), "Ollama-darwin.zip")
-	defer os.Remove(tmp)
+	defer os.Remove(tmp) //nolint:errcheck
 
 	progress(5, "正在下載 Ollama...")
 	if err := downloadWithProgress(url, tmp, 5, 65, progress); err != nil {
@@ -87,8 +87,10 @@ func installDarwin(progress ProgressFn) error {
 	}
 
 	extractDir := filepath.Join(os.TempDir(), "ollama-extract")
-	os.MkdirAll(extractDir, 0o755)
-	defer os.RemoveAll(extractDir)
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		return fmt.Errorf("無法建立暫存目錄：%w", err)
+	}
+	defer os.RemoveAll(extractDir) //nolint:errcheck
 
 	progress(70, "正在解壓縮...")
 	if out, err := exec.Command("unzip", "-o", tmp, "-d", extractDir).CombinedOutput(); err != nil {
@@ -127,7 +129,7 @@ func downloadWithProgress(url, dest string, startPct, endPct int, progress Progr
 	if err != nil {
 		return fmt.Errorf("下載失敗：%w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下載失敗：伺服器回應 %d", resp.StatusCode)
@@ -137,7 +139,7 @@ func downloadWithProgress(url, dest string, startPct, endPct int, progress Progr
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer f.Close() //nolint:errcheck
 
 	total := resp.ContentLength
 	var downloaded int64

@@ -63,7 +63,7 @@ func chapterNumberFromName(name string) int {
 		return 0
 	}
 	var value int
-	fmt.Sscanf(string(digits), "%d", &value)
+	_, _ = fmt.Sscanf(string(digits), "%d", &value)
 	return value
 }
 

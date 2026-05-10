@@ -122,40 +122,40 @@ func buildHistoryGroups(entries []*reviewhistory.Entry) []historyGroup {
 func formatHistoryMarkdown(entries []*reviewhistory.Entry) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("# 審查歷史匯出\n\n")
-	buf.WriteString(fmt.Sprintf("共 %d 筆紀錄。\n\n", len(entries)))
+	fmt.Fprintf(&buf, "共 %d 筆紀錄。\n\n", len(entries))
 
 	for _, entry := range entries {
-		buf.WriteString(fmt.Sprintf("## %s\n\n", entry.ChapterTitle))
+		fmt.Fprintf(&buf, "## %s\n\n", entry.ChapterTitle)
 		if entry.Kind == "rewrite" {
 			buf.WriteString("- 類型：修稿模式\n")
 		} else {
 			buf.WriteString("- 類型：審查\n")
 		}
 		if entry.ChapterVersion > 0 {
-			buf.WriteString(fmt.Sprintf("- 章節版本序號：第 %d 筆\n", entry.ChapterVersion))
+			fmt.Fprintf(&buf, "- 章節版本序號：第 %d 筆\n", entry.ChapterVersion)
 		}
 		if entry.KindVersion > 0 {
-			buf.WriteString(fmt.Sprintf("- 類型版本序號：%s\n", historyEntryLabel(entry)))
+			fmt.Fprintf(&buf, "- 類型版本序號：%s\n", historyEntryLabel(entry))
 		}
 		if entry.RewriteMode != "" {
-			buf.WriteString(fmt.Sprintf("- 修稿模式：%s\n", entry.RewriteMode))
+			fmt.Fprintf(&buf, "- 修稿模式：%s\n", entry.RewriteMode)
 		}
 		if entry.ChapterFile != "" {
-			buf.WriteString(fmt.Sprintf("- 章節檔案：%s\n", entry.ChapterFile))
+			fmt.Fprintf(&buf, "- 章節檔案：%s\n", entry.ChapterFile)
 		}
 		if len(entry.Checks) > 0 {
-			buf.WriteString(fmt.Sprintf("- 檢查項目：%s\n", strings.Join(entry.Checks, "、")))
+			fmt.Fprintf(&buf, "- 檢查項目：%s\n", strings.Join(entry.Checks, "、"))
 		}
 		if len(entry.Styles) > 0 {
-			buf.WriteString(fmt.Sprintf("- 風格：%s\n", strings.Join(entry.Styles, "、")))
+			fmt.Fprintf(&buf, "- 風格：%s\n", strings.Join(entry.Styles, "、"))
 		}
 		if len(entry.Sources) > 0 {
-			buf.WriteString(fmt.Sprintf("- 參考來源：%s\n", strings.Join(entry.Sources, "、")))
+			fmt.Fprintf(&buf, "- 參考來源：%s\n", strings.Join(entry.Sources, "、"))
 		}
 		if summary := formatRetrievalConfigMap(entry.RetrievalConfigs); summary != "" {
-			buf.WriteString(fmt.Sprintf("- Retrieval 設定：%s\n", summary))
+			fmt.Fprintf(&buf, "- Retrieval 設定：%s\n", summary)
 		}
-		buf.WriteString(fmt.Sprintf("- 建立時間：%s\n\n", entry.CreatedAt.Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&buf, "- 建立時間：%s\n\n", entry.CreatedAt.Format("2006-01-02 15:04:05"))
 		buf.WriteString("```text\n")
 		buf.WriteString(strings.TrimSpace(entry.Result))
 		buf.WriteString("\n```\n\n")

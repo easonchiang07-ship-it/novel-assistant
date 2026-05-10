@@ -187,7 +187,7 @@ func (o *OllamaScorer) ScoreBatch(ctx context.Context, query string, contents []
 	if err != nil {
 		return nil, fmt.Errorf("ollama scorer unavailable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("ollama scorer failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))

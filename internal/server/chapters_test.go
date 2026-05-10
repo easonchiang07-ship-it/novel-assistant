@@ -1,9 +1,10 @@
 package server
 
 import (
+	"testing"
+
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/vectorstore"
-	"testing"
 )
 
 // ─── scene parser tests ───────────────────────────────────────────────────────

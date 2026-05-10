@@ -6,9 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/worldstate"
-	"strings"
 )
 
 var ErrStyleParseFailure = errors.New("style analysis parse failure")
@@ -91,10 +92,6 @@ func behaviorPrompt(profile, chapter, chunkLabel, summary string) string {
 - 除了角色姓名，也要把章節中的「他 / 她」視為可能指向此角色的代名詞，請根據上下文一起判讀
 - 若代名詞指向不明，請明確指出不確定性，不要武斷歸因
 `, profile, extra.String(), chapter)
-}
-
-func (c *Checker) checkBehaviorChunkedStream(ctx context.Context, profile, chapter string, w io.Writer) error {
-	return c.checkBehaviorChunkedWithSystemStream(ctx, "", profile, chapter, w)
 }
 
 func summarizeBehaviorProfile(profile string) string {

@@ -51,13 +51,13 @@ func ManuscriptToHTML(markdown string) string {
 		switch {
 		case strings.HasPrefix(line, "# "):
 			flushPara()
-			body.WriteString(fmt.Sprintf("<h1>%s</h1>\n", html.EscapeString(line[2:])))
+			fmt.Fprintf(&body, "<h1>%s</h1>\n", html.EscapeString(line[2:]))
 		case strings.HasPrefix(line, "### "):
 			flushPara()
-			body.WriteString(fmt.Sprintf("<h3>%s</h3>\n", html.EscapeString(line[4:])))
+			fmt.Fprintf(&body, "<h3>%s</h3>\n", html.EscapeString(line[4:]))
 		case strings.HasPrefix(line, "## "):
 			flushPara()
-			body.WriteString(fmt.Sprintf("<h2>%s</h2>\n", html.EscapeString(line[3:])))
+			fmt.Fprintf(&body, "<h2>%s</h2>\n", html.EscapeString(line[3:]))
 		case strings.TrimSpace(line) == "":
 			flushPara()
 		default:

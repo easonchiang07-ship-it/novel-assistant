@@ -6,9 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"novel-assistant/internal/profile"
 	"strings"
 	"testing"
+
+	"novel-assistant/internal/profile"
 )
 
 func TestStreamReturnsErrorOnNonOKStatus(t *testing.T) {

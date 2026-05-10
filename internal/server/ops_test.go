@@ -242,7 +242,7 @@ func TestZipHelperWritesReadableFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rc.Close()
+	defer rc.Close() //nolint:errcheck
 	data, _ := io.ReadAll(rc)
 	if string(data) != "hello" {
 		t.Fatalf("unexpected zip contents: %q", data)

@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"time"
+
+	"github.com/pkg/browser"
+
+	assets "novel-assistant"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/server"
 	"novel-assistant/internal/setup"
-	"time"
-
-	assets "novel-assistant"
-
-	"github.com/pkg/browser"
 )
 
 func main() {

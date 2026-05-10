@@ -2,6 +2,7 @@ package retriever
 
 import (
 	"context"
+
 	"novel-assistant/internal/vectorstore"
 )
 

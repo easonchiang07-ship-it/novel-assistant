@@ -2,8 +2,9 @@ package server
 
 import (
 	"net/http"
-	"novel-assistant/internal/workspace"
 	"os"
+
+	"novel-assistant/internal/workspace"
 
 	"github.com/gin-gonic/gin"
 )

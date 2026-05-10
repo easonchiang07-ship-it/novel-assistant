@@ -43,7 +43,7 @@ func (e *OllamaEmbedder) Embed(ctx context.Context, text string) ([]float64, err
 	if err != nil {
 		return nil, fmt.Errorf("ollama unavailable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("ollama embeddings failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(payload)))

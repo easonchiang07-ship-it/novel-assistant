@@ -8,6 +8,12 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
 	"novel-assistant/internal/checker"
 	"novel-assistant/internal/config"
 	"novel-assistant/internal/consistency"
@@ -22,11 +28,6 @@ import (
 	"novel-assistant/internal/vectorstore"
 	"novel-assistant/internal/workspace"
 	"novel-assistant/internal/worldstate"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )

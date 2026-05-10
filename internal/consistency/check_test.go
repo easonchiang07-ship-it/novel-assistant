@@ -4,8 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"novel-assistant/internal/checker"
 	"testing"
+
+	"novel-assistant/internal/checker"
 )
 
 func TestCheckParsesJSONArray(t *testing.T) {

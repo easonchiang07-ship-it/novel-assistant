@@ -25,6 +25,7 @@ app/
 .env.*
 bin/
 dist/
+coverage
 coverage.out
 
 # IDE

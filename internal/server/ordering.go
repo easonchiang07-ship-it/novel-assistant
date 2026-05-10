@@ -31,7 +31,7 @@ func (s *Server) loadChapterOrder() ([]string, error) {
 }
 
 func loadChapterOrderFromPath(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from server config, not user input
 	if os.IsNotExist(err) {
 		return nil, nil
 	}

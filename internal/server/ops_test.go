@@ -632,6 +632,47 @@ Open.`); err != nil {
 	}
 }
 
+func TestResolveBackupPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	s := &Server{cfg: &config.Config{DataDir: dir}}
+	backupBase := filepath.Join(dir, "backups")
+
+	cases := []struct {
+		name    string
+		wantErr bool
+		wantVal string
+	}{
+		{"", true, ""},
+		{".", true, ""},
+		{"..", true, ""},
+		{"../x", true, ""},
+		{"x/y", true, ""},
+		{"valid_backup", false, filepath.Join(backupBase, "valid_backup")},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := s.resolveBackupPath(tc.name)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("resolveBackupPath(%q) = %q, want error", tc.name, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveBackupPath(%q) unexpected error: %v", tc.name, err)
+			}
+			if got != tc.wantVal {
+				t.Errorf("resolveBackupPath(%q) = %q, want %q", tc.name, got, tc.wantVal)
+			}
+		})
+	}
+}
+
 func newOpsTestServer(dir string) *Server {
 	project := projectsettings.New(filepath.Join(dir, "project_settings.json"), projectsettings.Settings{DataDir: dir})
 	return &Server{

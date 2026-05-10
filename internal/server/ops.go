@@ -171,7 +171,7 @@ func listBackupItems(dir string) ([]backupItem, error) {
 }
 
 func snapshotCopyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+	data, err := os.ReadFile(src) // #nosec G304 -- src is from filepath.WalkDir on the backup directory
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func cleanDataDirForRestore(dataDir string) error {
 		}
 		ext := filepath.Ext(d.Name())
 		if ext == ".md" || ext == ".json" || d.Name() == ".gitkeep" {
-			return os.Remove(path)
+			return os.Remove(path) // #nosec G122 -- WalkDir on a trusted local backup directory; symlink attacks not realistic
 		}
 		return nil
 	})
@@ -267,6 +267,25 @@ func pruneOldBackups(dir string, retain int, protected map[string]struct{}) ([]s
 		removed = append(removed, item.Name)
 	}
 	return removed, nil
+}
+
+// resolveBackupPath validates that name is a plain filename and returns its
+// full path inside s.backupDir(). Rejects empty strings, names containing
+// path separators, and any path that would escape the backup directory.
+func (s *Server) resolveBackupPath(name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "/\\") {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	clean := filepath.Clean(name)
+	if clean == "." || clean == ".." {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	full := filepath.Join(s.backupDir(), clean)
+	rel, err := filepath.Rel(s.backupDir(), full)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("invalid backup name")
+	}
+	return full, nil
 }
 
 // writeSnapshot creates a snapshot directory and manifest without pruning.
@@ -326,11 +345,11 @@ func (s *Server) handleListBackups(c *gin.Context) {
 
 func (s *Server) handleGetBackupPreview(c *gin.Context) {
 	name := strings.TrimSpace(c.Param("name"))
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少備份名稱"})
+	src, err := s.resolveBackupPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的備份名稱"})
 		return
 	}
-	src := filepath.Join(s.backupDir(), name)
 	info, err := os.Stat(src)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "找不到指定備份"})
@@ -364,12 +383,11 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 		return
 	}
 	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少備份名稱"})
+	src, err := s.resolveBackupPath(name)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的備份名稱"})
 		return
 	}
-
-	src := filepath.Join(s.backupDir(), name)
 	if _, err := os.Stat(src); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "找不到指定備份"})
 		return
@@ -421,7 +439,7 @@ func (s *Server) handleRestoreBackup(c *gin.Context) {
 }
 
 func addZipFile(zw *zip.Writer, path, name string) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is from filepath.WalkDir on the backup directory
 	if err != nil {
 		return err
 	}

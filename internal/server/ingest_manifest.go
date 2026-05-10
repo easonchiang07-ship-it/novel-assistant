@@ -17,7 +17,7 @@ func newManifest() *IndexManifest {
 }
 
 func loadManifest(path string) (*IndexManifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from server config, not user input
 	if os.IsNotExist(err) {
 		return newManifest(), nil
 	}

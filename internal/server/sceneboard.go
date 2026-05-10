@@ -85,7 +85,7 @@ func loadScenePlansFromPath(path string) (map[string]scenePlan, error) {
 }
 
 func loadScenePlanFile(path string) (scenePlanFile, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is constructed from config + chapter directory listing
 	if os.IsNotExist(err) {
 		return scenePlanFile{}, nil
 	}

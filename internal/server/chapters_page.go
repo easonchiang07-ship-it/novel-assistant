@@ -109,7 +109,7 @@ func (s *Server) buildChapterOverviews() ([]chapterOverview, error) {
 	overviews := make([]chapterOverview, 0, len(files))
 	for _, file := range files {
 		path := filepath.Join(s.chapterDir(), file.Name)
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) // #nosec G304 -- file.Name comes from os.ReadDir on the chapter directory
 		if err != nil {
 			continue
 		}

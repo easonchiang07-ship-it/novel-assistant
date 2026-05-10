@@ -7,7 +7,7 @@ import (
 )
 
 func loadDotEnv(path string) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- path is the .env file location specified at startup
 	if err != nil {
 		return
 	}

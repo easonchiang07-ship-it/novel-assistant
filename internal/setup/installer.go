@@ -61,7 +61,7 @@ func installWindows(progress ProgressFn) error {
 	}
 
 	progress(75, "正在安裝 Ollama（背景靜默執行）...")
-	if out, err := exec.Command(tmp, "/S").CombinedOutput(); err != nil {
+	if out, err := exec.Command(tmp, "/S").CombinedOutput(); err != nil { // #nosec G204 -- tmp is the downloaded Ollama installer from a hardcoded URL
 		return fmt.Errorf("安裝失敗：%w\n%s", err, out)
 	}
 
@@ -93,13 +93,13 @@ func installDarwin(progress ProgressFn) error {
 	defer os.RemoveAll(extractDir) //nolint:errcheck
 
 	progress(70, "正在解壓縮...")
-	if out, err := exec.Command("unzip", "-o", tmp, "-d", extractDir).CombinedOutput(); err != nil {
+	if out, err := exec.Command("unzip", "-o", tmp, "-d", extractDir).CombinedOutput(); err != nil { // #nosec G204 -- unzip with controlled args from temp dir
 		return fmt.Errorf("解壓縮失敗：%w\n%s", err, out)
 	}
 
 	progress(85, "正在安裝至 Applications...")
 	src := filepath.Join(extractDir, "Ollama.app")
-	if out, err := exec.Command("cp", "-rf", src, "/Applications/Ollama.app").CombinedOutput(); err != nil {
+	if out, err := exec.Command("cp", "-rf", src, "/Applications/Ollama.app").CombinedOutput(); err != nil { // #nosec G204 -- cp with controlled src from temp extract dir
 		return fmt.Errorf("複製失敗：%w\n%s", err, out)
 	}
 
@@ -125,7 +125,7 @@ func installLinux(progress ProgressFn) error {
 
 // downloadWithProgress downloads url to dest, reporting progress between startPct and endPct.
 func downloadWithProgress(url, dest string, startPct, endPct int, progress ProgressFn) error {
-	resp, err := http.Get(url) //nolint:gosec
+	resp, err := http.Get(url) // #nosec G107 -- URL is a hardcoded constant (Ollama download endpoint)
 	if err != nil {
 		return fmt.Errorf("下載失敗：%w", err)
 	}
@@ -135,7 +135,7 @@ func downloadWithProgress(url, dest string, startPct, endPct int, progress Progr
 		return fmt.Errorf("下載失敗：伺服器回應 %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(dest)
+	f, err := os.Create(dest) // #nosec G304 -- dest is os.TempDir() + hardcoded filename, not user input
 	if err != nil {
 		return err
 	}

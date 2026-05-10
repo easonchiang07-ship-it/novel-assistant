@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"novel-assistant/internal/embedder"
 	"novel-assistant/internal/profile"
 	"novel-assistant/internal/retriever"
 	"novel-assistant/internal/reviewrules"
 	"novel-assistant/internal/vectorstore"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 
 	"github.com/gin-gonic/gin"
 )

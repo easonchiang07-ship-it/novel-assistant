@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"novel-assistant/internal/setup"
 	"strings"
 	"time"
+
+	"novel-assistant/internal/setup"
 
 	"github.com/gin-gonic/gin"
 )

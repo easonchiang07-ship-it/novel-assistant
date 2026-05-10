@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"novel-assistant/internal/checker"
-	"novel-assistant/internal/exporter"
-	"novel-assistant/internal/vectorstore"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"novel-assistant/internal/checker"
+	"novel-assistant/internal/exporter"
+	"novel-assistant/internal/vectorstore"
 
 	"github.com/gin-gonic/gin"
 )

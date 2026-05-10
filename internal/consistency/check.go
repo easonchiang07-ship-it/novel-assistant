@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"novel-assistant/internal/checker"
 	"strings"
+
+	"novel-assistant/internal/checker"
 )
 
 type Conflict struct {
